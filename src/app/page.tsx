@@ -59,7 +59,7 @@ export default function HomePage() {
           </Link>
         </div>
 
-        {/* Quick Stats - Optional placeholder */}
+        {/* Quick Links */}
         <div className="mt-16 rounded-2xl border border-white/10 bg-white/5 p-8">
           <h3 className="text-lg font-semibold text-white">Quick Links</h3>
           <div className="mt-4 flex flex-wrap gap-3">
@@ -85,7 +85,6 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="border-t border-white/10 py-8">
         <div className="mx-auto max-w-6xl px-6 text-center text-sm text-white/40">
           PSAFDB © {new Date().getFullYear()}
