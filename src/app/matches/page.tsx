@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import Link from "next/link";
 
 type MatchRow = {
   id: string;
@@ -109,9 +110,9 @@ function PositionBadge({ position }: { position: string | null }) {
   if (!position) {
     return <span className="text-white/40">—</span>;
   }
-  
+
   const colorClass = POSITION_COLORS[position] ?? "border-white/30 bg-white/10 text-white/80";
-  
+
   return (
     <span className={cx("rounded-full border px-2 py-0.5 text-xs font-medium", colorClass)}>
       {position}
@@ -260,7 +261,7 @@ export default function MatchesPage() {
     let rows = expandedPlayerStatsRaw;
 
     if (sideFilter !== "all") rows = rows.filter((r) => r.team_side === sideFilter);
-    
+
     if (positionFilter !== "all") rows = rows.filter((r) => r.position === positionFilter);
 
     if (needle) {
@@ -313,6 +314,11 @@ export default function MatchesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
+          <div className="flex items-center gap-4 text-sm mb-2">
+            <Link href="/" className="text-white/50 hover:text-white/80 transition">
+              ← Home
+            </Link>
+          </div>
           <div className="text-3xl font-bold tracking-tight">Matches</div>
           <div className="mt-1 text-sm text-white/70">Click a match to see every stat (teams + players).</div>
         </div>

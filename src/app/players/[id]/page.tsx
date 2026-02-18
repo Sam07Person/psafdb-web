@@ -334,10 +334,16 @@ export default function PlayerDetailPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
-      {/* Back link */}
-      <Link href="/players" className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white">
-        ← Back to players
-      </Link>
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm">
+        <Link href="/" className="text-white/50 hover:text-white/80 transition">
+          Home
+        </Link>
+        <span className="text-white/30">/</span>
+        <Link href="/players" className="text-white/50 hover:text-white/80 transition">
+          Players
+        </Link>
+      </div>
 
       {/* Header */}
       <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -345,6 +351,14 @@ export default function PlayerDetailPage() {
           <div className="text-3xl font-bold tracking-tight">{displayName}</div>
           {player.handle && player.name && (
             <div className="mt-1 text-sm text-white/50">@{player.handle}</div>
+          )}
+          {player.game_user_id && (
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-sm text-white/40">Player ID:</span>
+              <code className="rounded bg-white/10 px-2 py-0.5 text-sm font-mono text-white/70">
+                {player.game_user_id}
+              </code>
+            </div>
           )}
           {player.created_at && (
             <div className="mt-1 text-sm text-white/40">

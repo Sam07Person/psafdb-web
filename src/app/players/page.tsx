@@ -149,6 +149,11 @@ export default function PlayersPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
+          <div className="flex items-center gap-4 text-sm mb-2">
+            <Link href="/" className="text-white/50 hover:text-white/80 transition">
+              ← Home
+            </Link>
+          </div>
           <div className="text-3xl font-bold tracking-tight">Players</div>
           <div className="mt-1 text-sm text-white/70">
             {players.length} registered player{players.length !== 1 ? "s" : ""}. Click to view full stats.

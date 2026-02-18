@@ -133,11 +133,16 @@ export default function LeaguesPage() {
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
       {/* Header */}
-      <div>
-        <div className="text-3xl font-bold tracking-tight">Leagues</div>
-        <div className="mt-1 text-sm text-white/70">
-          {leagues.length} league{leagues.length !== 1 ? "s" : ""}. Click to view standings and teams.
+      <div className="mb-8">
+        <div className="flex items-center gap-4 text-sm">
+          <Link href="/" className="text-white/50 hover:text-white/80 transition">
+            ← Home
+          </Link>
         </div>
+        <h1 className="mt-4 text-4xl font-bold">Leagues</h1>
+        <p className="mt-2 text-white/60">
+          {leagues.length} league{leagues.length !== 1 ? "s" : ""} available
+        </p>
       </div>
 
       {/* Leagues list */}
