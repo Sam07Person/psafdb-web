@@ -38,6 +38,23 @@ export async function GET(req: NextRequest) {
     .order("played_at", { ascending: false })
     .limit(100);
 
+  const { data, error } = await supabaseAdmin
+    .from("matches")
+    .select(`
+    id,
+    league_id,
+    played_at,
+    home_team,
+    away_team,
+    home_score,
+    away_score,
+    stage,
+    group_name,
+    day,
+    league:leagues!matches_league_id_fkey(id, name, season)
+  `)
+    .order("played_at", { ascending: false });
+
   // If stage/group_name don't exist, fall back
   if (result.error) {
     const fallbackResult = await supabaseAdmin
@@ -93,7 +110,17 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("matches")
-    .insert(insertData)
+    .insert({
+      league_id: body.league_id || null,
+      played_at: body.played_at,
+      home_team: body.home_team,
+      away_team: body.away_team,
+      home_score: body.home_score ?? null,
+      away_score: body.away_score ?? null,
+      stage: body.stage || null,
+      group_name: body.group_name || null,
+      day: body.day ?? null,  // ADD THIS
+    })
     .select()
     .single();
 
@@ -156,8 +183,18 @@ export async function PUT(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("matches")
-    .update(updateData)
-    .eq("id", id)
+    .update({
+      league_id: body.league_id || null,
+      played_at: body.played_at,
+      home_team: body.home_team,
+      away_team: body.away_team,
+      home_score: body.home_score ?? null,
+      away_score: body.away_score ?? null,
+      stage: body.stage || null,
+      group_name: body.group_name || null,
+      day: body.day ?? null,  // ADD THIS
+    })
+    .eq("id", body.id)
     .select()
     .single();
 

@@ -49,57 +49,73 @@ function levenshteinDistance(str1: string, str2: string): number {
 // Check if two strings are similar (case-insensitive, allows for OCR-like errors)
 function areSimilar(str1: string | null, str2: string | null, maxDistance: number = 2): boolean {
   if (!str1 || !str2) return false;
-  
-  // Exact match (case insensitive)
+
   if (str1.toLowerCase() === str2.toLowerCase()) return true;
-  
-  // Same length with small differences (OCR errors like x/s, G/Q, h/H)
+
   if (Math.abs(str1.length - str2.length) <= 1) {
     const distance = levenshteinDistance(str1.toLowerCase(), str2.toLowerCase());
     return distance <= maxDistance;
   }
-  
+
   return false;
 }
 
 // Check if player IDs are similar (stricter - same length, max 2 char difference)
 function arePlayerIdsSimilar(id1: string | null, id2: string | null): boolean {
   if (!id1 || !id2) return false;
-  
-  // Must be same length for player IDs
+
   if (id1.length !== id2.length) return false;
-  
-  // Case insensitive comparison first
+
   if (id1.toLowerCase() === id2.toLowerCase()) return true;
-  
-  // Count character differences
+
   let differences = 0;
   for (let i = 0; i < id1.length; i++) {
     if (id1[i].toLowerCase() !== id2[i].toLowerCase()) {
       differences++;
-      if (differences > 2) return false; // Max 2 differences allowed
+      if (differences > 2) return false;
     }
   }
-  
+
   return differences <= 2;
 }
 
 // Check if names are similar
 function areNamesSimilar(name1: string | null, name2: string | null): boolean {
   if (!name1 || !name2) return false;
-  
+
   const n1 = name1.toLowerCase().trim();
   const n2 = name2.toLowerCase().trim();
-  
-  // Exact match
+
   if (n1 === n2) return true;
-  
-  // One contains the other
+
   if (n1.includes(n2) || n2.includes(n1)) return true;
-  
-  // Levenshtein for typos (allow more for longer names)
+
   const maxDistance = Math.max(2, Math.floor(Math.min(n1.length, n2.length) / 4));
   return levenshteinDistance(n1, n2) <= maxDistance;
+}
+
+// Normalize team name for comparison
+function normalizeTeamName(name: string): string {
+  return name.toLowerCase().trim()
+    .replace(/\s+fc$/i, '')
+    .replace(/^fc\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Check if team names match (fuzzy)
+function doTeamNamesMatch(name1: string, name2: string): boolean {
+  const n1 = normalizeTeamName(name1);
+  const n2 = normalizeTeamName(name2);
+
+  if (n1 === n2) return true;
+  if (n1.includes(n2) || n2.includes(n1)) return true;
+
+  const distance = levenshteinDistance(n1, n2);
+  const maxLen = Math.max(n1.length, n2.length);
+  const similarity = 1 - (distance / maxLen);
+
+  return similarity > 0.7;
 }
 
 async function extractDataWithOpenAI(base64Images: string[]) {
@@ -230,6 +246,81 @@ Include all players: starters (is_starter: true) and subs (is_starter: false, su
   return JSON.parse(jsonStr.trim());
 }
 
+// Find matching fixture for the extracted match
+async function findMatchingFixture(
+  homeTeam: string,
+  awayTeam: string,
+  logs: string[]
+): Promise<{
+  id: string;
+  league_id: string | null;
+  home_team: string;
+  away_team: string;
+  played_at: string;
+  day: number | null;
+} | null> {
+  if (!supabaseAdmin) return null;
+
+  logs.push(`Looking for fixture: "${homeTeam}" vs "${awayTeam}"`);
+
+  // Get all unplayed fixtures (where scores are null)
+  const { data: fixtures, error } = await supabaseAdmin
+    .from("matches")
+    .select("id, league_id, home_team, away_team, played_at, home_score, away_score, day")
+    .or("home_score.is.null,away_score.is.null")
+    .order("played_at", { ascending: true });
+
+  if (error || !fixtures) {
+    logs.push(`Error fetching fixtures: ${error?.message}`);
+    return null;
+  }
+
+  logs.push(`Found ${fixtures.length} unplayed fixtures to search`);
+
+  // Find fixtures that match the teams
+  const matchingFixtures: typeof fixtures = [];
+
+  for (const fixture of fixtures) {
+    // Check exact order (home vs away)
+    const homeMatches = doTeamNamesMatch(homeTeam, fixture.home_team);
+    const awayMatches = doTeamNamesMatch(awayTeam, fixture.away_team);
+
+    if (homeMatches && awayMatches) {
+      logs.push(`Found matching fixture: ${fixture.home_team} vs ${fixture.away_team} (${fixture.played_at})`);
+      matchingFixtures.push(fixture);
+    }
+  }
+
+  if (matchingFixtures.length === 0) {
+    logs.push(`No matching fixture found for "${homeTeam}" vs "${awayTeam}"`);
+    return null;
+  }
+
+  // If multiple matches, pick the one closest to now
+  const now = new Date().getTime();
+  let closestFixture = matchingFixtures[0];
+  let closestDistance = Math.abs(new Date(closestFixture.played_at).getTime() - now);
+
+  for (const fixture of matchingFixtures) {
+    const distance = Math.abs(new Date(fixture.played_at).getTime() - now);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestFixture = fixture;
+    }
+  }
+
+  logs.push(`Selected fixture (closest to now): ${closestFixture.home_team} vs ${closestFixture.away_team} at ${closestFixture.played_at}`);
+
+  return {
+    id: closestFixture.id,
+    league_id: closestFixture.league_id,
+    home_team: closestFixture.home_team,
+    away_team: closestFixture.away_team,
+    played_at: closestFixture.played_at,
+    day: closestFixture.day,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
@@ -247,34 +338,93 @@ export async function POST(req: NextRequest) {
       return json(400, { error: "No images provided" });
     }
 
+    const isAutoMode = league_id === "auto" || league_id === "";
+
     logs.push(`Received ${images.length} images`);
+    logs.push(`League mode: ${isAutoMode ? "Auto (find fixture)" : league_id ? "Manual" : "None"}`);
 
     const extractedData = await extractDataWithOpenAI(images);
 
     logs.push(`Extracted data: home_team=${extractedData.home_team?.team_name}, away_team=${extractedData.away_team?.team_name}`);
+    logs.push(`Home goals: ${extractedData.home_team?.goals}, Away goals: ${extractedData.away_team?.goals}`);
     logs.push(`Home players: ${extractedData.home_team?.players?.length || 0}`);
     logs.push(`Away players: ${extractedData.away_team?.players?.length || 0}`);
 
-    // Create the match
-    const { data: match, error: matchError } = await supabaseAdmin
-      .from("matches")
-      .insert({
-        league_id: league_id || null,
-        played_at: new Date().toISOString(),
-        home_team: extractedData.home_team.team_name,
-        away_team: extractedData.away_team.team_name,
-        home_score: extractedData.home_team.goals,
-        away_score: extractedData.away_team.goals,
-      })
-      .select()
-      .single();
+    // Try to find matching fixture in auto mode
+    let matchingFixture: Awaited<ReturnType<typeof findMatchingFixture>> = null;
+    let finalLeagueId: string | null = null;
+    let matchId: string;
+    let match: any;
+    let isUpdatedFixture = false;
 
-    if (matchError) throw new Error(`Failed to create match: ${matchError.message}`);
-    logs.push(`Match created: ${match.id}`);
+    if (isAutoMode) {
+      matchingFixture = await findMatchingFixture(
+        extractedData.home_team.team_name,
+        extractedData.away_team.team_name,
+        logs
+      );
+
+      if (matchingFixture) {
+        finalLeagueId = matchingFixture.league_id;
+        logs.push(`Auto-detected league from fixture: ${finalLeagueId || "none"}`);
+      } else {
+        logs.push(`No fixture found, will create as non-league match`);
+      }
+    } else if (league_id && league_id !== "auto") {
+      finalLeagueId = league_id;
+    }
+
+    if (matchingFixture) {
+      // Update existing fixture with scores
+      const { data: updatedMatch, error: updateError } = await supabaseAdmin
+        .from("matches")
+        .update({
+          home_score: extractedData.home_team.goals,
+          away_score: extractedData.away_team.goals,
+          played_at: new Date().toISOString(), // Update to actual play time
+        })
+        .eq("id", matchingFixture.id)
+        .select()
+        .single();
+
+      if (updateError) throw new Error(`Failed to update fixture: ${updateError.message}`);
+
+      match = updatedMatch;
+      matchId = matchingFixture.id;
+      isUpdatedFixture = true;
+      logs.push(`Updated existing fixture: ${matchId}`);
+    } else {
+      // Create new match
+      const { data: newMatch, error: matchError } = await supabaseAdmin
+        .from("matches")
+        .insert({
+          league_id: finalLeagueId,
+          played_at: new Date().toISOString(),
+          home_team: extractedData.home_team.team_name,
+          away_team: extractedData.away_team.team_name,
+          home_score: extractedData.home_team.goals,
+          away_score: extractedData.away_team.goals,
+        })
+        .select()
+        .single();
+
+      if (matchError) throw new Error(`Failed to create match: ${matchError.message}`);
+
+      match = newMatch;
+      matchId = newMatch.id;
+      logs.push(`Created new match: ${matchId}`);
+    }
+
+    // Delete existing team stats and player stats if updating a fixture
+    if (isUpdatedFixture) {
+      await supabaseAdmin.from("match_team_stats").delete().eq("match_id", matchId);
+      await supabaseAdmin.from("match_player_stats").delete().eq("match_id", matchId);
+      logs.push(`Cleared existing stats for fixture`);
+    }
 
     // Insert team stats
     const homeTeamStats = {
-      match_id: match.id,
+      match_id: matchId,
       team_name: extractedData.home_team.team_name,
       team_side: "home",
       is_home: true,
@@ -303,7 +453,7 @@ export async function POST(req: NextRequest) {
     };
 
     const awayTeamStats = {
-      match_id: match.id,
+      match_id: matchId,
       team_name: extractedData.away_team.team_name,
       team_side: "away",
       is_home: false,
@@ -367,29 +517,26 @@ export async function POST(req: NextRequest) {
     const recentMatchIds = [
       ...(recentHomeMatches || []).map(m => m.id),
       ...(recentAwayMatches || []).map(m => m.id),
-    ];
+    ].filter(id => id !== matchId); // Exclude current match
 
-    // Get player stats from recent matches for these teams
-    let recentPlayerIds: string[] = [];
+    let recentPlayers: any[] = [];
     if (recentMatchIds.length > 0) {
       const { data: recentStats } = await supabaseAdmin
         .from("match_player_stats")
         .select("player_id")
         .in("match_id", recentMatchIds);
 
-      recentPlayerIds = [...new Set((recentStats || []).map(s => s.player_id))];
-      logs.push(`Found ${recentPlayerIds.length} players from recent team matches`);
-    }
+      const recentPlayerIds = [...new Set((recentStats || []).map(s => s.player_id))];
 
-    // Get details of recent players for fuzzy matching
-    let recentPlayers: any[] = [];
-    if (recentPlayerIds.length > 0) {
-      const { data: recentPlayerData } = await supabaseAdmin
-        .from("players")
-        .select("id, name, handle, game_user_id")
-        .in("id", recentPlayerIds);
+      if (recentPlayerIds.length > 0) {
+        const { data: recentPlayerData } = await supabaseAdmin
+          .from("players")
+          .select("id, name, handle, game_user_id")
+          .in("id", recentPlayerIds);
 
-      recentPlayers = recentPlayerData || [];
+        recentPlayers = recentPlayerData || [];
+      }
+      logs.push(`Found ${recentPlayers.length} players from recent team matches`);
     }
 
     // Process players
@@ -403,7 +550,14 @@ export async function POST(req: NextRequest) {
         return null;
       }
 
-      logs.push(`Processing player: ${p.name} (${p.user_id || 'no user_id'})`);
+      // Determine if player was benched (sub with 0 score = didn't play)
+      const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
+
+      if (isBenched) {
+        logs.push(`📋 ${p.name} marked as benched (Sub ${p.sub_number}, score: ${p.score || 0})`);
+      }
+
+      logs.push(`Processing player: ${p.name} (${p.user_id || 'no user_id'})${isBenched ? ' [BENCHED]' : ''}`);
 
       try {
         let playerId: string | null = null;
@@ -424,8 +578,6 @@ export async function POST(req: NextRequest) {
             if (arePlayerIdsSimilar(p.user_id, pl.game_user_id) && areNamesSimilar(p.name, pl.name)) {
               playerId = pl.id;
               matchMethod = `similar ID+name (${pl.game_user_id} ≈ ${p.user_id})`;
-              
-              // Log the correction for debugging
               logs.push(`🔧 Fuzzy match: "${p.name}" ID ${p.user_id} -> ${pl.game_user_id}`);
               break;
             }
@@ -436,7 +588,6 @@ export async function POST(req: NextRequest) {
         if (!playerId && p.user_id && recentPlayers.length > 0) {
           for (const pl of recentPlayers) {
             if (arePlayerIdsSimilar(p.user_id, pl.game_user_id)) {
-              // Found similar ID in recent matches - likely the same player
               playerId = pl.id;
               matchMethod = `similar ID in recent matches (${pl.game_user_id} ≈ ${p.user_id})`;
               logs.push(`🔧 Recent match fuzzy: "${p.name}" ID ${p.user_id} -> ${pl.name} (${pl.game_user_id})`);
@@ -447,14 +598,13 @@ export async function POST(req: NextRequest) {
 
         // CHECK 4: Exact match by name (fallback)
         if (!playerId && p.name) {
-          const nameMatch = playersList.find(pl => 
+          const nameMatch = playersList.find(pl =>
             pl.name?.toLowerCase() === p.name.toLowerCase()
           );
           if (nameMatch) {
             playerId = nameMatch.id;
             matchMethod = "exact name";
-            
-            // Update their game_user_id if they don't have one
+
             if (!nameMatch.game_user_id && p.user_id) {
               await supabaseAdmin!
                 .from("players")
@@ -497,8 +647,7 @@ export async function POST(req: NextRequest) {
           playerId = newPlayer.id;
           playersCreated.push(p.name);
           matchMethod = "created new";
-          
-          // Add to playersList for subsequent lookups in same import
+
           playersList.push({
             id: playerId,
             name: p.name,
@@ -509,10 +658,10 @@ export async function POST(req: NextRequest) {
           playersMatched.push(`${p.name} (${matchMethod})`);
         }
 
-        logs.push(`✓ ${p.name} -> ${playerId} [${matchMethod}]`);
+        logs.push(`✓ ${p.name} -> ${playerId} [${matchMethod}]${isBenched ? ' [BENCHED]' : ''}`);
 
         return {
-          match_id: match.id,
+          match_id: matchId,
           player_id: playerId,
           team_side: teamSide,
           position: p.position,
@@ -533,6 +682,7 @@ export async function POST(req: NextRequest) {
           gk_catches: p.gk_catches || 0,
           is_starter: p.is_starter ?? true,
           sub_number: p.sub_number || null,
+          benched: isBenched,  // NEW: Track if player was benched
         };
       } catch (err: any) {
         errors.push(`Player ${p.name} exception: ${err.message}`);
@@ -568,10 +718,30 @@ export async function POST(req: NextRequest) {
       errors.push("No player stats to insert - check if players were extracted from images");
     }
 
+    // Get league name for response
+    let leagueName: string | null = null;
+    if (finalLeagueId) {
+      const { data: leagueData } = await supabaseAdmin
+        .from("leagues")
+        .select("name")
+        .eq("id", finalLeagueId)
+        .single();
+      leagueName = leagueData?.name || null;
+    }
+
     return json(201, {
       success: errors.length === 0,
       match,
       extracted: extractedData,
+      fixtureUpdated: isUpdatedFixture,
+      fixtureInfo: matchingFixture ? {
+        id: matchingFixture.id,
+        originalHomeTeam: matchingFixture.home_team,
+        originalAwayTeam: matchingFixture.away_team,
+        scheduledAt: matchingFixture.played_at,
+        day: matchingFixture.day,
+      } : null,
+      league: finalLeagueId ? { id: finalLeagueId, name: leagueName } : null,
       errors: errors.length > 0 ? errors : null,
       logs,
       stats: {

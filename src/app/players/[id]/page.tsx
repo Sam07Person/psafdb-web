@@ -41,11 +41,15 @@ type MatchPlayerStat = {
   possessions_lost: number;
   gk_saves: number;
   gk_catches: number;
+  is_starter: boolean;
+  sub_number: number | null;
+  benched: boolean;
   matches?: MatchInfo | null;
 };
 
 type TotalStats = {
   matches_played: number;
+  benched: number;
   goals: number;
   assists: number;
   shots: number;
@@ -64,9 +68,16 @@ type TotalStats = {
   wins: number;
   losses: number;
   draws: number;
+  starts: number;
+  sub_appearances: number;
 };
 
-// Position display colors
+type LastClubInfo = {
+  teamName: string;
+  matchDate: string;
+  matchId: string;
+} | null;
+
 const POSITION_COLORS: Record<string, string> = {
   GK: "border-yellow-400/30 bg-yellow-400/10 text-yellow-200",
   LB: "border-green-400/30 bg-green-400/10 text-green-200",
@@ -79,6 +90,8 @@ const POSITION_COLORS: Record<string, string> = {
   CM: "border-blue-400/30 bg-blue-400/10 text-blue-200",
   LM: "border-blue-400/30 bg-blue-400/10 text-blue-200",
   RM: "border-blue-400/30 bg-blue-400/10 text-blue-200",
+  CDM: "border-blue-400/30 bg-blue-400/10 text-blue-200",
+  CAM: "border-blue-400/30 bg-blue-400/10 text-blue-200",
   LW: "border-purple-400/30 bg-purple-400/10 text-purple-200",
   RW: "border-purple-400/30 bg-purple-400/10 text-purple-200",
   LF: "border-orange-400/30 bg-orange-400/10 text-orange-200",
@@ -127,10 +140,12 @@ export default function PlayerDetailPage() {
 
   const [player, setPlayer] = useState<PlayerRow | null>(null);
   const [matchStats, setMatchStats] = useState<MatchPlayerStat[]>([]);
+  const [lastClub, setLastClub] = useState<LastClubInfo>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<any>(null);
 
   const [showAllMatches, setShowAllMatches] = useState(false);
+  const [showBenchedMatches, setShowBenchedMatches] = useState(false);
 
   useEffect(() => {
     if (!supabase || !playerId) return;
@@ -157,7 +172,7 @@ export default function PlayerDetailPage() {
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,matches(id,played_at,home_team,away_team,home_score,away_score)"
+          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,matches(id,played_at,home_team,away_team,home_score,away_score)"
         )
         .eq("player_id", playerId)
         .order("match_id", { ascending: false });
@@ -167,7 +182,7 @@ export default function PlayerDetailPage() {
         const { data: statsData2, error: statsError2 } = await supabase
           .from("match_player_stats")
           .select(
-            "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches"
+            "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched"
           )
           .eq("player_id", playerId);
 
@@ -190,6 +205,7 @@ export default function PlayerDetailPage() {
 
           const combined = (statsData2 ?? []).map((s) => ({
             ...s,
+            benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
             matches: matchMap.get(s.match_id) ?? null,
           }));
 
@@ -201,13 +217,28 @@ export default function PlayerDetailPage() {
           });
 
           setMatchStats(combined as MatchPlayerStat[]);
+
+          // Determine last club (from non-benched appearances)
+          const playedMatches = combined.filter(c => !c.benched);
+          if (playedMatches.length > 0 && playedMatches[0].matches) {
+            const lastMatch = playedMatches[0];
+            const teamName = lastMatch.team_side === "home" 
+              ? lastMatch.matches!.home_team 
+              : lastMatch.matches!.away_team;
+            setLastClub({
+              teamName,
+              matchDate: lastMatch.matches!.played_at,
+              matchId: lastMatch.match_id,
+            });
+          }
         } else {
           setMatchStats([]);
         }
       } else {
-        // Normalize matches from array to single object (Supabase returns array for relations)
+        // Normalize matches from array to single object
         const normalized = (statsData ?? []).map((s: any) => ({
           ...s,
+          benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
           matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
         }));
 
@@ -217,15 +248,34 @@ export default function PlayerDetailPage() {
           const bDate = b.matches?.played_at ?? "";
           return bDate.localeCompare(aDate);
         });
+        
         setMatchStats(normalized as MatchPlayerStat[]);
+
+        // Determine last club (from non-benched appearances)
+        const playedMatches = normalized.filter((n: any) => !n.benched);
+        if (playedMatches.length > 0 && playedMatches[0].matches) {
+          const lastMatch = playedMatches[0];
+          const teamName = lastMatch.team_side === "home" 
+            ? lastMatch.matches.home_team 
+            : lastMatch.matches.away_team;
+          setLastClub({
+            teamName,
+            matchDate: lastMatch.matches.played_at,
+            matchId: lastMatch.match_id,
+          });
+        }
       }
 
       setLoading(false);
     })();
   }, [playerId]);
 
-  // Calculate total stats
-  const totalStats: TotalStats = matchStats.reduce(
+  // Separate played matches from benched
+  const playedMatches = matchStats.filter(s => !s.benched);
+  const benchedMatches = matchStats.filter(s => s.benched);
+
+  // Calculate total stats (only from played matches, not benched)
+  const totalStats: TotalStats = playedMatches.reduce(
     (acc, s) => {
       acc.matches_played += 1;
       acc.goals += s.goals ?? 0;
@@ -243,7 +293,12 @@ export default function PlayerDetailPage() {
       acc.gk_catches += s.gk_catches ?? 0;
       acc.total_score += s.score ?? 0;
 
-      // Calculate W/L/D
+      if (s.is_starter) {
+        acc.starts += 1;
+      } else {
+        acc.sub_appearances += 1;
+      }
+
       if (s.matches) {
         const isHome = s.team_side === "home";
         const teamScore = isHome ? s.matches.home_score : s.matches.away_score;
@@ -257,6 +312,7 @@ export default function PlayerDetailPage() {
     },
     {
       matches_played: 0,
+      benched: benchedMatches.length,
       goals: 0,
       assists: 0,
       shots: 0,
@@ -275,13 +331,15 @@ export default function PlayerDetailPage() {
       wins: 0,
       losses: 0,
       draws: 0,
+      starts: 0,
+      sub_appearances: 0,
     }
   );
 
   totalStats.avg_score = totalStats.matches_played > 0 ? totalStats.total_score / totalStats.matches_played : 0;
 
-  // Most played position
-  const positionCounts = matchStats.reduce((acc, s) => {
+  // Most played position (from played matches only)
+  const positionCounts = playedMatches.reduce((acc, s) => {
     if (s.position) {
       acc[s.position] = (acc[s.position] || 0) + 1;
     }
@@ -290,8 +348,16 @@ export default function PlayerDetailPage() {
 
   const mostPlayedPosition = Object.entries(positionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
-  const recentMatches = matchStats.slice(0, 5);
-  const displayMatches = showAllMatches ? matchStats : recentMatches;
+  // Teams played for (unique, from played matches only)
+  const teamsPlayedFor = Array.from(new Set(
+    playedMatches.map(s => {
+      if (!s.matches) return null;
+      return s.team_side === "home" ? s.matches.home_team : s.matches.away_team;
+    }).filter(Boolean)
+  )) as string[];
+
+  const recentMatches = playedMatches.slice(0, 5);
+  const displayMatches = showAllMatches ? playedMatches : recentMatches;
 
   if (!supabase) {
     return (
@@ -336,17 +402,13 @@ export default function PlayerDetailPage() {
     <main className="mx-auto max-w-6xl px-6 py-10">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
-        <Link href="/" className="text-white/50 hover:text-white/80 transition">
-          Home
-        </Link>
+        <Link href="/" className="text-white/50 hover:text-white/80 transition">Home</Link>
         <span className="text-white/30">/</span>
-        <Link href="/players" className="text-white/50 hover:text-white/80 transition">
-          Players
-        </Link>
+        <Link href="/players" className="text-white/50 hover:text-white/80 transition">Players</Link>
       </div>
 
       {/* Header */}
-      <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-3xl font-bold tracking-tight">{displayName}</div>
           {player.handle && player.name && (
@@ -367,19 +429,55 @@ export default function PlayerDetailPage() {
           )}
         </div>
 
-        {mostPlayedPosition && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-white/50">Main position:</span>
-            <PositionBadge position={mostPlayedPosition} />
-          </div>
-        )}
+        <div className="flex flex-col gap-2 items-start md:items-end">
+          {mostPlayedPosition && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-white/50">Main position:</span>
+              <PositionBadge position={mostPlayedPosition} />
+            </div>
+          )}
+          {lastClub && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-white/50">Last club:</span>
+              <span className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-sm font-medium text-emerald-200">
+                {lastClub.teamName}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Club History */}
+      {teamsPlayedFor.length > 0 && (
+        <div className="mt-6">
+          <div className="text-sm text-white/50 mb-2">Teams played for:</div>
+          <div className="flex flex-wrap gap-2">
+            {teamsPlayedFor.map((team) => (
+              <span
+                key={team}
+                className={cx(
+                  "rounded-lg border px-3 py-1 text-sm",
+                  team === lastClub?.teamName
+                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                    : "border-white/10 bg-white/5 text-white/70"
+                )}
+              >
+                {team}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Total Stats */}
       <div className="mt-8">
         <div className="text-lg font-semibold">Career Stats</div>
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <StatCard label="Matches" value={totalStats.matches_played} />
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+          <StatCard 
+            label="Appearances" 
+            value={totalStats.matches_played} 
+            subtext={`${totalStats.starts} starts, ${totalStats.sub_appearances} sub`}
+          />
           <StatCard
             label="Record"
             value={`${totalStats.wins}W ${totalStats.draws}D ${totalStats.losses}L`}
@@ -397,6 +495,12 @@ export default function PlayerDetailPage() {
             value={totalStats.goals + totalStats.assists}
             subtext="Goal contributions"
             color="text-purple-400"
+          />
+          <StatCard
+            label="Benched"
+            value={totalStats.benched}
+            subtext="Unused sub"
+            color="text-gray-400"
           />
         </div>
 
@@ -423,21 +527,23 @@ export default function PlayerDetailPage() {
       <div className="mt-10">
         <div className="flex items-center justify-between">
           <div className="text-lg font-semibold">
-            {showAllMatches ? "All Matches" : "Recent Matches"}
+            {showAllMatches ? "All Appearances" : "Recent Appearances"}
           </div>
-          {matchStats.length > 5 && (
-            <button
-              onClick={() => setShowAllMatches(!showAllMatches)}
-              className="text-sm text-white/60 hover:text-white"
-            >
-              {showAllMatches ? "Show recent only" : `View all ${matchStats.length} matches`}
-            </button>
-          )}
+          <div className="flex items-center gap-4">
+            {playedMatches.length > 5 && (
+              <button
+                onClick={() => setShowAllMatches(!showAllMatches)}
+                className="text-sm text-white/60 hover:text-white"
+              >
+                {showAllMatches ? "Show recent only" : `View all ${playedMatches.length} appearances`}
+              </button>
+            )}
+          </div>
         </div>
 
-        {matchStats.length === 0 ? (
+        {playedMatches.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-            No matches played yet.
+            No appearances yet.
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -472,8 +578,10 @@ export default function PlayerDetailPage() {
                         {resultText}
                       </div>
                       <div>
-                        <div className="font-medium">
-                          {teamName} vs {oppName}
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{teamName}</span>
+                          <span className="text-white/40">vs</span>
+                          <span className="font-medium">{oppName}</span>
                         </div>
                         <div className="text-sm text-white/50">
                           {teamScore} - {oppScore} • {formatDateTime(match.played_at)}
@@ -483,6 +591,15 @@ export default function PlayerDetailPage() {
 
                     <div className="flex flex-wrap items-center gap-2">
                       <PositionBadge position={s.position} />
+                      {s.is_starter ? (
+                        <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-200">
+                          Started
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-orange-400/30 bg-orange-400/10 px-2 py-0.5 text-xs text-orange-200">
+                          Sub
+                        </span>
+                      )}
                       <span
                         className={cx(
                           "rounded-full border px-2 py-0.5 text-xs",
@@ -514,6 +631,72 @@ export default function PlayerDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Benched Matches */}
+      {benchedMatches.length > 0 && (
+        <div className="mt-10">
+          <div className="flex items-center justify-between">
+            <div className="text-lg font-semibold text-gray-400">
+              Benched ({benchedMatches.length})
+            </div>
+            <button
+              onClick={() => setShowBenchedMatches(!showBenchedMatches)}
+              className="text-sm text-white/60 hover:text-white"
+            >
+              {showBenchedMatches ? "Hide" : "Show"} benched matches
+            </button>
+          </div>
+          
+          <p className="mt-1 text-sm text-white/40">
+            Matches where player was an unused substitute
+          </p>
+
+          {showBenchedMatches && (
+            <div className="mt-4 space-y-2">
+              {benchedMatches.map((s) => {
+                const match = s.matches;
+                if (!match) return null;
+
+                const isHome = s.team_side === "home";
+                const teamName = isHome ? match.home_team : match.away_team;
+                const oppName = isHome ? match.away_team : match.home_team;
+                const teamScore = isHome ? match.home_score : match.away_score;
+                const oppScore = isHome ? match.away_score : match.home_score;
+
+                let resultText = "D";
+                if (teamScore > oppScore) resultText = "W";
+                else if (teamScore < oppScore) resultText = "L";
+
+                return (
+                  <div
+                    key={s.match_id}
+                    className="rounded-xl border border-white/5 bg-white/[0.02] p-3 opacity-60"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-6 w-6 items-center justify-center rounded bg-gray-700/50 text-xs text-gray-400">
+                        {resultText}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-white/70">{teamName}</span>
+                          <span className="text-white/30">{teamScore} - {oppScore}</span>
+                          <span className="text-white/70">{oppName}</span>
+                        </div>
+                        <div className="text-xs text-white/30">
+                          {formatDate(match.played_at)} • Sub {s.sub_number}
+                        </div>
+                      </div>
+                      <span className="rounded border border-gray-600/30 bg-gray-600/10 px-2 py-0.5 text-xs text-gray-400">
+                        Benched
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </main>
   );
 }
