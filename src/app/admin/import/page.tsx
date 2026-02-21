@@ -40,24 +40,49 @@ type Fixture = {
   league?: { name: string } | null;
 };
 
+type MatchGroupStatus = "idle" | "uploading" | "extracting" | "extracted" | "importing" | "imported" | "error";
+
+type MatchGroup = {
+  id: string;
+  images: string[];
+  previews: string[];
+  leagueId: string;
+  extractedData: any | null;
+  editedData: any | null;
+  status: MatchGroupStatus;
+  importResult: any | null;
+  error: string | null;
+};
+
 function cx(...s: Array<string | false | null | undefined>) {
   return s.filter(Boolean).join(" ");
+}
+
+function generateGroupId(): string {
+  return `group-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 export default function AdminDashboardPage() {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
-  const [importImages, setImportImages] = useState<string[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [imageLeagueId, setImageLeagueId] = useState("auto");
-  const [imageImportResult, setImageImportResult] = useState<any>(null);
+  
+  // Match Groups State (replacing single import state)
+  const [matchGroups, setMatchGroups] = useState<MatchGroup[]>([
+    { id: generateGroupId(), images: [], previews: [], leagueId: "auto", extractedData: null, editedData: null, status: "idle", importResult: null, error: null }
+  ]);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  
+  // Team import state (unchanged)
   const [teamImportImage, setTeamImportImage] = useState<string | null>(null);
   const [teamImportPreview, setTeamImportPreview] = useState<string | null>(null);
   const [teamImportLeagueId, setTeamImportLeagueId] = useState("");
   const [teamImportResult, setTeamImportResult] = useState<any>(null);
+  
+  // Fixture import state (unchanged)
   const [fixtureImportImage, setFixtureImportImage] = useState<string | null>(null);
   const [fixtureImportPreview, setFixtureImportPreview] = useState<string | null>(null);
   const [fixtureImportResult, setFixtureImportResult] = useState<any>(null);
+  
   const [authenticated, setAuthenticated] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -459,24 +484,306 @@ export default function AdminDashboardPage() {
     new Set([...teams.map((t) => t.name), ...fixtures.flatMap((f) => [f.home_team, f.away_team])])
   ).sort();
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ==================== MATCH GROUP FUNCTIONS ====================
+
+  const updateGroup = (groupId: string, updates: Partial<MatchGroup>) => {
+    setMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...updates } : g));
+  };
+
+  const addMatchGroup = () => {
+    setMatchGroups(prev => [...prev, {
+      id: generateGroupId(),
+      images: [],
+      previews: [],
+      leagueId: "auto",
+      extractedData: null,
+      editedData: null,
+      status: "idle",
+      importResult: null,
+      error: null,
+    }]);
+  };
+
+  const removeMatchGroup = (groupId: string) => {
+    if (matchGroups.length === 1) {
+      // Reset the only group instead of removing
+      updateGroup(groupId, {
+        images: [],
+        previews: [],
+        leagueId: "auto",
+        extractedData: null,
+        editedData: null,
+        status: "idle",
+        importResult: null,
+        error: null,
+      });
+    } else {
+      setMatchGroups(prev => prev.filter(g => g.id !== groupId));
+    }
+  };
+
+  const handleGroupImageChange = (groupId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
     Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
-        setImportImages((prev) => [...prev, base64]);
-        setImagePreviews((prev) => [...prev, base64]);
+        setMatchGroups(prev => prev.map(g => {
+          if (g.id === groupId) {
+            return { ...g, images: [...g.images, base64], previews: [...g.previews, base64] };
+          }
+          return g;
+        }));
       };
       reader.readAsDataURL(file);
     });
   };
 
-  const removeImage = (index: number) => {
-    setImportImages((prev) => prev.filter((_, i) => i !== index));
-    setImagePreviews((prev) => prev.filter((_, i) => i !== index));
+  const removeGroupImage = (groupId: string, index: number) => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          images: g.images.filter((_, i) => i !== index),
+          previews: g.previews.filter((_, i) => i !== index),
+        };
+      }
+      return g;
+    }));
   };
+
+  const handlePasteGroupImages = (groupId: string, e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64 = event.target?.result as string;
+            setMatchGroups(prev => prev.map(g => {
+              if (g.id === groupId) {
+                return { ...g, images: [...g.images, base64], previews: [...g.previews, base64] };
+              }
+              return g;
+            }));
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  };
+
+  const pasteGroupImageFromClipboard = async (groupId: string) => {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(type => type.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64 = event.target?.result as string;
+            setMatchGroups(prev => prev.map(g => {
+              if (g.id === groupId) {
+                return { ...g, images: [...g.images, base64], previews: [...g.previews, base64] };
+              }
+              return g;
+            }));
+          };
+          reader.readAsDataURL(blob);
+          setMessage({ type: "success", text: "Image pasted successfully!" });
+          return;
+        }
+      }
+      setMessage({ type: "error", text: "No image found in clipboard" });
+    } catch (err: any) {
+      setMessage({ type: "error", text: "Clipboard access denied. Try Ctrl+V instead." });
+    }
+  };
+
+  const handleExtractGroup = async (groupId: string) => {
+    const group = matchGroups.find(g => g.id === groupId);
+    if (!group || group.images.length === 0) {
+      setMessage({ type: "error", text: "Please upload at least one image" });
+      return;
+    }
+
+    updateGroup(groupId, { status: "extracting", error: null });
+
+    try {
+      const res = await fetch("/api/admin/extract-match", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ images: group.images }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Extraction failed");
+
+      updateGroup(groupId, {
+        extractedData: data.extracted,
+        editedData: JSON.parse(JSON.stringify(data.extracted)),
+        status: "extracted",
+      });
+      setMessage({ type: "success", text: "Data extracted! Click 'View Stats & Edit' to review." });
+    } catch (err: any) {
+      updateGroup(groupId, { status: "error", error: err.message });
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const handleImportGroup = async (groupId: string) => {
+    const group = matchGroups.find(g => g.id === groupId);
+    if (!group || !group.editedData) return;
+
+    updateGroup(groupId, { status: "importing", error: null });
+
+    try {
+      const res = await fetch("/api/admin/import-images", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          images: [],
+          league_id: group.leagueId || "auto",
+          extractedData: group.editedData,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+
+      updateGroup(groupId, {
+        status: "imported",
+        importResult: data,
+      });
+      setMessage({ type: "success", text: data.fixtureUpdated ? "Fixture updated!" : "Match imported!" });
+      loadFixtures();
+      loadPlayers();
+    } catch (err: any) {
+      updateGroup(groupId, { status: "error", error: err.message });
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const handleDirectImportGroup = async (groupId: string) => {
+    const group = matchGroups.find(g => g.id === groupId);
+    if (!group || group.images.length === 0) {
+      setMessage({ type: "error", text: "Please upload at least one image" });
+      return;
+    }
+
+    updateGroup(groupId, { status: "importing", error: null });
+
+    try {
+      const res = await fetch("/api/admin/import-images", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ images: group.images, league_id: group.leagueId || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+
+      updateGroup(groupId, {
+        status: "imported",
+        importResult: data,
+        images: [],
+        previews: [],
+      });
+      setMessage({ type: "success", text: "Match imported successfully!" });
+      loadFixtures();
+      loadPlayers();
+    } catch (err: any) {
+      updateGroup(groupId, { status: "error", error: err.message });
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  // Update player in preview for a specific group
+  const updateGroupPreviewPlayer = (groupId: string, teamSide: "home" | "away", playerIndex: number, field: string, value: any) => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = [...updated[team].players];
+        updated[team].players[playerIndex] = {
+          ...updated[team].players[playerIndex],
+          [field]: value
+        };
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  // Update team stats in preview for a specific group
+  const updateGroupPreviewTeam = (groupId: string, teamSide: "home" | "away", field: string, value: any) => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team], [field]: value };
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  // Remove player from preview for a specific group
+  const removeGroupPreviewPlayer = (groupId: string, teamSide: "home" | "away", playerIndex: number) => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = updated[team].players.filter((_: any, i: number) => i !== playerIndex);
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  // Add player to preview for a specific group
+  const addGroupPreviewPlayer = (groupId: string, teamSide: "home" | "away") => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = [
+          ...updated[team].players,
+          {
+            name: "New Player",
+            user_id: "",
+            position: "CM",
+            score: 0,
+            goals: 0,
+            assists: 0,
+            shots: 0,
+            shots_on_target: 0,
+            passes: 0,
+            key_passes: 0,
+            tackles: 0,
+            key_tackles: 0,
+            interceptions: 0,
+            key_interceptions: 0,
+            possessions_lost: 0,
+            gk_saves: 0,
+            gk_catches: 0,
+            is_starter: false,
+            sub_number: updated[team].players.filter((p: any) => !p.is_starter).length + 1,
+          }
+        ];
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  // ==================== TEAM & FIXTURE IMAGE HANDLERS (unchanged) ====================
 
   const handleTeamImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -516,35 +823,6 @@ export default function AdminDashboardPage() {
       setTeamImportImage(null);
       setTeamImportPreview(null);
       loadTeams();
-    } catch (err: any) {
-      setMessage({ type: "error", text: err.message });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleImageImport = async () => {
-    if (importImages.length === 0) {
-      setMessage({ type: "error", text: "Please upload at least one image" });
-      return;
-    }
-    setLoading(true);
-    setMessage(null);
-    setImageImportResult(null);
-    try {
-      const res = await fetch("/api/admin/import-images", {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({ images: importImages, league_id: imageLeagueId || null }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Import failed");
-      setImageImportResult(data);
-      setMessage({ type: "success", text: "Match imported successfully from screenshots!" });
-      setImportImages([]);
-      setImagePreviews([]);
-      loadFixtures();
-      loadPlayers();
     } catch (err: any) {
       setMessage({ type: "error", text: err.message });
     } finally {
@@ -597,28 +875,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Paste handlers for clipboard images
-  const handlePasteMatchImages = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
-            setImportImages((prev) => [...prev, base64]);
-            setImagePreviews((prev) => [...prev, base64]);
-          };
-          reader.readAsDataURL(file);
-        }
-      }
-    }
-  };
-
   const handlePasteFixtureImage = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -636,7 +892,7 @@ export default function AdminDashboardPage() {
           };
           reader.readAsDataURL(file);
         }
-        break; // Only take first image
+        break;
       }
     }
   };
@@ -658,34 +914,8 @@ export default function AdminDashboardPage() {
           };
           reader.readAsDataURL(file);
         }
-        break; // Only take first image
+        break;
       }
-    }
-  };
-
-  // Direct paste from clipboard button handlers
-  const pasteMatchImageFromClipboard = async () => {
-    try {
-      const clipboardItems = await navigator.clipboard.read();
-      for (const item of clipboardItems) {
-        const imageType = item.types.find(type => type.startsWith('image/'));
-        if (imageType) {
-          const blob = await item.getType(imageType);
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
-            setImportImages((prev) => [...prev, base64]);
-            setImagePreviews((prev) => [...prev, base64]);
-          };
-          reader.readAsDataURL(blob);
-          setMessage({ type: "success", text: "Image pasted successfully!" });
-          return;
-        }
-      }
-      setMessage({ type: "error", text: "No image found in clipboard" });
-    } catch (err: any) {
-      // Fallback for browsers that don't support clipboard.read()
-      setMessage({ type: "error", text: "Clipboard access denied. Try Ctrl+V instead." });
     }
   };
 
@@ -736,6 +966,9 @@ export default function AdminDashboardPage() {
       setMessage({ type: "error", text: "Clipboard access denied. Try Ctrl+V instead." });
     }
   };
+
+  // Get the currently editing group
+  const editingGroup = editingGroupId ? matchGroups.find(g => g.id === editingGroupId) : null;
 
   if (!authenticated) {
     return (
@@ -789,122 +1022,489 @@ export default function AdminDashboardPage() {
         {/* IMPORT TAB */}
         {activeTab === "import" && (
           <div className="space-y-6">
-            {/* Match Screenshot Import */}
+            {/* Match Screenshot Import - GROUPED */}
             <div className="bg-gray-800 p-6 rounded-lg">
-              <h2 className="text-lg font-semibold text-white mb-4">📷 Import Match Results from Screenshots (AI)</h2>
-              <p className="text-gray-400 text-sm mb-4">Upload match screenshots and AI will automatically extract all data including player stats.</p>
-              <div className="mb-4">
-                <label className="block text-gray-300 mb-2 text-sm">League</label>
-                <select value={imageLeagueId} onChange={(e) => setImageLeagueId(e.target.value)} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none">
-                  <option value="auto">🔍 Auto (find fixture)</option>
-                  <option value="">No league (create new match)</option>
-                  {leagues.map((l) => (<option key={l.id} value={l.id}>{l.name} {l.season ? `(${l.season})` : ""}</option>))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Auto mode will search for an existing fixture matching the teams and update it with the result.
-                </p>
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-300 mb-2 text-sm">Match Screenshots</label>
-
-                {/* Paste Button */}
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">📷 Import Match Results from Screenshots (AI)</h2>
+                  <p className="text-gray-400 text-sm mt-1">Upload screenshots for multiple matches. Each group represents one match.</p>
+                </div>
                 <button
-                  type="button"
-                  onClick={pasteMatchImageFromClipboard}
-                  className="mb-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 font-medium py-3 px-4 rounded-lg transition"
+                  onClick={addMatchGroup}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition flex items-center gap-2"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  Paste Image from Clipboard
+                  <span className="text-lg">+</span> Add Match Group
                 </button>
-
-                <div
-                  className="rounded-lg border-2 border-dashed border-gray-600 p-6 text-center hover:border-gray-500 focus-within:border-blue-500 transition cursor-pointer"
-                  onPaste={handlePasteMatchImages}
-                  tabIndex={0}
-                >
-                  <input type="file" accept="image/*" multiple onChange={handleImageChange} className="hidden" id="match-image-upload" />
-                  <label htmlFor="match-image-upload" className="cursor-pointer">
-                    <div className="text-3xl mb-2">📸</div>
-                    <p className="text-gray-400">Click to browse files</p>
-                    <p className="text-xs text-gray-500 mt-1">Or focus here and press Ctrl+V</p>
-                  </label>
-                </div>
               </div>
-              {imagePreviews.length > 0 && (
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-gray-400">{imagePreviews.length} image(s) ready</span>
-                    <button
-                      onClick={() => { setImportImages([]); setImagePreviews([]); }}
-                      className="text-xs text-red-400 hover:text-red-300"
-                    >
-                      Clear all
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {imagePreviews.map((preview, index) => (
-                      <div key={index} className="relative inline-block">
-                        <img src={preview} alt={`Preview ${index + 1}`} className="h-24 rounded-lg border border-gray-600" />
-                        <button onClick={() => removeImage(index)} className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-400 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">×</button>
+
+              {/* Match Groups */}
+              <div className="space-y-4">
+                {matchGroups.map((group, groupIndex) => (
+                  <div
+                    key={group.id}
+                    className={cx(
+                      "border-2 rounded-lg p-4 transition",
+                      group.status === "imported" ? "border-emerald-500/50 bg-emerald-500/5" :
+                      group.status === "extracted" ? "border-amber-500/50 bg-amber-500/5" :
+                      group.status === "error" ? "border-red-500/50 bg-red-500/5" :
+                      "border-gray-700 bg-gray-900/50"
+                    )}
+                  >
+                    {/* Group Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="bg-gray-700 text-white font-bold px-3 py-1 rounded-full text-sm">
+                          Match {groupIndex + 1}
+                        </span>
+                        {group.status === "extracting" && (
+                          <span className="text-amber-400 text-sm flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Extracting...
+                          </span>
+                        )}
+                        {group.status === "importing" && (
+                          <span className="text-blue-400 text-sm flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Importing...
+                          </span>
+                        )}
+                        {group.status === "extracted" && (
+                          <span className="text-amber-400 text-sm">✓ Data extracted - ready to review</span>
+                        )}
+                        {group.status === "imported" && (
+                          <span className="text-emerald-400 text-sm">✓ Imported successfully</span>
+                        )}
+                        {group.status === "error" && (
+                          <span className="text-red-400 text-sm">⚠ Error: {group.error}</span>
+                        )}
                       </div>
-                    ))}
+                      <button
+                        onClick={() => removeMatchGroup(group.id)}
+                        className="text-gray-500 hover:text-red-400 transition p-1"
+                        title="Remove group"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Import Result Display (if imported) */}
+                    {group.status === "imported" && group.importResult && (
+                      <div className={`mb-4 p-4 rounded-lg ${group.importResult.fixtureUpdated ? "bg-purple-500/20 border border-purple-500/30" : "bg-emerald-500/20 border border-emerald-500/30"}`}>
+                        <h4 className={`${group.importResult.fixtureUpdated ? "text-purple-300" : "text-emerald-300"} font-semibold mb-2`}>
+                          {group.importResult.fixtureUpdated ? "✅ Fixture Updated!" : "✅ Match Imported!"}
+                        </h4>
+                        <p className="text-white text-lg font-medium">
+                          {group.importResult.match?.home_team} {group.importResult.match?.home_score} - {group.importResult.match?.away_score} {group.importResult.match?.away_team}
+                        </p>
+                        {group.importResult.league && (
+                          <p className="text-blue-300 text-sm mt-1">League: {group.importResult.league.name}</p>
+                        )}
+                        <p className="text-gray-400 text-sm mt-1">
+                          Players extracted: {group.importResult.stats?.homePlayersExtracted || 0} + {group.importResult.stats?.awayPlayersExtracted || 0}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Group Content (only show when not imported) */}
+                    {group.status !== "imported" && (
+                      <>
+                        {/* League Selector */}
+                        <div className="mb-4">
+                          <label className="block text-gray-300 mb-2 text-sm">League</label>
+                          <select
+                            value={group.leagueId}
+                            onChange={(e) => updateGroup(group.id, { leagueId: e.target.value })}
+                            className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="auto">🔍 Auto (find fixture)</option>
+                            <option value="">No league (create new match)</option>
+                            {leagues.map((l) => (
+                              <option key={l.id} value={l.id}>{l.name} {l.season ? `(${l.season})` : ""}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Image Upload */}
+                        <div className="mb-4">
+                          <label className="block text-gray-300 mb-2 text-sm">Match Screenshots</label>
+                          <button
+                            type="button"
+                            onClick={() => pasteGroupImageFromClipboard(group.id)}
+                            className="mb-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 font-medium py-3 px-4 rounded-lg transition"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                            Paste Image from Clipboard
+                          </button>
+
+                          <div
+                            className="rounded-lg border-2 border-dashed border-gray-600 p-6 text-center hover:border-gray-500 focus-within:border-blue-500 transition cursor-pointer"
+                            onPaste={(e) => handlePasteGroupImages(group.id, e)}
+                            tabIndex={0}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={(e) => handleGroupImageChange(group.id, e)}
+                              className="hidden"
+                              id={`match-image-upload-${group.id}`}
+                            />
+                            <label htmlFor={`match-image-upload-${group.id}`} className="cursor-pointer">
+                              <div className="text-3xl mb-2">📸</div>
+                              <p className="text-gray-400">Click to browse files</p>
+                              <p className="text-xs text-gray-500 mt-1">Or focus here and press Ctrl+V</p>
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Image Previews */}
+                        {group.previews.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm text-gray-400">{group.previews.length} image(s) ready</span>
+                              <button
+                                onClick={() => updateGroup(group.id, { images: [], previews: [] })}
+                                className="text-xs text-red-400 hover:text-red-300"
+                              >
+                                Clear all
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {group.previews.map((preview, index) => (
+                                <div key={index} className="relative inline-block">
+                                  <img src={preview} alt={`Preview ${index + 1}`} className="h-20 rounded-lg border border-gray-600" />
+                                  <button
+                                    onClick={() => removeGroupImage(group.id, index)}
+                                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-400 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 flex-wrap">
+                          {group.status === "idle" || group.status === "error" ? (
+                            <>
+                              <button
+                                onClick={() => handleExtractGroup(group.id)}
+                                disabled={group.images.length === 0}
+                                className="flex-1 min-w-[150px] bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2.5 px-4 rounded transition"
+                              >
+                                Extract Data
+                              </button>
+                              <button
+                                onClick={() => handleDirectImportGroup(group.id)}
+                                disabled={group.images.length === 0}
+                                className="flex-1 min-w-[150px] bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-2.5 px-4 rounded transition"
+                              >
+                                Direct Import
+                              </button>
+                            </>
+                          ) : group.status === "extracted" ? (
+                            <>
+                              <button
+                                onClick={() => setEditingGroupId(group.id)}
+                                className="flex-1 min-w-[150px] bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-4 rounded transition flex items-center justify-center gap-2"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                                View Stats & Edit
+                              </button>
+                              <button
+                                onClick={() => handleImportGroup(group.id)}
+                                className="flex-1 min-w-[150px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded transition"
+                              >
+                                Import Match
+                              </button>
+                              <button
+                                onClick={() => updateGroup(group.id, { status: "idle", extractedData: null, editedData: null })}
+                                className="bg-gray-700 hover:bg-gray-600 text-gray-300 py-2.5 px-4 rounded transition"
+                              >
+                                Reset
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+
+                        {/* Quick Preview of Extracted Data */}
+                        {group.status === "extracted" && group.editedData && (
+                          <div className="mt-4 p-3 bg-gray-800 rounded-lg">
+                            <div className="flex items-center justify-center gap-4 text-lg font-bold">
+                              <span className="text-blue-400">{group.editedData.home_team?.team_name}</span>
+                              <span className="text-white">
+                                {group.editedData.home_team?.goals ?? 0} - {group.editedData.away_team?.goals ?? 0}
+                              </span>
+                              <span className="text-red-400">{group.editedData.away_team?.team_name}</span>
+                            </div>
+                            <div className="text-center text-gray-500 text-sm mt-1">
+                              {group.editedData.home_team?.players?.length || 0} + {group.editedData.away_team?.players?.length || 0} players extracted
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
-                </div>
-              )}
-              <button onClick={handleImageImport} disabled={loading || importImages.length === 0} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded transition">
-                {loading ? "Importing Match..." : "Import Match from Screenshots"}
-              </button>
-              {imageImportResult && (
-                <div className={`mt-4 p-4 rounded-lg ${imageImportResult.fixtureUpdated ? "bg-purple-500/20 border border-purple-500/30" : "bg-emerald-500/20 border border-emerald-500/30"}`}>
-                  <h3 className={`${imageImportResult.fixtureUpdated ? "text-purple-300" : "text-emerald-300"} font-semibold mb-2`}>
-                    {imageImportResult.fixtureUpdated ? "✅ Fixture Updated!" : "✅ Match Imported!"}
-                  </h3>
-                  <p className="text-white text-lg font-medium">
-                    {imageImportResult.match?.home_team} {imageImportResult.match?.home_score} - {imageImportResult.match?.away_score} {imageImportResult.match?.away_team}
-                  </p>
-
-                  {imageImportResult.fixtureInfo && (
-                    <div className="mt-2 p-2 rounded bg-purple-500/10 text-purple-200 text-sm">
-                      <p>📅 Updated existing fixture</p>
-                      {imageImportResult.fixtureInfo.day && <p>Day {imageImportResult.fixtureInfo.day}</p>}
-                      <p className="text-xs text-purple-300/70">Originally scheduled: {new Date(imageImportResult.fixtureInfo.scheduledAt).toLocaleString()}</p>
-                    </div>
-                  )}
-
-                  {imageImportResult.league && (
-                    <p className="text-blue-300 text-sm mt-2">League: {imageImportResult.league.name}</p>
-                  )}
-
-                  {!imageImportResult.league && !imageImportResult.fixtureUpdated && (
-                    <p className="text-yellow-300 text-sm mt-2">⚠️ No fixture found - created as non-league match</p>
-                  )}
-
-                  <p className="text-gray-400 text-sm mt-2">Players extracted: {imageImportResult.stats?.homePlayersExtracted || 0} + {imageImportResult.stats?.awayPlayersExtracted || 0}</p>
-                  <p className="text-gray-400 text-sm">Player stats inserted: {imageImportResult.stats?.playerStatsCount || 0}</p>
-
-                  {imageImportResult.stats?.playersCreated?.length > 0 && (
-                    <p className="text-blue-300 text-sm mt-1">New players: {imageImportResult.stats.playersCreated.join(", ")}</p>
-                  )}
-
-                  {imageImportResult.errors && (
-                    <div className="mt-2 p-2 rounded bg-red-500/20 text-red-300 text-sm">
-                      <strong>Errors:</strong>
-                      <ul className="list-disc list-inside">{imageImportResult.errors.map((e: string, i: number) => (<li key={i}>{e}</li>))}</ul>
-                    </div>
-                  )}
-                  {imageImportResult.logs && (
-                    <details className="mt-2 text-xs text-gray-500">
-                      <summary className="cursor-pointer">Debug logs</summary>
-                      <pre className="mt-1 p-2 bg-gray-900 rounded overflow-auto max-h-40">{imageImportResult.logs.join("\n")}</pre>
-                    </details>
-                  )}
-                </div>
-              )}
+                ))}
+              </div>
             </div>
 
-            {/* Fixture Screenshot Import */}
+            {/* Edit Modal */}
+            {editingGroupId && editingGroup && editingGroup.editedData && (
+              <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-gray-800 rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+                  <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between z-10">
+                    <h3 className="text-lg font-semibold text-amber-400">📝 Edit Extracted Data - Match {matchGroups.findIndex(g => g.id === editingGroupId) + 1}</h3>
+                    <button
+                      onClick={() => setEditingGroupId(null)}
+                      className="text-gray-400 hover:text-white p-2"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="p-4 space-y-6">
+                    {/* Match Score Overview */}
+                    <div className="bg-gray-900 p-4 rounded-lg">
+                      <div className="flex items-center justify-center gap-4 text-2xl font-bold">
+                        <div className="text-right flex-1">
+                          <input
+                            type="text"
+                            value={editingGroup.editedData.home_team?.team_name || ""}
+                            onChange={(e) => updateGroupPreviewTeam(editingGroupId, "home", "team_name", e.target.value)}
+                            className="bg-transparent border-b border-gray-600 text-white text-right w-full focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={editingGroup.editedData.home_team?.goals ?? 0}
+                            onChange={(e) => updateGroupPreviewTeam(editingGroupId, "home", "goals", parseInt(e.target.value) || 0)}
+                            className="w-12 bg-gray-700 text-white text-center rounded p-1"
+                          />
+                          <span className="text-gray-400">-</span>
+                          <input
+                            type="number"
+                            value={editingGroup.editedData.away_team?.goals ?? 0}
+                            onChange={(e) => updateGroupPreviewTeam(editingGroupId, "away", "goals", parseInt(e.target.value) || 0)}
+                            className="w-12 bg-gray-700 text-white text-center rounded p-1"
+                          />
+                        </div>
+                        <div className="text-left flex-1">
+                          <input
+                            type="text"
+                            value={editingGroup.editedData.away_team?.team_name || ""}
+                            onChange={(e) => updateGroupPreviewTeam(editingGroupId, "away", "team_name", e.target.value)}
+                            className="bg-transparent border-b border-gray-600 text-white w-full focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Team Stats */}
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {(["home", "away"] as const).map((side) => {
+                        const team = side === "home" ? editingGroup.editedData.home_team : editingGroup.editedData.away_team;
+
+                        return (
+                          <div key={side} className="bg-gray-900 p-4 rounded-lg">
+                            <h4 className={`font-semibold mb-3 ${side === "home" ? "text-blue-400" : "text-red-400"}`}>
+                              {team?.team_name || (side === "home" ? "Home" : "Away")} Stats
+                            </h4>
+                            <div className="grid grid-cols-3 gap-2 text-sm">
+                              {[
+                                { key: "possession", label: "Poss %" },
+                                { key: "shots", label: "Shots" },
+                                { key: "shots_on_target", label: "On Target" },
+                                { key: "passes", label: "Passes" },
+                                { key: "key_passes", label: "Key Pass" },
+                                { key: "tackles", label: "Tackles" },
+                                { key: "interceptions", label: "Int." },
+                                { key: "fouls", label: "Fouls" },
+                                { key: "corner_kicks", label: "Corners" },
+                              ].map(({ key, label }) => (
+                                <div key={key} className="flex flex-col">
+                                  <span className="text-gray-500 text-xs">{label}</span>
+                                  <input
+                                    type="number"
+                                    value={team?.[key] ?? 0}
+                                    onChange={(e) => updateGroupPreviewTeam(editingGroupId, side, key, parseInt(e.target.value) || 0)}
+                                    className="bg-gray-700 text-white rounded px-2 py-1 text-sm w-full"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Players */}
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {(["home", "away"] as const).map((side) => {
+                        const team = side === "home" ? editingGroup.editedData.home_team : editingGroup.editedData.away_team;
+                        const players = team?.players || [];
+
+                        return (
+                          <div key={side} className="bg-gray-900 p-4 rounded-lg">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className={`font-semibold ${side === "home" ? "text-blue-400" : "text-red-400"}`}>
+                                {team?.team_name || (side === "home" ? "Home" : "Away")} Players ({players.length})
+                              </h4>
+                              <button
+                                onClick={() => addGroupPreviewPlayer(editingGroupId, side)}
+                                className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded"
+                              >
+                                + Add
+                              </button>
+                            </div>
+
+                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                              {players.map((player: any, idx: number) => {
+                                const isBenched = !player.is_starter && player.sub_number !== null && (player.score === 0 || player.score === undefined);
+
+                                return (
+                                  <div
+                                    key={idx}
+                                    className={`p-3 rounded-lg border ${isBenched ? "bg-gray-800/50 border-gray-700" : "bg-gray-800 border-gray-700"}`}
+                                  >
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <select
+                                        value={player.position || ""}
+                                        onChange={(e) => updateGroupPreviewPlayer(editingGroupId, side, idx, "position", e.target.value)}
+                                        className="bg-gray-700 text-white text-xs rounded px-2 py-1 w-16"
+                                      >
+                                        {["GK", "LB", "CB", "RB", "LWB", "RWB", "CDM", "CM", "CAM", "LM", "RM", "LW", "RW", "LF", "RF", "CF", "ST"].map(pos => (
+                                          <option key={pos} value={pos}>{pos}</option>
+                                        ))}
+                                      </select>
+                                      <input
+                                        type="text"
+                                        value={player.name || ""}
+                                        onChange={(e) => updateGroupPreviewPlayer(editingGroupId, side, idx, "name", e.target.value)}
+                                        className="bg-gray-700 text-white text-sm rounded px-2 py-1 flex-1"
+                                        placeholder="Player name"
+                                      />
+                                      <button
+                                        onClick={() => removeGroupPreviewPlayer(editingGroupId, side, idx)}
+                                        className="text-red-400 hover:text-red-300 text-sm px-2"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <input
+                                        type="text"
+                                        value={player.user_id || ""}
+                                        onChange={(e) => updateGroupPreviewPlayer(editingGroupId, side, idx, "user_id", e.target.value)}
+                                        className="bg-gray-700 text-white text-xs rounded px-2 py-1 flex-1 font-mono"
+                                        placeholder="Player ID"
+                                      />
+                                      <label className="flex items-center gap-1 text-xs text-gray-400">
+                                        <input
+                                          type="checkbox"
+                                          checked={player.is_starter ?? true}
+                                          onChange={(e) => {
+                                            updateGroupPreviewPlayer(editingGroupId, side, idx, "is_starter", e.target.checked);
+                                            if (e.target.checked) {
+                                              updateGroupPreviewPlayer(editingGroupId, side, idx, "sub_number", null);
+                                            }
+                                          }}
+                                          className="rounded bg-gray-600"
+                                        />
+                                        Start
+                                      </label>
+                                      {!player.is_starter && (
+                                        <input
+                                          type="number"
+                                          value={player.sub_number || ""}
+                                          onChange={(e) => updateGroupPreviewPlayer(editingGroupId, side, idx, "sub_number", parseInt(e.target.value) || null)}
+                                          className="bg-gray-700 text-white text-xs rounded px-2 py-1 w-12"
+                                          placeholder="Sub#"
+                                        />
+                                      )}
+                                    </div>
+
+                                    <div className="grid grid-cols-4 gap-1 text-xs">
+                                      {[
+                                        { key: "score", label: "Score", color: "text-amber-400" },
+                                        { key: "goals", label: "Goals", color: "text-emerald-400" },
+                                        { key: "assists", label: "Assists", color: "text-sky-400" },
+                                        { key: "shots", label: "Shots", color: "" },
+                                        { key: "passes", label: "Passes", color: "" },
+                                        { key: "tackles", label: "Tackles", color: "" },
+                                        { key: "interceptions", label: "Int.", color: "" },
+                                        { key: "gk_saves", label: "Saves", color: "text-yellow-400" },
+                                      ].map(({ key, label, color }) => (
+                                        <div key={key} className="flex flex-col">
+                                          <span className={`text-gray-500 ${color}`}>{label}</span>
+                                          <input
+                                            type="number"
+                                            value={player[key] ?? 0}
+                                            onChange={(e) => updateGroupPreviewPlayer(editingGroupId, side, idx, key, parseInt(e.target.value) || 0)}
+                                            className="bg-gray-700 text-white rounded px-1 py-0.5 text-xs w-full"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    {isBenched && (
+                                      <div className="mt-2 text-xs text-gray-500 flex items-center gap-1">
+                                        <span className="bg-gray-700 px-2 py-0.5 rounded">Benched</span>
+                                        (will not count towards stats)
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex gap-3">
+                    <button
+                      onClick={() => setEditingGroupId(null)}
+                      className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded transition"
+                    >
+                      Save & Close
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleImportGroup(editingGroupId);
+                        setEditingGroupId(null);
+                      }}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-4 rounded transition"
+                    >
+                      ✓ Save & Import
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Fixture Screenshot Import (unchanged) */}
             <div className="bg-gray-800 p-6 rounded-lg">
               <h2 className="text-lg font-semibold text-white mb-4">📅 Import Fixtures from Screenshot (AI)</h2>
               <p className="text-gray-400 text-sm mb-4">Upload a Discord fixture announcement screenshot. AI will extract fixtures and match them to existing teams and leagues.</p>
@@ -983,7 +1583,7 @@ export default function AdminDashboardPage() {
               )}
             </div>
 
-            {/* JSON Import */}
+            {/* JSON Import (unchanged) */}
             <div className="bg-gray-800 p-6 rounded-lg">
               <h2 className="text-lg font-semibold text-white mb-4">📝 Import Match Data (JSON)</h2>
               <textarea value={jsonData} onChange={(e) => setJsonData(e.target.value)} className="w-full h-64 p-4 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none font-mono text-sm" placeholder="Paste match JSON here..." />

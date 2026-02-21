@@ -28,27 +28,30 @@ type MatchPlayerStat = {
   team_side: "home" | "away";
   position: string | null;
   score: number;
-  passes: number;
-  key_passes: number;
-  assists: number;
-  shots: number;
-  shots_on_target: number;
-  goals: number;
-  tackles: number;
-  key_tackles: number;
-  interceptions: number;
-  key_interceptions: number;
-  possessions_lost: number;
-  gk_saves: number;
-  gk_catches: number;
+  passes: number | null;
+  key_passes: number | null;
+  assists: number | null;
+  shots: number | null;
+  shots_on_target: number | null;
+  goals: number | null;
+  tackles: number | null;
+  key_tackles: number | null;
+  interceptions: number | null;
+  key_interceptions: number | null;
+  possessions_lost: number | null;
+  gk_saves: number | null;
+  gk_catches: number | null;
   is_starter: boolean;
   sub_number: number | null;
   benched: boolean;
+  stats_incomplete: boolean;
   matches?: MatchInfo | null;
 };
 
 type TotalStats = {
   matches_played: number;
+  matches_with_stats: number;
+  matches_without_stats: number;
   benched: number;
   goals: number;
   assists: number;
@@ -114,9 +117,9 @@ function formatDateTime(iso: string) {
   return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function StatCard({ label, value, subtext, color }: { label: string; value: string | number; subtext?: string; color?: string }) {
+function StatCard({ label, value, subtext, color, tooltip }: { label: string; value: string | number; subtext?: string; color?: string; tooltip?: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4" title={tooltip}>
       <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
       <div className={cx("mt-1 text-2xl font-bold", color)}>{value}</div>
       {subtext && <div className="mt-0.5 text-xs text-white/40">{subtext}</div>}
@@ -153,7 +156,6 @@ export default function PlayerDetailPage() {
     (async () => {
       setLoading(true);
 
-      // Fetch player info
       const { data: playerData, error: playerError } = await supabase
         .from("players")
         .select("id,handle,name,game_user_id,created_at")
@@ -168,21 +170,19 @@ export default function PlayerDetailPage() {
 
       setPlayer(playerData);
 
-      // Fetch all match stats for this player with match details
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,matches(id,played_at,home_team,away_team,home_score,away_score)"
+          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score)"
         )
         .eq("player_id", playerId)
         .order("match_id", { ascending: false });
 
       if (statsError) {
-        // Fallback without match relation
         const { data: statsData2, error: statsError2 } = await supabase
           .from("match_player_stats")
           .select(
-            "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched"
+            "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete"
           )
           .eq("player_id", playerId);
 
@@ -192,7 +192,6 @@ export default function PlayerDetailPage() {
           return;
         }
 
-        // Fetch matches separately
         const matchIds = Array.from(new Set((statsData2 ?? []).map((s) => s.match_id)));
         if (matchIds.length > 0) {
           const { data: matchesData } = await supabase
@@ -206,10 +205,10 @@ export default function PlayerDetailPage() {
           const combined = (statsData2 ?? []).map((s) => ({
             ...s,
             benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
+            stats_incomplete: s.stats_incomplete ?? false,
             matches: matchMap.get(s.match_id) ?? null,
           }));
 
-          // Sort by played_at descending
           combined.sort((a, b) => {
             const aDate = a.matches?.played_at ?? "";
             const bDate = b.matches?.played_at ?? "";
@@ -218,7 +217,6 @@ export default function PlayerDetailPage() {
 
           setMatchStats(combined as MatchPlayerStat[]);
 
-          // Determine last club (from non-benched appearances)
           const playedMatches = combined.filter(c => !c.benched);
           if (playedMatches.length > 0 && playedMatches[0].matches) {
             const lastMatch = playedMatches[0];
@@ -235,14 +233,13 @@ export default function PlayerDetailPage() {
           setMatchStats([]);
         }
       } else {
-        // Normalize matches from array to single object
         const normalized = (statsData ?? []).map((s: any) => ({
           ...s,
           benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
+          stats_incomplete: s.stats_incomplete ?? false,
           matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
         }));
 
-        // Sort by played_at descending
         normalized.sort((a: any, b: any) => {
           const aDate = a.matches?.played_at ?? "";
           const bDate = b.matches?.played_at ?? "";
@@ -251,7 +248,6 @@ export default function PlayerDetailPage() {
         
         setMatchStats(normalized as MatchPlayerStat[]);
 
-        // Determine last club (from non-benched appearances)
         const playedMatches = normalized.filter((n: any) => !n.benched);
         if (playedMatches.length > 0 && playedMatches[0].matches) {
           const lastMatch = playedMatches[0];
@@ -270,27 +266,37 @@ export default function PlayerDetailPage() {
     })();
   }, [playerId]);
 
-  // Separate played matches from benched
   const playedMatches = matchStats.filter(s => !s.benched);
   const benchedMatches = matchStats.filter(s => s.benched);
+  const matchesWithStats = playedMatches.filter(s => !s.stats_incomplete);
+  const matchesWithoutStats = playedMatches.filter(s => s.stats_incomplete);
 
-  // Calculate total stats (only from played matches, not benched)
+  // Calculate total stats (only from played matches with complete stats for detailed stats)
   const totalStats: TotalStats = playedMatches.reduce(
     (acc, s) => {
       acc.matches_played += 1;
-      acc.goals += s.goals ?? 0;
-      acc.assists += s.assists ?? 0;
-      acc.shots += s.shots ?? 0;
-      acc.shots_on_target += s.shots_on_target ?? 0;
-      acc.passes += s.passes ?? 0;
-      acc.key_passes += s.key_passes ?? 0;
-      acc.tackles += s.tackles ?? 0;
-      acc.key_tackles += s.key_tackles ?? 0;
-      acc.interceptions += s.interceptions ?? 0;
-      acc.key_interceptions += s.key_interceptions ?? 0;
-      acc.possessions_lost += s.possessions_lost ?? 0;
-      acc.gk_saves += s.gk_saves ?? 0;
-      acc.gk_catches += s.gk_catches ?? 0;
+      
+      if (s.stats_incomplete) {
+        acc.matches_without_stats += 1;
+      } else {
+        acc.matches_with_stats += 1;
+        // Only add detailed stats if they're available
+        acc.goals += s.goals ?? 0;
+        acc.assists += s.assists ?? 0;
+        acc.shots += s.shots ?? 0;
+        acc.shots_on_target += s.shots_on_target ?? 0;
+        acc.passes += s.passes ?? 0;
+        acc.key_passes += s.key_passes ?? 0;
+        acc.tackles += s.tackles ?? 0;
+        acc.key_tackles += s.key_tackles ?? 0;
+        acc.interceptions += s.interceptions ?? 0;
+        acc.key_interceptions += s.key_interceptions ?? 0;
+        acc.possessions_lost += s.possessions_lost ?? 0;
+        acc.gk_saves += s.gk_saves ?? 0;
+        acc.gk_catches += s.gk_catches ?? 0;
+      }
+      
+      // Score is always available
       acc.total_score += s.score ?? 0;
 
       if (s.is_starter) {
@@ -312,6 +318,8 @@ export default function PlayerDetailPage() {
     },
     {
       matches_played: 0,
+      matches_with_stats: 0,
+      matches_without_stats: 0,
       benched: benchedMatches.length,
       goals: 0,
       assists: 0,
@@ -338,7 +346,6 @@ export default function PlayerDetailPage() {
 
   totalStats.avg_score = totalStats.matches_played > 0 ? totalStats.total_score / totalStats.matches_played : 0;
 
-  // Most played position (from played matches only)
   const positionCounts = playedMatches.reduce((acc, s) => {
     if (s.position) {
       acc[s.position] = (acc[s.position] || 0) + 1;
@@ -348,7 +355,6 @@ export default function PlayerDetailPage() {
 
   const mostPlayedPosition = Object.entries(positionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
-  // Teams played for (unique, from played matches only)
   const teamsPlayedFor = Array.from(new Set(
     playedMatches.map(s => {
       if (!s.matches) return null;
@@ -471,7 +477,16 @@ export default function PlayerDetailPage() {
 
       {/* Total Stats */}
       <div className="mt-8">
-        <div className="text-lg font-semibold">Career Stats</div>
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-semibold">Career Stats</div>
+          {totalStats.matches_without_stats > 0 && (
+            <div className="text-xs text-amber-400/80 flex items-center gap-1">
+              <span>⚠️</span>
+              <span>{totalStats.matches_without_stats} match{totalStats.matches_without_stats !== 1 ? 'es' : ''} with incomplete stats</span>
+            </div>
+          )}
+        </div>
+        
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <StatCard 
             label="Appearances" 
@@ -483,17 +498,28 @@ export default function PlayerDetailPage() {
             value={`${totalStats.wins}W ${totalStats.draws}D ${totalStats.losses}L`}
             subtext={`${totalStats.matches_played > 0 ? ((totalStats.wins / totalStats.matches_played) * 100).toFixed(0) : 0}% win rate`}
           />
-          <StatCard label="Goals" value={totalStats.goals} color="text-emerald-400" />
-          <StatCard label="Assists" value={totalStats.assists} color="text-sky-400" />
+          <StatCard 
+            label="Goals" 
+            value={totalStats.goals} 
+            color="text-emerald-400" 
+            subtext={totalStats.matches_without_stats > 0 ? `from ${totalStats.matches_with_stats} matches` : undefined}
+          />
+          <StatCard 
+            label="Assists" 
+            value={totalStats.assists} 
+            color="text-sky-400" 
+            subtext={totalStats.matches_without_stats > 0 ? `from ${totalStats.matches_with_stats} matches` : undefined}
+          />
           <StatCard
             label="Avg Score"
             value={totalStats.avg_score.toFixed(1)}
             color="text-amber-400"
+            subtext="All matches"
           />
           <StatCard
             label="G+A"
             value={totalStats.goals + totalStats.assists}
-            subtext="Goal contributions"
+            subtext={totalStats.matches_without_stats > 0 ? `from ${totalStats.matches_with_stats} matches` : "Goal contributions"}
             color="text-purple-400"
           />
           <StatCard
@@ -504,16 +530,27 @@ export default function PlayerDetailPage() {
           />
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
-          <StatCard label="Shots" value={totalStats.shots} />
-          <StatCard label="On Target" value={totalStats.shots_on_target} />
-          <StatCard label="Passes" value={totalStats.passes} />
-          <StatCard label="Key Passes" value={totalStats.key_passes} />
-          <StatCard label="Tackles" value={totalStats.tackles} />
-          <StatCard label="Key Tackles" value={totalStats.key_tackles} />
-          <StatCard label="Interceptions" value={totalStats.interceptions} />
-          <StatCard label="Poss. Lost" value={totalStats.possessions_lost} />
-        </div>
+        {/* Detailed stats - only if we have some matches with stats */}
+        {totalStats.matches_with_stats > 0 && (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+              <StatCard label="Shots" value={totalStats.shots} />
+              <StatCard label="On Target" value={totalStats.shots_on_target} />
+              <StatCard label="Passes" value={totalStats.passes} />
+              <StatCard label="Key Passes" value={totalStats.key_passes} />
+              <StatCard label="Tackles" value={totalStats.tackles} />
+              <StatCard label="Key Tackles" value={totalStats.key_tackles} />
+              <StatCard label="Interceptions" value={totalStats.interceptions} />
+              <StatCard label="Poss. Lost" value={totalStats.possessions_lost} />
+            </div>
+
+            {totalStats.matches_without_stats > 0 && (
+              <p className="mt-2 text-xs text-white/40">
+                * Detailed stats from {totalStats.matches_with_stats} of {totalStats.matches_played} matches
+              </p>
+            )}
+          </>
+        )}
 
         {(totalStats.gk_saves > 0 || totalStats.gk_catches > 0) && (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -570,7 +607,10 @@ export default function PlayerDetailPage() {
               return (
                 <div
                   key={s.match_id}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                  className={cx(
+                    "rounded-2xl border border-white/10 bg-white/5 p-4",
+                    s.stats_incomplete && "border-amber-500/20"
+                  )}
                 >
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="flex items-center gap-3">
@@ -600,29 +640,30 @@ export default function PlayerDetailPage() {
                           Sub
                         </span>
                       )}
-                      <span
-                        className={cx(
-                          "rounded-full border px-2 py-0.5 text-xs",
-                          s.team_side === "home"
-                            ? "border-sky-400/30 bg-sky-400/10 text-sky-200"
-                            : "border-rose-400/30 bg-rose-400/10 text-rose-200"
-                        )}
-                      >
-                        {s.team_side}
-                      </span>
+                      {s.stats_incomplete && (
+                        <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200">
+                          Stats N/A
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-4 text-sm">
-                    {s.goals > 0 && (
-                      <span className="text-emerald-400">⚽ {s.goals} goal{s.goals !== 1 ? "s" : ""}</span>
+                    {s.stats_incomplete ? (
+                      <span className="text-amber-400/70">Detailed stats not available</span>
+                    ) : (
+                      <>
+                        {(s.goals ?? 0) > 0 && (
+                          <span className="text-emerald-400">⚽ {s.goals} goal{s.goals !== 1 ? "s" : ""}</span>
+                        )}
+                        {(s.assists ?? 0) > 0 && (
+                          <span className="text-sky-400">🅰️ {s.assists} assist{s.assists !== 1 ? "s" : ""}</span>
+                        )}
+                        <span className="text-white/50">{s.shots ?? 0} shots ({s.shots_on_target ?? 0} on target)</span>
+                        <span className="text-white/50">{s.passes ?? 0} passes ({s.key_passes ?? 0} key)</span>
+                        <span className="text-white/50">{s.tackles ?? 0} tackles</span>
+                      </>
                     )}
-                    {s.assists > 0 && (
-                      <span className="text-sky-400">🅰️ {s.assists} assist{s.assists !== 1 ? "s" : ""}</span>
-                    )}
-                    <span className="text-white/50">{s.shots} shots ({s.shots_on_target} on target)</span>
-                    <span className="text-white/50">{s.passes} passes ({s.key_passes} key)</span>
-                    <span className="text-white/50">{s.tackles} tackles</span>
                     <span className="text-amber-400">Score: {s.score}</span>
                   </div>
                 </div>

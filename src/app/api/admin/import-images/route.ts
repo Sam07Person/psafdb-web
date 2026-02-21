@@ -148,8 +148,10 @@ The images show:
 For player ratings shown as colored badges (green/yellow/red with numbers), extract the number.
 For stats shown as "X (Y)", X is the total and Y is key/on-target.
 
-IMPORTANT: Pay very close attention to player IDs (the alphanumeric codes). These are case-sensitive and must be exact. Common OCR mistakes to avoid:
-- 0 vs O, 1 vs l vs I, G vs Q, x vs s, h vs H vs n
+IMPORTANT: 
+- Pay very close attention to player IDs (the alphanumeric codes). These are case-sensitive and must be exact.
+- Common OCR mistakes to avoid: 0 vs O, 1 vs l vs I, G vs Q, x vs s, h vs H vs n
+- DO NOT assume which team is "home" or "away" based on screen position (left/right). Just label them as "team_1" and "team_2". The actual home/away designation will be determined later by matching to fixtures.
 
 Return ONLY valid JSON with no markdown formatting.`,
         },
@@ -160,7 +162,7 @@ Return ONLY valid JSON with no markdown formatting.`,
               type: "text",
               text: `Extract all match data from these screenshots. Return JSON in this exact format:
 {
-  "home_team": {
+  "team_1": {
     "team_name": "Team Name",
     "possession": 50,
     "passes": 100,
@@ -211,14 +213,16 @@ Return ONLY valid JSON with no markdown formatting.`,
       }
     ]
   },
-  "away_team": { ... same structure ... },
+  "team_2": { ... same structure ... },
   "match_time": "16:05",
   "half": "Second Half"
 }
 
-The home team is on the LEFT side of the match overview image (usually has the team panel at bottom-left).
-The away team is on the RIGHT side (team panel at bottom-right).
-Include all players: starters (is_starter: true) and subs (is_starter: false, sub_number: 1, 2, or 3).`,
+IMPORTANT: 
+- Extract team_1 as the team shown on the LEFT side of the screen
+- Extract team_2 as the team shown on the RIGHT side of the screen  
+- DO NOT assume left=home or right=away - just extract the data as team_1 and team_2
+- Include all players: starters (is_starter: true) and subs (is_starter: false, sub_number: 1, 2, or 3)`,
             },
             ...imageContents,
           ],
@@ -243,13 +247,23 @@ Include all players: starters (is_starter: true) and subs (is_starter: false, su
   else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
   if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
 
-  return JSON.parse(jsonStr.trim());
+  const parsed = JSON.parse(jsonStr.trim());
+
+  // Convert team_1/team_2 to home_team/away_team format for compatibility
+  // (These may be swapped when matching to fixtures)
+  return {
+    home_team: parsed.team_1 || parsed.home_team,
+    away_team: parsed.team_2 || parsed.away_team,
+    match_time: parsed.match_time,
+    half: parsed.half,
+    home_away_unconfirmed: true,
+  };
 }
 
-// Find matching fixture for the extracted match
+// Find matching fixture for the extracted match - tries both team orderings
 async function findMatchingFixture(
-  homeTeam: string,
-  awayTeam: string,
+  team1Name: string,
+  team2Name: string,
   logs: string[]
 ): Promise<{
   id: string;
@@ -258,10 +272,11 @@ async function findMatchingFixture(
   away_team: string;
   played_at: string;
   day: number | null;
+  swapped: boolean; // Indicates if teams need to be swapped
 } | null> {
   if (!supabaseAdmin) return null;
 
-  logs.push(`Looking for fixture: "${homeTeam}" vs "${awayTeam}"`);
+  logs.push(`Looking for fixture with teams: "${team1Name}" and "${team2Name}"`);
 
   // Get all unplayed fixtures (where scores are null)
   const { data: fixtures, error } = await supabaseAdmin
@@ -277,22 +292,33 @@ async function findMatchingFixture(
 
   logs.push(`Found ${fixtures.length} unplayed fixtures to search`);
 
-  // Find fixtures that match the teams
-  const matchingFixtures: typeof fixtures = [];
+  // Find fixtures that match the teams (try both orderings)
+  const matchingFixtures: Array<typeof fixtures[0] & { swapped: boolean }> = [];
 
   for (const fixture of fixtures) {
-    // Check exact order (home vs away)
-    const homeMatches = doTeamNamesMatch(homeTeam, fixture.home_team);
-    const awayMatches = doTeamNamesMatch(awayTeam, fixture.away_team);
+    // Check team1=home, team2=away
+    const team1IsHome = doTeamNamesMatch(team1Name, fixture.home_team);
+    const team2IsAway = doTeamNamesMatch(team2Name, fixture.away_team);
 
-    if (homeMatches && awayMatches) {
-      logs.push(`Found matching fixture: ${fixture.home_team} vs ${fixture.away_team} (${fixture.played_at})`);
-      matchingFixtures.push(fixture);
+    if (team1IsHome && team2IsAway) {
+      logs.push(`Found matching fixture (no swap): ${fixture.home_team} vs ${fixture.away_team}`);
+      matchingFixtures.push({ ...fixture, swapped: false });
+      continue;
+    }
+
+    // Check team1=away, team2=home (swapped)
+    const team1IsAway = doTeamNamesMatch(team1Name, fixture.away_team);
+    const team2IsHome = doTeamNamesMatch(team2Name, fixture.home_team);
+
+    if (team1IsAway && team2IsHome) {
+      logs.push(`Found matching fixture (SWAPPED): ${fixture.home_team} vs ${fixture.away_team}`);
+      logs.push(`  → Will swap: "${team1Name}" is away, "${team2Name}" is home`);
+      matchingFixtures.push({ ...fixture, swapped: true });
     }
   }
 
   if (matchingFixtures.length === 0) {
-    logs.push(`No matching fixture found for "${homeTeam}" vs "${awayTeam}"`);
+    logs.push(`No matching fixture found for "${team1Name}" vs "${team2Name}"`);
     return null;
   }
 
@@ -309,7 +335,7 @@ async function findMatchingFixture(
     }
   }
 
-  logs.push(`Selected fixture (closest to now): ${closestFixture.home_team} vs ${closestFixture.away_team} at ${closestFixture.played_at}`);
+  logs.push(`Selected fixture (closest to now): ${closestFixture.home_team} vs ${closestFixture.away_team} at ${closestFixture.played_at}${closestFixture.swapped ? " [TEAMS WILL BE SWAPPED]" : ""}`);
 
   return {
     id: closestFixture.id,
@@ -318,6 +344,7 @@ async function findMatchingFixture(
     away_team: closestFixture.away_team,
     played_at: closestFixture.played_at,
     day: closestFixture.day,
+    swapped: closestFixture.swapped,
   };
 }
 
@@ -332,23 +359,29 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { images, league_id } = body;
+    const { images, league_id, extractedData: preExtractedData } = body;
 
-    if (!images || !Array.isArray(images) || images.length === 0) {
-      return json(400, { error: "No images provided" });
+    // Use pre-extracted data if provided, otherwise extract from images
+    let extractedData: any;
+
+    if (preExtractedData) {
+      logs.push("Using pre-extracted data from preview");
+      extractedData = preExtractedData;
+    } else {
+      if (!images || !Array.isArray(images) || images.length === 0) {
+        return json(400, { error: "No images provided" });
+      }
+      logs.push(`Received ${images.length} images`);
+      extractedData = await extractDataWithOpenAI(images);
     }
 
     const isAutoMode = league_id === "auto" || league_id === "";
 
-    logs.push(`Received ${images.length} images`);
     logs.push(`League mode: ${isAutoMode ? "Auto (find fixture)" : league_id ? "Manual" : "None"}`);
-
-    const extractedData = await extractDataWithOpenAI(images);
-
-    logs.push(`Extracted data: home_team=${extractedData.home_team?.team_name}, away_team=${extractedData.away_team?.team_name}`);
-    logs.push(`Home goals: ${extractedData.home_team?.goals}, Away goals: ${extractedData.away_team?.goals}`);
-    logs.push(`Home players: ${extractedData.home_team?.players?.length || 0}`);
-    logs.push(`Away players: ${extractedData.away_team?.players?.length || 0}`);
+    logs.push(`Extracted teams: "${extractedData.home_team?.team_name}" and "${extractedData.away_team?.team_name}"`);
+    logs.push(`Team 1 goals: ${extractedData.home_team?.goals}, Team 2 goals: ${extractedData.away_team?.goals}`);
+    logs.push(`Team 1 players: ${extractedData.home_team?.players?.length || 0}`);
+    logs.push(`Team 2 players: ${extractedData.away_team?.players?.length || 0}`);
 
     // Try to find matching fixture in auto mode
     let matchingFixture: Awaited<ReturnType<typeof findMatchingFixture>> = null;
@@ -356,6 +389,11 @@ export async function POST(req: NextRequest) {
     let matchId: string;
     let match: any;
     let isUpdatedFixture = false;
+    let teamsWereSwapped = false;
+
+    // Determine actual home/away teams
+    let homeTeamData = extractedData.home_team;
+    let awayTeamData = extractedData.away_team;
 
     if (isAutoMode) {
       matchingFixture = await findMatchingFixture(
@@ -367,6 +405,14 @@ export async function POST(req: NextRequest) {
       if (matchingFixture) {
         finalLeagueId = matchingFixture.league_id;
         logs.push(`Auto-detected league from fixture: ${finalLeagueId || "none"}`);
+
+        // Swap teams if fixture indicates they're in wrong order
+        if (matchingFixture.swapped) {
+          logs.push(`Swapping teams to match fixture: home=${matchingFixture.home_team}, away=${matchingFixture.away_team}`);
+          homeTeamData = extractedData.away_team;
+          awayTeamData = extractedData.home_team;
+          teamsWereSwapped = true;
+        }
       } else {
         logs.push(`No fixture found, will create as non-league match`);
       }
@@ -374,14 +420,18 @@ export async function POST(req: NextRequest) {
       finalLeagueId = league_id;
     }
 
+    // Use fixture team names if available (they're the canonical names)
+    const finalHomeTeamName = matchingFixture ? matchingFixture.home_team : homeTeamData.team_name;
+    const finalAwayTeamName = matchingFixture ? matchingFixture.away_team : awayTeamData.team_name;
+
     if (matchingFixture) {
       // Update existing fixture with scores
       const { data: updatedMatch, error: updateError } = await supabaseAdmin
         .from("matches")
         .update({
-          home_score: extractedData.home_team.goals,
-          away_score: extractedData.away_team.goals,
-          played_at: new Date().toISOString(), // Update to actual play time
+          home_score: homeTeamData.goals,
+          away_score: awayTeamData.goals,
+          played_at: new Date().toISOString(),
         })
         .eq("id", matchingFixture.id)
         .select()
@@ -400,10 +450,10 @@ export async function POST(req: NextRequest) {
         .insert({
           league_id: finalLeagueId,
           played_at: new Date().toISOString(),
-          home_team: extractedData.home_team.team_name,
-          away_team: extractedData.away_team.team_name,
-          home_score: extractedData.home_team.goals,
-          away_score: extractedData.away_team.goals,
+          home_team: finalHomeTeamName,
+          away_team: finalAwayTeamName,
+          home_score: homeTeamData.goals,
+          away_score: awayTeamData.goals,
         })
         .select()
         .single();
@@ -422,63 +472,63 @@ export async function POST(req: NextRequest) {
       logs.push(`Cleared existing stats for fixture`);
     }
 
-    // Insert team stats
+    // Insert team stats (using correctly ordered teams)
     const homeTeamStats = {
       match_id: matchId,
-      team_name: extractedData.home_team.team_name,
+      team_name: finalHomeTeamName,
       team_side: "home",
       is_home: true,
-      possession: extractedData.home_team.possession,
-      passes: extractedData.home_team.passes,
-      key_passes: extractedData.home_team.key_passes,
-      assists: extractedData.home_team.assists,
-      shots: extractedData.home_team.shots,
-      shots_on_target: extractedData.home_team.shots_on_target,
-      goals: extractedData.home_team.goals,
-      tackles: extractedData.home_team.tackles,
-      key_tackles: extractedData.home_team.key_tackles,
-      interceptions: extractedData.home_team.interceptions,
-      key_interceptions: extractedData.home_team.key_interceptions,
-      possessions_lost: extractedData.home_team.possessions_lost,
-      goal_kicks: extractedData.home_team.goal_kicks,
-      corner_kicks: extractedData.home_team.corner_kicks,
-      throw_ins: extractedData.home_team.throw_ins,
-      free_kicks: extractedData.home_team.free_kicks,
-      penalties: extractedData.home_team.penalties,
-      fouls: extractedData.home_team.fouls,
-      offsides: extractedData.home_team.offsides,
-      set_piece_timeouts: extractedData.home_team.set_piece_timeouts || 0,
-      yellow_cards: extractedData.home_team.yellow_cards,
-      red_cards: extractedData.home_team.red_cards,
+      possession: homeTeamData.possession,
+      passes: homeTeamData.passes,
+      key_passes: homeTeamData.key_passes,
+      assists: homeTeamData.assists,
+      shots: homeTeamData.shots,
+      shots_on_target: homeTeamData.shots_on_target,
+      goals: homeTeamData.goals,
+      tackles: homeTeamData.tackles,
+      key_tackles: homeTeamData.key_tackles,
+      interceptions: homeTeamData.interceptions,
+      key_interceptions: homeTeamData.key_interceptions,
+      possessions_lost: homeTeamData.possessions_lost,
+      goal_kicks: homeTeamData.goal_kicks,
+      corner_kicks: homeTeamData.corner_kicks,
+      throw_ins: homeTeamData.throw_ins,
+      free_kicks: homeTeamData.free_kicks,
+      penalties: homeTeamData.penalties,
+      fouls: homeTeamData.fouls,
+      offsides: homeTeamData.offsides,
+      set_piece_timeouts: homeTeamData.set_piece_timeouts || 0,
+      yellow_cards: homeTeamData.yellow_cards,
+      red_cards: homeTeamData.red_cards,
     };
 
     const awayTeamStats = {
       match_id: matchId,
-      team_name: extractedData.away_team.team_name,
+      team_name: finalAwayTeamName,
       team_side: "away",
       is_home: false,
-      possession: extractedData.away_team.possession,
-      passes: extractedData.away_team.passes,
-      key_passes: extractedData.away_team.key_passes,
-      assists: extractedData.away_team.assists,
-      shots: extractedData.away_team.shots,
-      shots_on_target: extractedData.away_team.shots_on_target,
-      goals: extractedData.away_team.goals,
-      tackles: extractedData.away_team.tackles,
-      key_tackles: extractedData.away_team.key_tackles,
-      interceptions: extractedData.away_team.interceptions,
-      key_interceptions: extractedData.away_team.key_interceptions,
-      possessions_lost: extractedData.away_team.possessions_lost,
-      goal_kicks: extractedData.away_team.goal_kicks,
-      corner_kicks: extractedData.away_team.corner_kicks,
-      throw_ins: extractedData.away_team.throw_ins,
-      free_kicks: extractedData.away_team.free_kicks,
-      penalties: extractedData.away_team.penalties,
-      fouls: extractedData.away_team.fouls,
-      offsides: extractedData.away_team.offsides,
-      set_piece_timeouts: extractedData.away_team.set_piece_timeouts || 0,
-      yellow_cards: extractedData.away_team.yellow_cards,
-      red_cards: extractedData.away_team.red_cards,
+      possession: awayTeamData.possession,
+      passes: awayTeamData.passes,
+      key_passes: awayTeamData.key_passes,
+      assists: awayTeamData.assists,
+      shots: awayTeamData.shots,
+      shots_on_target: awayTeamData.shots_on_target,
+      goals: awayTeamData.goals,
+      tackles: awayTeamData.tackles,
+      key_tackles: awayTeamData.key_tackles,
+      interceptions: awayTeamData.interceptions,
+      key_interceptions: awayTeamData.key_interceptions,
+      possessions_lost: awayTeamData.possessions_lost,
+      goal_kicks: awayTeamData.goal_kicks,
+      corner_kicks: awayTeamData.corner_kicks,
+      throw_ins: awayTeamData.throw_ins,
+      free_kicks: awayTeamData.free_kicks,
+      penalties: awayTeamData.penalties,
+      fouls: awayTeamData.fouls,
+      offsides: awayTeamData.offsides,
+      set_piece_timeouts: awayTeamData.set_piece_timeouts || 0,
+      yellow_cards: awayTeamData.yellow_cards,
+      red_cards: awayTeamData.red_cards,
     };
 
     const { error: teamStatsError } = await supabaseAdmin
@@ -503,21 +553,21 @@ export async function POST(req: NextRequest) {
     const { data: recentHomeMatches } = await supabaseAdmin
       .from("matches")
       .select("id")
-      .or(`home_team.eq.${extractedData.home_team.team_name},away_team.eq.${extractedData.home_team.team_name}`)
+      .or(`home_team.eq.${finalHomeTeamName},away_team.eq.${finalHomeTeamName}`)
       .order("played_at", { ascending: false })
       .limit(5);
 
     const { data: recentAwayMatches } = await supabaseAdmin
       .from("matches")
       .select("id")
-      .or(`home_team.eq.${extractedData.away_team.team_name},away_team.eq.${extractedData.away_team.team_name}`)
+      .or(`home_team.eq.${finalAwayTeamName},away_team.eq.${finalAwayTeamName}`)
       .order("played_at", { ascending: false })
       .limit(5);
 
     const recentMatchIds = [
       ...(recentHomeMatches || []).map(m => m.id),
       ...(recentAwayMatches || []).map(m => m.id),
-    ].filter(id => id !== matchId); // Exclude current match
+    ].filter(id => id !== matchId);
 
     let recentPlayers: any[] = [];
     if (recentMatchIds.length > 0) {
@@ -544,20 +594,28 @@ export async function POST(req: NextRequest) {
     const playersCreated: string[] = [];
     const playersMatched: string[] = [];
 
+    // In extractDataWithOpenAI, add the same logic as above for detecting single image
+
+    // Update the processPlayer function to handle stats_incomplete:
+
     const processPlayer = async (p: any, teamSide: "home" | "away") => {
       if (!p.user_id && !p.name) {
         errors.push(`Player missing both user_id and name`);
         return null;
       }
 
-      // Determine if player was benched (sub with 0 score = didn't play)
       const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
+      const statsIncomplete = p.stats_incomplete ?? false;
 
       if (isBenched) {
         logs.push(`📋 ${p.name} marked as benched (Sub ${p.sub_number}, score: ${p.score || 0})`);
       }
 
-      logs.push(`Processing player: ${p.name} (${p.user_id || 'no user_id'})${isBenched ? ' [BENCHED]' : ''}`);
+      if (statsIncomplete) {
+        logs.push(`⚠️ ${p.name} has incomplete stats (basic view only)`);
+      }
+
+      logs.push(`Processing player: ${p.name} (${p.user_id || 'no user_id'})${isBenched ? ' [BENCHED]' : ''}${statsIncomplete ? ' [STATS INCOMPLETE]' : ''}`);
 
       try {
         let playerId: string | null = null;
@@ -584,7 +642,19 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // CHECK 3: Check recent team matches for similar player IDs
+        // CHECK 3: Similar player ID only (for OCR errors)
+        if (!playerId && p.user_id) {
+          for (const pl of playersList) {
+            if (pl.game_user_id && arePlayerIdsSimilar(p.user_id, pl.game_user_id)) {
+              playerId = pl.id;
+              matchMethod = `similar ID (${pl.game_user_id} ≈ ${p.user_id})`;
+              logs.push(`🔧 Fuzzy ID match: "${p.name}" ID ${p.user_id} -> "${pl.name}" (${pl.game_user_id})`);
+              break;
+            }
+          }
+        }
+
+        // CHECK 4: Check recent team matches for similar player IDs
         if (!playerId && p.user_id && recentPlayers.length > 0) {
           for (const pl of recentPlayers) {
             if (arePlayerIdsSimilar(p.user_id, pl.game_user_id)) {
@@ -596,34 +666,14 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // CHECK 4: Exact match by name (fallback)
-        if (!playerId && p.name) {
-          const nameMatch = playersList.find(pl =>
-            pl.name?.toLowerCase() === p.name.toLowerCase()
+        // CHECK 5: Exact match by game_user_id with different casing
+        if (!playerId && p.user_id) {
+          const caseInsensitiveMatch = playersList.find(pl =>
+            pl.game_user_id?.toLowerCase() === p.user_id.toLowerCase()
           );
-          if (nameMatch) {
-            playerId = nameMatch.id;
-            matchMethod = "exact name";
-
-            if (!nameMatch.game_user_id && p.user_id) {
-              await supabaseAdmin!
-                .from("players")
-                .update({ game_user_id: p.user_id })
-                .eq("id", playerId);
-              logs.push(`Updated game_user_id for ${p.name}`);
-            }
-          }
-        }
-
-        // CHECK 5: Similar name only (last resort before creating)
-        if (!playerId && p.name) {
-          for (const pl of playersList) {
-            if (areNamesSimilar(p.name, pl.name)) {
-              playerId = pl.id;
-              matchMethod = `similar name (${pl.name} ≈ ${p.name})`;
-              logs.push(`🔧 Name fuzzy match: "${p.name}" -> "${pl.name}"`);
-              break;
-            }
+          if (caseInsensitiveMatch) {
+            playerId = caseInsensitiveMatch.id;
+            matchMethod = "case-insensitive game_user_id";
           }
         }
 
@@ -645,7 +695,7 @@ export async function POST(req: NextRequest) {
           }
 
           playerId = newPlayer.id;
-          playersCreated.push(p.name);
+          playersCreated.push(`${p.name} (${p.user_id || 'no ID'})`);
           matchMethod = "created new";
 
           playersList.push({
@@ -658,13 +708,14 @@ export async function POST(req: NextRequest) {
           playersMatched.push(`${p.name} (${matchMethod})`);
         }
 
-        logs.push(`✓ ${p.name} -> ${playerId} [${matchMethod}]${isBenched ? ' [BENCHED]' : ''}`);
+        logs.push(`✓ ${p.name} -> ${playerId} [${matchMethod}]${isBenched ? ' [BENCHED]' : ''}${statsIncomplete ? ' [INCOMPLETE]' : ''}`);
 
         return {
           match_id: matchId,
           player_id: playerId,
           team_side: teamSide,
           position: p.position,
+          // Use 0 for incomplete stats, the stats_incomplete flag tracks that they're missing
           goals: p.goals || 0,
           assists: p.assists || 0,
           shots: p.shots || 0,
@@ -682,7 +733,8 @@ export async function POST(req: NextRequest) {
           gk_catches: p.gk_catches || 0,
           is_starter: p.is_starter ?? true,
           sub_number: p.sub_number || null,
-          benched: isBenched,  // NEW: Track if player was benched
+          benched: isBenched,
+          stats_incomplete: statsIncomplete,
         };
       } catch (err: any) {
         errors.push(`Player ${p.name} exception: ${err.message}`);
@@ -691,13 +743,13 @@ export async function POST(req: NextRequest) {
     };
 
     // Process home team players
-    for (const player of extractedData.home_team.players || []) {
+    for (const player of homeTeamData.players || []) {
       const stats = await processPlayer(player, "home");
       if (stats) allPlayerStats.push(stats);
     }
 
     // Process away team players
-    for (const player of extractedData.away_team.players || []) {
+    for (const player of awayTeamData.players || []) {
       const stats = await processPlayer(player, "away");
       if (stats) allPlayerStats.push(stats);
     }
@@ -734,12 +786,15 @@ export async function POST(req: NextRequest) {
       match,
       extracted: extractedData,
       fixtureUpdated: isUpdatedFixture,
+      teamsSwapped: teamsWereSwapped,
+      hasDetailedStats: extractedData.has_detailed_stats ?? true,
       fixtureInfo: matchingFixture ? {
         id: matchingFixture.id,
         originalHomeTeam: matchingFixture.home_team,
         originalAwayTeam: matchingFixture.away_team,
         scheduledAt: matchingFixture.played_at,
         day: matchingFixture.day,
+        swapped: matchingFixture.swapped,
       } : null,
       league: finalLeagueId ? { id: finalLeagueId, name: leagueName } : null,
       errors: errors.length > 0 ? errors : null,
@@ -750,8 +805,9 @@ export async function POST(req: NextRequest) {
         playersCreated,
         playersMatched,
         playerStatsCount: allPlayerStats.length,
-        homePlayersExtracted: extractedData.home_team.players?.length || 0,
-        awayPlayersExtracted: extractedData.away_team.players?.length || 0,
+        homePlayersExtracted: homeTeamData.players?.length || 0,
+        awayPlayersExtracted: awayTeamData.players?.length || 0,
+        playersWithIncompleteStats: allPlayerStats.filter(s => s.stats_incomplete).length,
       },
     });
   } catch (error: any) {
