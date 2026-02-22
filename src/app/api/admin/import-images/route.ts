@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  matchPlayer,
+  DbPlayer,
+  ExtractedPlayer,
+  TeamRosterContext,
+  ocrAwareSimilarity,
+  isValidPlayerId,
+  levenshteinDistance,
+} from "@/lib/playerMatcher";
 
 function json(status: number, body: unknown) {
   return NextResponse.json(body, { status });
@@ -22,76 +31,6 @@ function requireAuth(req: NextRequest) {
   if (!token || token !== expected) return { ok: false as const, error: "Invalid token" };
 
   return { ok: true as const };
-}
-
-// Calculate Levenshtein distance between two strings
-function levenshteinDistance(str1: string, str2: string): number {
-  const m = str1.length;
-  const n = str2.length;
-  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (str1[i - 1] === str2[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1];
-      } else {
-        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-      }
-    }
-  }
-
-  return dp[m][n];
-}
-
-// Check if two strings are similar (case-insensitive, allows for OCR-like errors)
-function areSimilar(str1: string | null, str2: string | null, maxDistance: number = 2): boolean {
-  if (!str1 || !str2) return false;
-
-  if (str1.toLowerCase() === str2.toLowerCase()) return true;
-
-  if (Math.abs(str1.length - str2.length) <= 1) {
-    const distance = levenshteinDistance(str1.toLowerCase(), str2.toLowerCase());
-    return distance <= maxDistance;
-  }
-
-  return false;
-}
-
-// Check if player IDs are similar (stricter - same length, max 2 char difference)
-function arePlayerIdsSimilar(id1: string | null, id2: string | null): boolean {
-  if (!id1 || !id2) return false;
-
-  if (id1.length !== id2.length) return false;
-
-  if (id1.toLowerCase() === id2.toLowerCase()) return true;
-
-  let differences = 0;
-  for (let i = 0; i < id1.length; i++) {
-    if (id1[i].toLowerCase() !== id2[i].toLowerCase()) {
-      differences++;
-      if (differences > 2) return false;
-    }
-  }
-
-  return differences <= 2;
-}
-
-// Check if names are similar
-function areNamesSimilar(name1: string | null, name2: string | null): boolean {
-  if (!name1 || !name2) return false;
-
-  const n1 = name1.toLowerCase().trim();
-  const n2 = name2.toLowerCase().trim();
-
-  if (n1 === n2) return true;
-
-  if (n1.includes(n2) || n2.includes(n1)) return true;
-
-  const maxDistance = Math.max(2, Math.floor(Math.min(n1.length, n2.length) / 4));
-  return levenshteinDistance(n1, n2) <= maxDistance;
 }
 
 // Normalize team name for comparison
@@ -148,10 +87,13 @@ The images show:
 For player ratings shown as colored badges (green/yellow/red with numbers), extract the number.
 For stats shown as "X (Y)", X is the total and Y is key/on-target.
 
-IMPORTANT: 
-- Pay very close attention to player IDs (the alphanumeric codes). These are case-sensitive and must be exact.
-- Common OCR mistakes to avoid: 0 vs O, 1 vs l vs I, G vs Q, x vs s, h vs H vs n
-- DO NOT assume which team is "home" or "away" based on screen position (left/right). Just label them as "team_1" and "team_2". The actual home/away designation will be determined later by matching to fixtures.
+CRITICAL FOR PLAYER IDs:
+- Player IDs are 8 character alphanumeric codes shown next to player names
+- Extract them EXACTLY as shown - they are case-sensitive
+- Common OCR mistakes to watch for: 0 vs O, 1 vs l vs I, 5 vs S, 8 vs B, 6 vs G
+- If uncertain about a character, prefer the alphanumeric interpretation (e.g., prefer "0" over "O" for round characters)
+
+DO NOT assume which team is "home" or "away" based on screen position. Just label them as "team_1" and "team_2".
 
 Return ONLY valid JSON with no markdown formatting.`,
         },
@@ -190,7 +132,7 @@ Return ONLY valid JSON with no markdown formatting.`,
       {
         "position": "GK",
         "name": "Player Name",
-        "user_id": "abc123",
+        "user_id": "abc12345",
         "level": 70,
         "overall_rating": 85,
         "ping": 50,
@@ -249,8 +191,6 @@ IMPORTANT:
 
   const parsed = JSON.parse(jsonStr.trim());
 
-  // Convert team_1/team_2 to home_team/away_team format for compatibility
-  // (These may be swapped when matching to fixtures)
   return {
     home_team: parsed.team_1 || parsed.home_team,
     away_team: parsed.team_2 || parsed.away_team,
@@ -260,7 +200,7 @@ IMPORTANT:
   };
 }
 
-// Find matching fixture for the extracted match - tries both team orderings
+// Find matching fixture for the extracted match
 async function findMatchingFixture(
   team1Name: string,
   team2Name: string,
@@ -272,13 +212,12 @@ async function findMatchingFixture(
   away_team: string;
   played_at: string;
   day: number | null;
-  swapped: boolean; // Indicates if teams need to be swapped
+  swapped: boolean;
 } | null> {
   if (!supabaseAdmin) return null;
 
   logs.push(`Looking for fixture with teams: "${team1Name}" and "${team2Name}"`);
 
-  // Get all unplayed fixtures (where scores are null)
   const { data: fixtures, error } = await supabaseAdmin
     .from("matches")
     .select("id, league_id, home_team, away_team, played_at, home_score, away_score, day")
@@ -292,11 +231,9 @@ async function findMatchingFixture(
 
   logs.push(`Found ${fixtures.length} unplayed fixtures to search`);
 
-  // Find fixtures that match the teams (try both orderings)
   const matchingFixtures: Array<typeof fixtures[0] & { swapped: boolean }> = [];
 
   for (const fixture of fixtures) {
-    // Check team1=home, team2=away
     const team1IsHome = doTeamNamesMatch(team1Name, fixture.home_team);
     const team2IsAway = doTeamNamesMatch(team2Name, fixture.away_team);
 
@@ -306,23 +243,20 @@ async function findMatchingFixture(
       continue;
     }
 
-    // Check team1=away, team2=home (swapped)
     const team1IsAway = doTeamNamesMatch(team1Name, fixture.away_team);
     const team2IsHome = doTeamNamesMatch(team2Name, fixture.home_team);
 
     if (team1IsAway && team2IsHome) {
       logs.push(`Found matching fixture (SWAPPED): ${fixture.home_team} vs ${fixture.away_team}`);
-      logs.push(`  → Will swap: "${team1Name}" is away, "${team2Name}" is home`);
       matchingFixtures.push({ ...fixture, swapped: true });
     }
   }
 
   if (matchingFixtures.length === 0) {
-    logs.push(`No matching fixture found for "${team1Name}" vs "${team2Name}"`);
+    logs.push(`No matching fixture found`);
     return null;
   }
 
-  // If multiple matches, pick the one closest to now
   const now = new Date().getTime();
   let closestFixture = matchingFixtures[0];
   let closestDistance = Math.abs(new Date(closestFixture.played_at).getTime() - now);
@@ -335,8 +269,6 @@ async function findMatchingFixture(
     }
   }
 
-  logs.push(`Selected fixture (closest to now): ${closestFixture.home_team} vs ${closestFixture.away_team} at ${closestFixture.played_at}${closestFixture.swapped ? " [TEAMS WILL BE SWAPPED]" : ""}`);
-
   return {
     id: closestFixture.id,
     league_id: closestFixture.league_id,
@@ -345,6 +277,47 @@ async function findMatchingFixture(
     played_at: closestFixture.played_at,
     day: closestFixture.day,
     swapped: closestFixture.swapped,
+  };
+}
+
+// Get team roster context for player matching
+async function getTeamRoster(
+  teamName: string,
+  allPlayers: DbPlayer[],
+  logs: string[]
+): Promise<TeamRosterContext | null> {
+  if (!supabaseAdmin || !teamName) return null;
+
+  const { data: recentMatches } = await supabaseAdmin
+    .from("matches")
+    .select("id")
+    .or(`home_team.ilike.%${normalizeTeamName(teamName)}%,away_team.ilike.%${normalizeTeamName(teamName)}%`)
+    .order("played_at", { ascending: false })
+    .limit(10);
+
+  if (!recentMatches || recentMatches.length === 0) {
+    logs.push(`No recent matches found for team: ${teamName}`);
+    return null;
+  }
+
+  const matchIds = recentMatches.map(m => m.id);
+
+  const { data: recentStats } = await supabaseAdmin
+    .from("match_player_stats")
+    .select("player_id")
+    .in("match_id", matchIds);
+
+  if (!recentStats) return null;
+
+  const recentPlayerIds = [...new Set(recentStats.map(s => s.player_id))];
+  const recentPlayers = allPlayers.filter(p => recentPlayerIds.includes(p.id));
+
+  logs.push(`Found ${recentPlayers.length} recent players for team: ${teamName}`);
+
+  return {
+    teamName,
+    recentPlayerIds,
+    recentPlayers,
   };
 }
 
@@ -361,7 +334,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { images, league_id, extractedData: preExtractedData } = body;
 
-    // Use pre-extracted data if provided, otherwise extract from images
     let extractedData: any;
 
     if (preExtractedData) {
@@ -379,11 +351,7 @@ export async function POST(req: NextRequest) {
 
     logs.push(`League mode: ${isAutoMode ? "Auto (find fixture)" : league_id ? "Manual" : "None"}`);
     logs.push(`Extracted teams: "${extractedData.home_team?.team_name}" and "${extractedData.away_team?.team_name}"`);
-    logs.push(`Team 1 goals: ${extractedData.home_team?.goals}, Team 2 goals: ${extractedData.away_team?.goals}`);
-    logs.push(`Team 1 players: ${extractedData.home_team?.players?.length || 0}`);
-    logs.push(`Team 2 players: ${extractedData.away_team?.players?.length || 0}`);
 
-    // Try to find matching fixture in auto mode
     let matchingFixture: Awaited<ReturnType<typeof findMatchingFixture>> = null;
     let finalLeagueId: string | null = null;
     let matchId: string;
@@ -391,7 +359,6 @@ export async function POST(req: NextRequest) {
     let isUpdatedFixture = false;
     let teamsWereSwapped = false;
 
-    // Determine actual home/away teams
     let homeTeamData = extractedData.home_team;
     let awayTeamData = extractedData.away_team;
 
@@ -404,28 +371,21 @@ export async function POST(req: NextRequest) {
 
       if (matchingFixture) {
         finalLeagueId = matchingFixture.league_id;
-        logs.push(`Auto-detected league from fixture: ${finalLeagueId || "none"}`);
-
-        // Swap teams if fixture indicates they're in wrong order
         if (matchingFixture.swapped) {
-          logs.push(`Swapping teams to match fixture: home=${matchingFixture.home_team}, away=${matchingFixture.away_team}`);
+          logs.push(`Swapping teams to match fixture`);
           homeTeamData = extractedData.away_team;
           awayTeamData = extractedData.home_team;
           teamsWereSwapped = true;
         }
-      } else {
-        logs.push(`No fixture found, will create as non-league match`);
       }
     } else if (league_id && league_id !== "auto") {
       finalLeagueId = league_id;
     }
 
-    // Use fixture team names if available (they're the canonical names)
     const finalHomeTeamName = matchingFixture ? matchingFixture.home_team : homeTeamData.team_name;
     const finalAwayTeamName = matchingFixture ? matchingFixture.away_team : awayTeamData.team_name;
 
     if (matchingFixture) {
-      // Update existing fixture with scores
       const { data: updatedMatch, error: updateError } = await supabaseAdmin
         .from("matches")
         .update({
@@ -442,9 +402,7 @@ export async function POST(req: NextRequest) {
       match = updatedMatch;
       matchId = matchingFixture.id;
       isUpdatedFixture = true;
-      logs.push(`Updated existing fixture: ${matchId}`);
     } else {
-      // Create new match
       const { data: newMatch, error: matchError } = await supabaseAdmin
         .from("matches")
         .insert({
@@ -462,17 +420,15 @@ export async function POST(req: NextRequest) {
 
       match = newMatch;
       matchId = newMatch.id;
-      logs.push(`Created new match: ${matchId}`);
     }
 
-    // Delete existing team stats and player stats if updating a fixture
     if (isUpdatedFixture) {
       await supabaseAdmin.from("match_team_stats").delete().eq("match_id", matchId);
       await supabaseAdmin.from("match_player_stats").delete().eq("match_id", matchId);
       logs.push(`Cleared existing stats for fixture`);
     }
 
-    // Insert team stats (using correctly ordered teams)
+    // Insert team stats
     const homeTeamStats = {
       match_id: matchId,
       team_name: finalHomeTeamName,
@@ -537,68 +493,27 @@ export async function POST(req: NextRequest) {
 
     if (teamStatsError) {
       errors.push(`Team stats: ${teamStatsError.message}`);
-    } else {
-      logs.push("Team stats inserted successfully");
     }
 
-    // Fetch all players for fuzzy matching
-    const { data: allPlayers } = await supabaseAdmin
+    // Fetch all players for matching
+    const { data: allPlayersData } = await supabaseAdmin
       .from("players")
       .select("id, name, handle, game_user_id");
 
-    const playersList = allPlayers || [];
-    logs.push(`Loaded ${playersList.length} existing players for matching`);
+    const allPlayers: DbPlayer[] = allPlayersData || [];
+    logs.push(`Loaded ${allPlayers.length} existing players for matching`);
 
-    // Fetch recent matches for the teams to get player history
-    const { data: recentHomeMatches } = await supabaseAdmin
-      .from("matches")
-      .select("id")
-      .or(`home_team.eq.${finalHomeTeamName},away_team.eq.${finalHomeTeamName}`)
-      .order("played_at", { ascending: false })
-      .limit(5);
+    // Get team rosters for multi-factor matching
+    const homeRoster = await getTeamRoster(finalHomeTeamName, allPlayers, logs);
+    const awayRoster = await getTeamRoster(finalAwayTeamName, allPlayers, logs);
 
-    const { data: recentAwayMatches } = await supabaseAdmin
-      .from("matches")
-      .select("id")
-      .or(`home_team.eq.${finalAwayTeamName},away_team.eq.${finalAwayTeamName}`)
-      .order("played_at", { ascending: false })
-      .limit(5);
-
-    const recentMatchIds = [
-      ...(recentHomeMatches || []).map(m => m.id),
-      ...(recentAwayMatches || []).map(m => m.id),
-    ].filter(id => id !== matchId);
-
-    let recentPlayers: any[] = [];
-    if (recentMatchIds.length > 0) {
-      const { data: recentStats } = await supabaseAdmin
-        .from("match_player_stats")
-        .select("player_id")
-        .in("match_id", recentMatchIds);
-
-      const recentPlayerIds = [...new Set((recentStats || []).map(s => s.player_id))];
-
-      if (recentPlayerIds.length > 0) {
-        const { data: recentPlayerData } = await supabaseAdmin
-          .from("players")
-          .select("id, name, handle, game_user_id")
-          .in("id", recentPlayerIds);
-
-        recentPlayers = recentPlayerData || [];
-      }
-      logs.push(`Found ${recentPlayers.length} players from recent team matches`);
-    }
-
-    // Process players
+    // Process players with multi-factor matching
     const allPlayerStats: any[] = [];
     const playersCreated: string[] = [];
     const playersMatched: string[] = [];
+    const playersNeedingReview: string[] = [];
 
-    // In extractDataWithOpenAI, add the same logic as above for detecting single image
-
-    // Update the processPlayer function to handle stats_incomplete:
-
-    const processPlayer = async (p: any, teamSide: "home" | "away") => {
+    const processPlayer = async (p: any, teamSide: "home" | "away", teamRoster: TeamRosterContext | null) => {
       if (!p.user_id && !p.name) {
         errors.push(`Player missing both user_id and name`);
         return null;
@@ -607,77 +522,45 @@ export async function POST(req: NextRequest) {
       const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
       const statsIncomplete = p.stats_incomplete ?? false;
 
-      if (isBenched) {
-        logs.push(`📋 ${p.name} marked as benched (Sub ${p.sub_number}, score: ${p.score || 0})`);
-      }
-
-      if (statsIncomplete) {
-        logs.push(`⚠️ ${p.name} has incomplete stats (basic view only)`);
-      }
-
-      logs.push(`Processing player: ${p.name} (${p.user_id || 'no user_id'})${isBenched ? ' [BENCHED]' : ''}${statsIncomplete ? ' [STATS INCOMPLETE]' : ''}`);
+      logs.push(`Processing player: ${p.name} (${p.user_id || 'no user_id'})${isBenched ? ' [BENCHED]' : ''}`);
 
       try {
         let playerId: string | null = null;
         let matchMethod = "";
+        let confidence = 0;
 
-        // CHECK 1: Exact match by game_user_id
-        if (p.user_id) {
-          const exactMatch = playersList.find(pl => pl.game_user_id === p.user_id);
-          if (exactMatch) {
-            playerId = exactMatch.id;
-            matchMethod = "exact game_user_id";
-          }
-        }
-
-        // CHECK 2: Similar player ID + similar name (OCR error correction)
-        if (!playerId && p.user_id && p.name) {
-          for (const pl of playersList) {
-            if (arePlayerIdsSimilar(p.user_id, pl.game_user_id) && areNamesSimilar(p.name, pl.name)) {
-              playerId = pl.id;
-              matchMethod = `similar ID+name (${pl.game_user_id} ≈ ${p.user_id})`;
-              logs.push(`🔧 Fuzzy match: "${p.name}" ID ${p.user_id} -> ${pl.game_user_id}`);
-              break;
-            }
-          }
-        }
-
-        // CHECK 3: Similar player ID only (for OCR errors)
-        if (!playerId && p.user_id) {
-          for (const pl of playersList) {
-            if (pl.game_user_id && arePlayerIdsSimilar(p.user_id, pl.game_user_id)) {
-              playerId = pl.id;
-              matchMethod = `similar ID (${pl.game_user_id} ≈ ${p.user_id})`;
-              logs.push(`🔧 Fuzzy ID match: "${p.name}" ID ${p.user_id} -> "${pl.name}" (${pl.game_user_id})`);
-              break;
-            }
-          }
-        }
-
-        // CHECK 4: Check recent team matches for similar player IDs
-        if (!playerId && p.user_id && recentPlayers.length > 0) {
-          for (const pl of recentPlayers) {
-            if (arePlayerIdsSimilar(p.user_id, pl.game_user_id)) {
-              playerId = pl.id;
-              matchMethod = `similar ID in recent matches (${pl.game_user_id} ≈ ${p.user_id})`;
-              logs.push(`🔧 Recent match fuzzy: "${p.name}" ID ${p.user_id} -> ${pl.name} (${pl.game_user_id})`);
-              break;
-            }
-          }
-        }
-
-        // CHECK 5: Exact match by game_user_id with different casing
-        if (!playerId && p.user_id) {
-          const caseInsensitiveMatch = playersList.find(pl =>
-            pl.game_user_id?.toLowerCase() === p.user_id.toLowerCase()
+        // Check if player has a pre-selected match from UI validation
+        if (p.matchResult?.playerId) {
+          playerId = p.matchResult.playerId;
+          matchMethod = `user_selected (${p.matchResult.matchMethod})`;
+          confidence = p.matchResult.confidence;
+          logs.push(`✓ Using pre-selected match: ${playerId}`);
+        } else {
+          // Use multi-factor matching
+          const matchResult = matchPlayer(
+            {
+              position: p.position,
+              name: p.name,
+              user_id: p.user_id,
+              level: p.level,
+              overall_rating: p.overall_rating,
+              score: p.score,
+            },
+            allPlayers,
+            teamRoster,
+            logs
           );
-          if (caseInsensitiveMatch) {
-            playerId = caseInsensitiveMatch.id;
-            matchMethod = "case-insensitive game_user_id";
+
+          playerId = matchResult.playerId;
+          matchMethod = matchResult.matchMethod;
+          confidence = matchResult.confidence;
+
+          if (matchResult.needsUserReview) {
+            playersNeedingReview.push(`${p.name} (${p.user_id || 'no ID'})`);
           }
         }
 
-        // If still not found, create new player
+        // If still no match, create new player
         if (!playerId) {
           const { data: newPlayer, error: createError } = await supabaseAdmin!
             .from("players")
@@ -696,26 +579,32 @@ export async function POST(req: NextRequest) {
 
           playerId = newPlayer.id;
           playersCreated.push(`${p.name} (${p.user_id || 'no ID'})`);
-          matchMethod = "created new";
+          matchMethod = "created_new";
 
-          playersList.push({
-            id: playerId,
+          // Add to players list for subsequent matching
+          allPlayers.push({
+            id: newPlayer.id,
             name: p.name,
             handle: p.user_id,
             game_user_id: p.user_id,
           });
         } else {
-          playersMatched.push(`${p.name} (${matchMethod})`);
+          playersMatched.push(`${p.name} [${matchMethod}] (${confidence}%)`);
         }
 
-        logs.push(`✓ ${p.name} -> ${playerId} [${matchMethod}]${isBenched ? ' [BENCHED]' : ''}${statsIncomplete ? ' [INCOMPLETE]' : ''}`);
+        logs.push(`✓ ${p.name} -> ${playerId} [${matchMethod}]`);
+
+        // FIX: Ensure playerId is not null before creating stats
+        if (!playerId) {
+          errors.push(`Failed to get player ID for ${p.name}`);
+          return null;
+        }
 
         return {
           match_id: matchId,
-          player_id: playerId,
+          player_id: playerId, // Now guaranteed to be string, not null
           team_side: teamSide,
           position: p.position,
-          // Use 0 for incomplete stats, the stats_incomplete flag tracks that they're missing
           goals: p.goals || 0,
           assists: p.assists || 0,
           shots: p.shots || 0,
@@ -744,13 +633,13 @@ export async function POST(req: NextRequest) {
 
     // Process home team players
     for (const player of homeTeamData.players || []) {
-      const stats = await processPlayer(player, "home");
+      const stats = await processPlayer(player, "home", homeRoster);
       if (stats) allPlayerStats.push(stats);
     }
 
     // Process away team players
     for (const player of awayTeamData.players || []) {
-      const stats = await processPlayer(player, "away");
+      const stats = await processPlayer(player, "away", awayRoster);
       if (stats) allPlayerStats.push(stats);
     }
 
@@ -767,10 +656,10 @@ export async function POST(req: NextRequest) {
         logs.push(`Inserted ${allPlayerStats.length} player stats successfully`);
       }
     } else {
-      errors.push("No player stats to insert - check if players were extracted from images");
+      errors.push("No player stats to insert");
     }
 
-    // Get league name for response
+    // Get league name
     let leagueName: string | null = null;
     if (finalLeagueId) {
       const { data: leagueData } = await supabaseAdmin
@@ -804,6 +693,7 @@ export async function POST(req: NextRequest) {
         playerStatsInserted: !errors.some((e) => e.includes("Player stats")),
         playersCreated,
         playersMatched,
+        playersNeedingReview,
         playerStatsCount: allPlayerStats.length,
         homePlayersExtracted: homeTeamData.players?.length || 0,
         awayPlayersExtracted: awayTeamData.players?.length || 0,

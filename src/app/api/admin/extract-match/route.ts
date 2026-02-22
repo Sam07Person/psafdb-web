@@ -1,4 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { 
+  matchAllPlayers, 
+  getMatchingSummary, 
+  getConfidenceLevel,
+  DbPlayer,
+  ExtractedPlayer,
+  MatchResult 
+} from "@/lib/playerMatcher";
 
 function json(status: number, body: unknown) {
   return NextResponse.json(body, { status });
@@ -66,10 +75,14 @@ If MULTIPLE images are provided (detailed view available):
 For player ratings shown as colored badges (green/yellow/red with numbers), extract the number.
 For stats shown as "X (Y)", X is the total and Y is key/on-target.
 
-IMPORTANT: 
-- Pay very close attention to player IDs (the alphanumeric codes). These are case-sensitive and must be exact.
-- Common OCR mistakes to avoid: 0 vs O, 1 vs l vs I, G vs Q, x vs s, h vs H vs n
-- DO NOT assume which team is "home" or "away" based on screen position. Just label them as "team_1" and "team_2".
+CRITICAL FOR PLAYER NAMES AND IDs:
+- Player NAMES are much more reliable for matching than IDs. Extract names very carefully!
+- For player IDs (alphanumeric codes like "Gv26ZzCS"), these are case-sensitive and often have OCR errors.
+- Common OCR mistakes: 0↔O, 1↔l↔I, S↔5, 3↔8, G↔Q, n↔h
+- If you're uncertain about a character in the ID, still extract your best guess.
+- The name will be used as the primary matching key, so ensure names are accurate.
+
+DO NOT assume which team is "home" or "away" based on screen position. Just label them as "team_1" and "team_2".
 
 Return ONLY valid JSON with no markdown formatting.`,
         },
@@ -148,7 +161,8 @@ IMPORTANT:
 - Extract team_1 as the team shown on the LEFT side of the screen
 - Extract team_2 as the team shown on the RIGHT side of the screen  
 - DO NOT assume left=home or right=away
-- Include all players: starters (is_starter: true) and subs (is_starter: false, sub_number: 1, 2, or 3)`,
+- Include all players: starters (is_starter: true) and subs (is_starter: false, sub_number: 1, 2, or 3)
+- Focus on getting player NAMES exactly right - they are the primary matching key`,
             },
             ...imageContents,
           ],
@@ -186,6 +200,117 @@ IMPORTANT:
   };
 }
 
+/**
+ * Validate extracted players against database and add confidence scores
+ */
+async function validateExtractedPlayers(extractedData: any): Promise<{
+  validated: any;
+  matchingSummary: ReturnType<typeof getMatchingSummary>;
+  homeValidation: MatchResult[];
+  awayValidation: MatchResult[];
+}> {
+  if (!supabaseAdmin) {
+    return {
+      validated: extractedData,
+      matchingSummary: { total: 0, highConfidence: 0, mediumConfidence: 0, lowConfidence: 0, newPlayers: 0, withWarnings: 0 },
+      homeValidation: [],
+      awayValidation: [],
+    };
+  }
+
+  // Fetch all players from database
+  const { data: dbPlayersRaw } = await supabaseAdmin
+    .from("players")
+    .select("id, name, handle, game_user_id");
+  
+  const dbPlayers: DbPlayer[] = (dbPlayersRaw || []).map(p => ({
+    id: p.id,
+    name: p.name,
+    handle: p.handle,
+    game_user_id: p.game_user_id,
+  }));
+
+  // Extract players from data
+  const homePlayers: ExtractedPlayer[] = (extractedData.home_team?.players || []).map((p: any) => ({
+    ...p,
+    name: p.name || "",
+    user_id: p.user_id || null,
+  }));
+
+  const awayPlayers: ExtractedPlayer[] = (extractedData.away_team?.players || []).map((p: any) => ({
+    ...p,
+    name: p.name || "",
+    user_id: p.user_id || null,
+  }));
+
+  // Match players against database
+  const homeValidation = matchAllPlayers(homePlayers, dbPlayers);
+  const awayValidation = matchAllPlayers(awayPlayers, dbPlayers);
+
+  // Update extracted data with validation results
+  const validated = JSON.parse(JSON.stringify(extractedData));
+
+  if (validated.home_team?.players) {
+    validated.home_team.players = validated.home_team.players.map((p: any, i: number) => {
+      const validation = homeValidation[i];
+      return {
+        ...p,
+        // Add validation data
+        _validation: {
+          confidence: validation.confidence,
+          confidenceLevel: getConfidenceLevel(validation.confidence),
+          matchMethod: validation.matchMethod,
+          isNewPlayer: validation.isNewPlayer,
+          matchedPlayerId: validation.matchedDbPlayer?.id || null,
+          matchedPlayerName: validation.matchedDbPlayer?.name || null,
+          matchedGameUserId: validation.matchedDbPlayer?.game_user_id || null,
+          suggestions: validation.suggestions.slice(0, 3),
+          warnings: validation.warnings,
+        },
+        // Provide corrected user_id if we have a high-confidence match
+        _corrected_user_id: validation.confidence >= 60 && validation.matchedDbPlayer?.game_user_id
+          ? validation.matchedDbPlayer.game_user_id
+          : null,
+      };
+    });
+  }
+
+  if (validated.away_team?.players) {
+    validated.away_team.players = validated.away_team.players.map((p: any, i: number) => {
+      const validation = awayValidation[i];
+      return {
+        ...p,
+        // Add validation data
+        _validation: {
+          confidence: validation.confidence,
+          confidenceLevel: getConfidenceLevel(validation.confidence),
+          matchMethod: validation.matchMethod,
+          isNewPlayer: validation.isNewPlayer,
+          matchedPlayerId: validation.matchedDbPlayer?.id || null,
+          matchedPlayerName: validation.matchedDbPlayer?.name || null,
+          matchedGameUserId: validation.matchedDbPlayer?.game_user_id || null,
+          suggestions: validation.suggestions.slice(0, 3),
+          warnings: validation.warnings,
+        },
+        // Provide corrected user_id if we have a high-confidence match
+        _corrected_user_id: validation.confidence >= 60 && validation.matchedDbPlayer?.game_user_id
+          ? validation.matchedDbPlayer.game_user_id
+          : null,
+      };
+    });
+  }
+
+  const allValidations = [...homeValidation, ...awayValidation];
+  const matchingSummary = getMatchingSummary(allValidations);
+
+  return {
+    validated,
+    matchingSummary,
+    homeValidation,
+    awayValidation,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
@@ -198,13 +323,29 @@ export async function POST(req: NextRequest) {
       return json(400, { error: "No images provided" });
     }
 
+    // Extract data from images
     const extractedData = await extractDataWithOpenAI(images);
+
+    // Validate players against database
+    const { validated, matchingSummary, homeValidation, awayValidation } = 
+      await validateExtractedPlayers(extractedData);
+
+    // Collect all warnings
+    const allWarnings = [
+      ...homeValidation.flatMap(v => v.warnings),
+      ...awayValidation.flatMap(v => v.warnings),
+    ];
 
     return json(200, {
       success: true,
-      extracted: extractedData,
+      extracted: validated,
       imageCount: images.length,
       hasDetailedStats: extractedData.has_detailed_stats,
+      validation: {
+        summary: matchingSummary,
+        warnings: allWarnings,
+        needsReview: matchingSummary.lowConfidence > 0 || matchingSummary.newPlayers > 0 || matchingSummary.withWarnings > 0,
+      },
     });
   } catch (error: any) {
     console.error("Extraction error:", error);

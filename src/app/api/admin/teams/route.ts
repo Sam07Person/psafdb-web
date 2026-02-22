@@ -193,6 +193,84 @@ export async function PUT(req: NextRequest) {
   }
 }
 
+// PATCH - Merge two teams (source -> target)
+export async function PATCH(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (!auth.ok) return json(401, { error: auth.error });
+
+  if (!supabaseAdmin) return json(500, { error: "Server missing SUPABASE_SERVICE_ROLE_KEY" });
+
+  const body = await req.json().catch(() => null);
+  if (!body) return json(400, { error: "Invalid JSON body" });
+
+  const { sourceId, targetId } = body;
+  if (!sourceId || !targetId) return json(400, { error: "sourceId and targetId are required" });
+  if (sourceId === targetId) return json(400, { error: "Source and target teams must be different" });
+
+  // Fetch both teams
+  const { data: sourceTeam, error: sourceError } = await supabaseAdmin
+    .from("teams").select("id,name").eq("id", sourceId).single();
+  if (sourceError || !sourceTeam) return json(404, { error: "Source team not found" });
+
+  const { data: targetTeam, error: targetError } = await supabaseAdmin
+    .from("teams").select("id,name").eq("id", targetId).single();
+  if (targetError || !targetTeam) return json(404, { error: "Target team not found" });
+
+  const sourceName = sourceTeam.name;
+  const targetName = targetTeam.name;
+  let updatedMatches = 0;
+
+  // Update matches where source team is home_team
+  const { data: homeMatches } = await supabaseAdmin
+    .from("matches").select("id").eq("home_team", sourceName);
+  if (homeMatches && homeMatches.length > 0) {
+    const { error } = await supabaseAdmin
+      .from("matches").update({ home_team: targetName }).eq("home_team", sourceName);
+    if (error) return json(500, { error: `Failed to update home matches: ${error.message}` });
+    updatedMatches += homeMatches.length;
+  }
+
+  // Update matches where source team is away_team
+  const { data: awayMatches } = await supabaseAdmin
+    .from("matches").select("id").eq("away_team", sourceName);
+  if (awayMatches && awayMatches.length > 0) {
+    const { error } = await supabaseAdmin
+      .from("matches").update({ away_team: targetName }).eq("away_team", sourceName);
+    if (error) return json(500, { error: `Failed to update away matches: ${error.message}` });
+    updatedMatches += awayMatches.length;
+  }
+
+  // Update match_team_stats team_name references
+  await supabaseAdmin
+    .from("match_team_stats").update({ team_name: targetName }).eq("team_name", sourceName);
+
+  // Transfer team_leagues from source to target (skip duplicates)
+  const { data: sourceLeagues } = await supabaseAdmin
+    .from("team_leagues").select("league_id").eq("team_id", sourceId);
+  const { data: targetLeagues } = await supabaseAdmin
+    .from("team_leagues").select("league_id").eq("team_id", targetId);
+
+  const targetLeagueIds = new Set((targetLeagues || []).map((tl: any) => tl.league_id));
+  const newLeagues = (sourceLeagues || []).filter((sl: any) => !targetLeagueIds.has(sl.league_id));
+
+  if (newLeagues.length > 0) {
+    await supabaseAdmin.from("team_leagues").insert(
+      newLeagues.map((sl: any) => ({ team_id: targetId, league_id: sl.league_id }))
+    );
+  }
+
+  // Delete source team (team_leagues cascade)
+  const { error: deleteError } = await supabaseAdmin
+    .from("teams").delete().eq("id", sourceId);
+  if (deleteError) return json(500, { error: `Failed to delete source team: ${deleteError.message}` });
+
+  return json(200, {
+    ok: true,
+    updatedMatches,
+    message: `Successfully merged "${sourceName}" into "${targetName}". ${updatedMatches} match(es) updated.`,
+  });
+}
+
 // DELETE - Delete a team
 export async function DELETE(req: NextRequest) {
   const auth = requireAuth(req);

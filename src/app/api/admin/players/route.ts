@@ -24,7 +24,6 @@ function requireAuth(req: NextRequest) {
   return { ok: true as const };
 }
 
-// GET - List all players
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
@@ -41,7 +40,6 @@ export async function GET(req: NextRequest) {
   return json(200, { players: data });
 }
 
-// POST - Create new player
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
@@ -71,7 +69,6 @@ export async function POST(req: NextRequest) {
   return json(201, { player: data });
 }
 
-// PUT - Update player
 export async function PUT(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
@@ -100,7 +97,63 @@ export async function PUT(req: NextRequest) {
   return json(200, { player: data });
 }
 
-// DELETE - Delete player
+export async function PATCH(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (!auth.ok) return json(401, { error: auth.error });
+
+  if (!supabaseAdmin) return json(500, { error: "Server missing SUPABASE_SERVICE_ROLE_KEY" });
+
+  const body = await req.json().catch(() => null);
+  if (!body) return json(400, { error: "Invalid JSON body" });
+
+  const { sourceId, targetId } = body;
+  if (!sourceId || !targetId) return json(400, { error: "sourceId and targetId are required" });
+  if (sourceId === targetId) return json(400, { error: "Source and target players must be different" });
+
+  const { data: sourcePlayer, error: sourceError } = await supabaseAdmin
+    .from("players")
+    .select("id")
+    .eq("id", sourceId)
+    .single();
+
+  if (sourceError || !sourcePlayer) return json(404, { error: "Source player not found" });
+
+  const { data: targetPlayer, error: targetError } = await supabaseAdmin
+    .from("players")
+    .select("id")
+    .eq("id", targetId)
+    .single();
+
+  if (targetError || !targetPlayer) return json(404, { error: "Target player not found" });
+
+  const { data: statsToTransfer, error: statsError } = await supabaseAdmin
+    .from("match_player_stats")
+    .select("player_id")
+    .eq("player_id", sourceId);
+
+  if (statsError) return json(500, { error: `Failed to fetch stats: ${statsError.message}` });
+
+  const transferredCount = statsToTransfer?.length || 0;
+
+  if (transferredCount > 0) {
+    const { error: updateError } = await supabaseAdmin
+      .from("match_player_stats")
+      .update({ player_id: targetId })
+      .eq("player_id", sourceId);
+
+    if (updateError) return json(500, { error: `Failed to transfer stats: ${updateError.message}` });
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("players")
+    .delete()
+    .eq("id", sourceId);
+
+  if (deleteError) return json(500, { error: `Failed to delete source player: ${deleteError.message}` });
+
+  return json(200, { ok: true, transferredStats: transferredCount, message: `Successfully merged players. ${transferredCount} match results transferred.` });
+}
+
 export async function DELETE(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
