@@ -37,6 +37,7 @@ type Fixture = {
   stage: string | null;
   group_name: string | null;
   day: number | null;
+  forfeited_by: "home" | "away" | null;
   league?: { name: string } | null;
 };
 
@@ -225,6 +226,7 @@ export default function AdminDashboardPage() {
     stage: "",
     group_name: "",
     day: "",
+    forfeited_by: "" as "" | "home" | "away",
   });
   const [editingFixture, setEditingFixture] = useState<string | null>(null);
 
@@ -609,12 +611,13 @@ export default function AdminDashboardPage() {
           stage: fixtureForm.stage || null,
           group_name: fixtureForm.group_name || null,
           day: fixtureForm.day !== "" ? parseInt(fixtureForm.day) : null,
+          forfeited_by: fixtureForm.forfeited_by || null,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingFixture ? "Fixture updated!" : "Fixture created!" });
-        setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "" });
+        setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "", forfeited_by: "" });
         setEditingFixture(null);
         loadFixtures();
       } else {
@@ -639,6 +642,7 @@ export default function AdminDashboardPage() {
       stage: fixture.stage || "",
       group_name: fixture.group_name || "",
       day: fixture.day !== null ? String(fixture.day) : "",
+      forfeited_by: fixture.forfeited_by || "",
     });
     setEditingFixture(fixture.id);
   };
@@ -778,7 +782,7 @@ export default function AdminDashboardPage() {
     setTeamForm({ id: "", name: "", league_ids: [] });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "" });
-    setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "" });
+    setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "", forfeited_by: "" });
     setExpandedFixtureStats(null);
     setEditingMatchStats(null);
   };
@@ -961,6 +965,24 @@ export default function AdminDashboardPage() {
       updateGroup(groupId, { status: "error", error: err.message });
       setMessage({ type: "error", text: err.message });
     }
+  };
+
+  const calculateExpectedScore = (p: any): number => {
+    return (
+      15 * (p.passes ?? 0) +
+      25 * (p.key_passes ?? 0) +
+      60 * (p.assists ?? 0) +
+      25 * (p.shots ?? 0) +
+      25 * (p.shots_on_target ?? 0) +
+      50 * (p.goals ?? 0) +
+      15 * (p.tackles ?? 0) +
+      25 * (p.key_tackles ?? 0) +
+      15 * (p.interceptions ?? 0) +
+      25 * (p.key_interceptions ?? 0) -
+      10 * (p.possessions_lost ?? 0) +
+      75 * (p.gk_saves ?? 0) +
+      25 * (p.gk_catches ?? 0)
+    );
   };
 
   const handleImportGroup = async (groupId: string) => {
@@ -1910,17 +1932,37 @@ export default function AdminDashboardPage() {
                                       )}
                                     </div>
 
+                                    {/* Score Validation */}
+                                    {(() => {
+                                      const expected = calculateExpectedScore(player);
+                                      const actual = player.score ?? 0;
+                                      const diff = actual - expected;
+                                      const isIncomplete = player.stats_incomplete;
+                                      const mismatch = !isIncomplete && diff !== 0;
+                                      return mismatch ? (
+                                        <div className={`text-xs px-2 py-1 rounded mb-1 ${Math.abs(diff) > 50 ? "bg-red-500/20 text-red-400" : "bg-yellow-500/20 text-yellow-400"}`}>
+                                          Score mismatch: actual {actual} vs expected {expected} (diff {diff > 0 ? "+" : ""}{diff})
+                                        </div>
+                                      ) : null;
+                                    })()}
+
                                     {/* Stats Grid */}
-                                    <div className="grid grid-cols-4 gap-1 text-xs">
+                                    <div className="grid grid-cols-5 gap-1 text-xs">
                                       {[
                                         { key: "score", label: "Score", color: "text-amber-400" },
                                         { key: "goals", label: "Goals", color: "text-emerald-400" },
                                         { key: "assists", label: "Assists", color: "text-sky-400" },
                                         { key: "shots", label: "Shots", color: "" },
+                                        { key: "shots_on_target", label: "On Target", color: "" },
                                         { key: "passes", label: "Passes", color: "" },
+                                        { key: "key_passes", label: "Key Pass", color: "" },
                                         { key: "tackles", label: "Tackles", color: "" },
+                                        { key: "key_tackles", label: "Key Tack", color: "" },
                                         { key: "interceptions", label: "Int.", color: "" },
+                                        { key: "key_interceptions", label: "Key Int.", color: "" },
+                                        { key: "possessions_lost", label: "Poss Lost", color: "text-red-400" },
                                         { key: "gk_saves", label: "Saves", color: "text-yellow-400" },
+                                        { key: "gk_catches", label: "Catches", color: "text-yellow-400" },
                                       ].map(({ key, label, color }) => (
                                         <div key={key} className="flex flex-col">
                                           <span className={`text-gray-500 ${color}`}>{label}</span>
@@ -2200,6 +2242,23 @@ export default function AdminDashboardPage() {
                 <div><label className="block text-gray-300 mb-2 text-sm">Home Score</label><input type="number" min="0" value={fixtureForm.home_score} onChange={(e) => setFixtureForm({ ...fixtureForm, home_score: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="—" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Away Score</label><input type="number" min="0" value={fixtureForm.away_score} onChange={(e) => setFixtureForm({ ...fixtureForm, away_score: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="—" /></div>
               </div>
+              <div className="mt-4">
+                <label className="block text-gray-300 mb-2 text-sm">Forfeit</label>
+                <select
+                  value={fixtureForm.forfeited_by}
+                  onChange={(e) => setFixtureForm({ ...fixtureForm, forfeited_by: e.target.value as "" | "home" | "away" })}
+                  className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600"
+                >
+                  <option value="">No forfeit</option>
+                  <option value="home">{fixtureForm.home_team || "Home team"} forfeited (−1 pt)</option>
+                  <option value="away">{fixtureForm.away_team || "Away team"} forfeited (−1 pt)</option>
+                </select>
+                {fixtureForm.forfeited_by && (
+                  <p className="mt-1 text-xs text-orange-400">
+                    {fixtureForm.forfeited_by === "home" ? fixtureForm.home_team || "Home team" : fixtureForm.away_team || "Away team"} will lose 1 point in their league standings.
+                  </p>
+                )}
+              </div>
               <div className="mt-4 flex gap-2">
                 <button onClick={handleSaveFixture} disabled={loading || !fixtureForm.played_at || !fixtureForm.home_team || !fixtureForm.away_team} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded">{editingFixture ? "Update" : "Create"} Fixture</button>
                 {editingFixture && <button onClick={cancelEdit} className="bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded">Cancel</button>}
@@ -2217,6 +2276,7 @@ export default function AdminDashboardPage() {
                         <div className="flex items-center justify-between p-3">
                           <div>
                             {isUpcoming && <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-300 mr-2">Upcoming</span>}
+                            {f.forfeited_by && <span className="text-xs px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 mr-2">FORFEIT ({f.forfeited_by})</span>}
                             <span className="text-white font-medium">{f.home_team}</span>
                             <span className="text-gray-400 mx-2">{isUpcoming ? "vs" : `${f.home_score} - ${f.away_score}`}</span>
                             <span className="text-white font-medium">{f.away_team}</span>
@@ -2281,6 +2341,7 @@ export default function AdminDashboardPage() {
                                             {PLAYER_STAT_FIELDS.map(({ label, key }) => (
                                               <th key={key} className="text-left py-1 pr-1 whitespace-nowrap">{label}</th>
                                             ))}
+                                            <th className="text-left py-1 pr-1 whitespace-nowrap">Check</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -2296,6 +2357,14 @@ export default function AdminDashboardPage() {
                                                   <input type="number" min="0" value={(ps as any)[key] ?? 0} onChange={(e) => updatePlayerStat(idx, key, e.target.value)} className="w-14 p-1 rounded bg-gray-800 text-white border border-gray-600 text-xs" />
                                                 </td>
                                               ))}
+                                              {(() => {
+                                                const expected = calculateExpectedScore(ps);
+                                                const actual = ps.score ?? 0;
+                                                const diff = actual - expected;
+                                                if (ps.stats_incomplete) return <td className="py-1 pr-1 text-gray-500 text-xs">N/A</td>;
+                                                if (diff === 0) return <td className="py-1 pr-1 text-green-400 text-xs">OK</td>;
+                                                return <td className={`py-1 pr-1 text-xs font-semibold ${Math.abs(diff) > 50 ? "text-red-400" : "text-yellow-400"}`}>{diff > 0 ? "+" : ""}{diff}</td>;
+                                              })()}
                                             </tr>
                                           ))}
                                         </tbody>

@@ -80,9 +80,17 @@ async function extractDataWithOpenAI(base64Images: string[]) {
           content: `You are a data extraction assistant for a football/soccer match statistics database. 
 Extract all match and player data from the screenshots provided. Be precise with numbers and names.
 
-The images show:
-1. A match overview with team stats in the center and player lineups on both sides
-2. Detailed player statistics for each team
+The images may show:
+1. A match overview with team stats in the center and player lineups on both sides (basic view)
+2. Detailed player statistics for each team (detailed view)
+
+CRITICAL RULES FOR STATS:
+- Extract all stats you can actually see in the images. NEVER invent or guess stats you cannot see.
+- Most of the time, detailed stats are available for BOTH teams. Extract them all and mark "stats_incomplete": false.
+- The detailed stats view shows a table/list of each player's individual stats (passes, tackles, shots, goals, etc.). If you can see this for a team, that team has detailed stats - extract them and set stats_incomplete: false.
+- ONLY mark "stats_incomplete": true if you genuinely cannot see a player's detailed stats in ANY image.
+- In rare cases, detailed stats may only be visible for one team. In that case, only mark the other team's players as stats_incomplete: true.
+- When stats_incomplete is true, set these to null: passes, key_passes, assists, shots, shots_on_target, goals, tackles, key_tackles, interceptions, key_interceptions, possessions_lost, gk_saves, gk_catches
 
 For player ratings shown as colored badges (green/yellow/red with numbers), extract the number.
 For stats shown as "X (Y)", X is the total and Y is key/on-target.
@@ -137,6 +145,7 @@ Return ONLY valid JSON with no markdown formatting.`,
         "overall_rating": 85,
         "ping": 50,
         "score": 500,
+        "stats_incomplete": false,
         "passes": 20,
         "key_passes": 2,
         "assists": 0,

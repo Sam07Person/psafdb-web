@@ -38,23 +38,6 @@ export async function GET(req: NextRequest) {
     .order("played_at", { ascending: false })
     .limit(100);
 
-  const { data, error } = await supabaseAdmin
-    .from("matches")
-    .select(`
-    id,
-    league_id,
-    played_at,
-    home_team,
-    away_team,
-    home_score,
-    away_score,
-    stage,
-    group_name,
-    day,
-    league:leagues!matches_league_id_fkey(id, name, season)
-  `)
-    .order("played_at", { ascending: false });
-
   // If stage/group_name don't exist, fall back
   if (result.error) {
     const fallbackResult = await supabaseAdmin
@@ -222,6 +205,36 @@ export async function PUT(req: NextRequest) {
     }
     return json(500, { error: error.message });
   }
+
+  return json(200, { fixture: data });
+}
+
+// PATCH - Set forfeit on a fixture
+export async function PATCH(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (!auth.ok) return json(401, { error: auth.error });
+
+  if (!supabaseAdmin) return json(500, { error: "Server missing SUPABASE_SERVICE_ROLE_KEY" });
+
+  const body = await req.json().catch(() => null);
+  if (!body) return json(400, { error: "Invalid JSON body" });
+
+  const { id, forfeited_by } = body;
+  if (!id) return json(400, { error: "id is required" });
+
+  // forfeited_by must be "home", "away", or null
+  if (forfeited_by !== "home" && forfeited_by !== "away" && forfeited_by !== null) {
+    return json(400, { error: "forfeited_by must be 'home', 'away', or null" });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("matches")
+    .update({ forfeited_by })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) return json(500, { error: error.message });
 
   return json(200, { fixture: data });
 }

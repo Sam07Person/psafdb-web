@@ -1,101 +1,124 @@
 import Link from "next/link";
+import Image from "next/image";
+
+const NAV_ITEMS = [
+  {
+    href: "/matches",
+    label: "Matches",
+    sub: "Results & Stats",
+    accent: "#e63946",
+    icon: "⚽",
+  },
+  {
+    href: "/players",
+    label: "Players",
+    sub: "Profiles & Rankings",
+    accent: "#4ea8f7",
+    icon: "◈",
+  },
+  {
+    href: "/leagues",
+    label: "Leagues",
+    sub: "Tables & Fixtures",
+    accent: "#f4c430",
+    icon: "◆",
+  },
+  {
+    href: "/teams",
+    label: "Teams",
+    sub: "Squads & Records",
+    accent: "#a78bfa",
+    icon: "◉",
+  },
+];
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-gray-900">
-      {/* Hero Section */}
-      <div className="mx-auto max-w-6xl px-6 py-20">
-        <div className="text-center">
-          <h1 className="text-5xl font-bold tracking-tight text-white md:text-6xl">
-            PSAFDB
-          </h1>
-          <p className="mt-4 text-xl text-white/70">
-            Pro Soccer Association Football Database
-          </p>
-          <p className="mt-2 text-white/50">
-            Track matches, players, leagues, and stats
-          </p>
-        </div>
-
-        {/* Navigation Cards */}
-        <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          <Link
-            href="/matches"
-            className="group rounded-2xl border border-white/10 bg-white/5 p-8 transition hover:border-white/20 hover:bg-white/10"
-          >
-            <div className="text-4xl">⚽</div>
-            <h2 className="mt-4 text-2xl font-semibold text-white group-hover:text-emerald-400">
-              Matches
-            </h2>
-            <p className="mt-2 text-white/60">
-              View recent match results, team stats, and player performances.
-            </p>
-          </Link>
-
-          <Link
-            href="/players"
-            className="group rounded-2xl border border-white/10 bg-white/5 p-8 transition hover:border-white/20 hover:bg-white/10"
-          >
-            <div className="text-4xl">👤</div>
-            <h2 className="mt-4 text-2xl font-semibold text-white group-hover:text-sky-400">
-              Players
-            </h2>
-            <p className="mt-2 text-white/60">
-              Browse all registered players and their career statistics.
-            </p>
-          </Link>
-
-          <Link
-            href="/leagues"
-            className="group rounded-2xl border border-white/10 bg-white/5 p-8 transition hover:border-white/20 hover:bg-white/10"
-          >
-            <div className="text-4xl">🏆</div>
-            <h2 className="mt-4 text-2xl font-semibold text-white group-hover:text-amber-400">
-              Leagues
-            </h2>
-            <p className="mt-2 text-white/60">
-              Check league standings, fixtures, and tournament brackets.
-            </p>
-          </Link>
-        </div>
-
-        {/* Quick Links */}
-        <div className="mt-16 rounded-2xl border border-white/10 bg-white/5 p-8">
-          <h3 className="text-lg font-semibold text-white">Quick Links</h3>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link
-              href="/matches"
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
-            >
-              Recent Results
-            </Link>
-            <Link
-              href="/leagues"
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
-            >
-              League Tables
-            </Link>
-            <Link
-              href="/players"
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
-            >
-              Top Scorers
-            </Link>
-            <Link
-              href="/teams"
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
-            >
-              Teams
-            </Link>
+    <main style={{ minHeight: "calc(100vh - 56px)" }}>
+      {/* Hero */}
+      <section style={{ borderBottom: "1px solid #1a1a2e", background: "linear-gradient(160deg, #0d0d20 0%, #07070f 60%)", padding: "80px 24px 64px" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 24 }}>
+            <Image
+              src="/psaf.png"
+              alt="PSAF"
+              width={64}
+              height={64}
+              style={{ filter: "invert(1) sepia(1) saturate(3) hue-rotate(320deg) brightness(1.2)" }}
+            />
+            <div>
+              <div style={{ fontSize: 11, letterSpacing: "0.3em", color: "#e63946", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
+                Pro Soccer Association
+              </div>
+              <h1 style={{ fontSize: "clamp(36px, 6vw, 72px)", fontWeight: 900, lineHeight: 1, letterSpacing: "-0.02em", color: "#f0f0fa", margin: 0 }}>
+                PSAFDB
+              </h1>
+            </div>
           </div>
+          <p style={{ fontSize: 16, color: "#5a5a7a", maxWidth: 480, lineHeight: 1.6, margin: 0, paddingLeft: 84 }}>
+            The complete statistical database for PSAF — tracking every match, player, and league result.
+          </p>
         </div>
-      </div>
+      </section>
 
-      <footer className="border-t border-white/10 py-8">
-        <div className="mx-auto max-w-6xl px-6 text-center text-sm text-white/40">
-          PSAFDB © {new Date().getFullYear()}
+      {/* Nav Cards */}
+      <section style={{ maxWidth: 1200, margin: "0 auto", padding: "48px 24px" }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 20 }}>
+          Browse Database
         </div>
-      </footer>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 2 }}>
+          {NAV_ITEMS.map(({ href, label, sub, accent, icon }) => (
+            <Link
+              key={href}
+              href={href}
+              style={{ textDecoration: "none", display: "block", background: "#0d0d1a", borderTop: `3px solid ${accent}`, padding: "28px 24px", transition: "background 0.15s" }}
+              className="nav-card"
+            >
+              <div style={{ fontSize: 22, marginBottom: 16, color: accent }}>{icon}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-0.01em", color: "#e8e8f0", marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 12, color: "#4a4a6a", letterSpacing: "0.05em" }}>{sub}</div>
+              <div style={{ marginTop: 20, fontSize: 11, color: accent, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase" }}>
+                View →
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Leagues Spotlight */}
+      <section style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 64px" }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 20 }}>
+          Active Leagues
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 2 }}>
+          {[
+            { img: "/cd.png", name: "Champions Division", abbr: "CD", color: "#f4c430" },
+            { img: "/pl.png", name: "Premier League", abbr: "PL", color: "#4ea8f7" },
+          ].map(({ img, name, abbr, color }) => (
+            <Link
+              key={abbr}
+              href="/leagues"
+              style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 20, background: "#0d0d1a", borderLeft: `3px solid ${color}`, padding: "20px 24px" }}
+              className="nav-card"
+            >
+              <div style={{ width: 48, height: 48, display: "flex", alignItems: "center", justifyContent: "center", background: "#07070f", flexShrink: 0 }}>
+                <Image
+                  src={img}
+                  alt={abbr}
+                  width={36}
+                  height={36}
+                  style={{ filter: `invert(1) sepia(1) saturate(3) hue-rotate(${abbr === "CD" ? "20deg" : "180deg"}) brightness(1.2)` }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.05em", color: "#e8e8f0" }}>{name}</div>
+                <div style={{ fontSize: 11, color: "#3a3a5a", letterSpacing: "0.15em", fontWeight: 600, textTransform: "uppercase", marginTop: 2 }}>{abbr}</div>
+              </div>
+              <div style={{ marginLeft: "auto", fontSize: 11, color, fontWeight: 700 }}>→</div>
+            </Link>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

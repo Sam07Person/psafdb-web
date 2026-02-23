@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
+import Image from "next/image";
 
 type LeagueRow = {
   id: string;
   name: string;
   season: string | null;
-  format: string | null; // 'league' | 'knockout' | 'group_knockout'
+  format: string | null;
   created_at: string | null;
 };
 
@@ -17,31 +18,31 @@ type LeagueWithStats = LeagueRow & {
   team_count: number;
 };
 
-function cx(...s: Array<string | false | null | undefined>) {
-  return s.filter(Boolean).join(" ");
-}
-
 function formatLabel(format: string | null): string {
   switch (format) {
-    case "knockout":
-      return "Knockout";
-    case "group_knockout":
-      return "Group Stage + Knockout";
+    case "knockout": return "Knockout";
+    case "group_knockout": return "Group + KO";
     case "league":
-    default:
-      return "League";
+    default: return "League";
   }
 }
 
-function formatColor(format: string | null): string {
+function getLeagueLogo(name: string): { img: string; filter: string } | null {
+  const n = name.toLowerCase();
+  if (n.includes("champion") || n.includes("cd")) {
+    return { img: "/cd.png", filter: "invert(1) sepia(1) saturate(3) hue-rotate(20deg) brightness(1.3)" };
+  }
+  if (n.includes("premier") || n.includes("pl")) {
+    return { img: "/pl.png", filter: "invert(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.2)" };
+  }
+  return null;
+}
+
+function getAccent(format: string | null): string {
   switch (format) {
-    case "knockout":
-      return "border-red-400/30 bg-red-400/10 text-red-200";
-    case "group_knockout":
-      return "border-purple-400/30 bg-purple-400/10 text-purple-200";
-    case "league":
-    default:
-      return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
+    case "knockout": return "#e63946";
+    case "group_knockout": return "#a78bfa";
+    default: return "#f4c430";
   }
 }
 
@@ -52,34 +53,19 @@ export default function LeaguesPage() {
 
   useEffect(() => {
     if (!supabase) return;
-
     (async () => {
       setLoading(true);
-
-      // Fetch all leagues
       const { data: leaguesData, error: leaguesError } = await supabase
         .from("leagues")
         .select("id,name,season,format,created_at")
         .order("created_at", { ascending: false });
+      if (leaguesError) { setError(leaguesError); setLoading(false); return; }
 
-      if (leaguesError) {
-        setError(leaguesError);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch match counts and teams per league
       const { data: matchesData, error: matchesError } = await supabase
         .from("matches")
         .select("league_id,home_team,away_team");
+      if (matchesError) { setError(matchesError); setLoading(false); return; }
 
-      if (matchesError) {
-        setError(matchesError);
-        setLoading(false);
-        return;
-      }
-
-      // Aggregate stats per league
       const statsMap = new Map<string, { matches: number; teams: Set<string> }>();
       for (const match of matchesData ?? []) {
         if (!match.league_id) continue;
@@ -90,14 +76,9 @@ export default function LeaguesPage() {
         statsMap.set(match.league_id, existing);
       }
 
-      // Combine leagues with stats
       const combined: LeagueWithStats[] = (leaguesData ?? []).map((l) => {
         const stats = statsMap.get(l.id) || { matches: 0, teams: new Set<string>() };
-        return {
-          ...l,
-          match_count: stats.matches,
-          team_count: stats.teams.size,
-        };
+        return { ...l, match_count: stats.matches, team_count: stats.teams.size };
       });
 
       setLeagues(combined);
@@ -105,99 +86,87 @@ export default function LeaguesPage() {
     })();
   }, []);
 
-  if (!supabase) {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-xl font-semibold">Leagues</div>
-          <p className="mt-2 text-white/70">
-            Missing env vars. Add <code className="rounded bg-black/30 px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-            <code className="rounded bg-black/30 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to <code className="rounded bg-black/30 px-1">.env.local</code>.
+  return (
+    <main style={{ minHeight: "calc(100vh - 56px)" }}>
+      {/* Header */}
+      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "40px 24px 32px", background: "#09091a" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
+            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+            <span style={{ margin: "0 8px" }}>/</span>
+            Leagues
+          </div>
+          <h1 style={{ fontSize: 36, fontWeight: 900, letterSpacing: "-0.02em", color: "#f0f0fa", margin: 0 }}>
+            Leagues
+          </h1>
+          <p style={{ fontSize: 13, color: "#3a3a5a", marginTop: 6 }}>
+            {leagues.length} competition{leagues.length !== 1 ? "s" : ""} in the database
           </p>
         </div>
-      </main>
-    );
-  }
+      </section>
 
-  if (error) {
-    return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
-          <div className="text-lg font-semibold">Error</div>
-          <pre className="mt-3 overflow-auto text-xs text-white/80">{JSON.stringify(error, null, 2)}</pre>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center gap-4 text-sm">
-          <Link href="/" className="text-white/50 hover:text-white/80 transition">
-            ← Home
-          </Link>
-        </div>
-        <h1 className="mt-4 text-4xl font-bold">Leagues</h1>
-        <p className="mt-2 text-white/60">
-          {leagues.length} league{leagues.length !== 1 ? "s" : ""} available
-        </p>
-      </div>
-
-      {/* Leagues list */}
-      <div className="mt-8">
-        {loading ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-            Loading leagues...
+      <section style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 24px" }}>
+        {!supabase ? (
+          <div style={{ background: "#0d0d1a", borderLeft: "3px solid #e63946", padding: "20px 24px", color: "#9090b0" }}>
+            Missing Supabase environment variables.
           </div>
+        ) : error ? (
+          <div style={{ background: "#0d0d1a", borderLeft: "3px solid #e63946", padding: "20px 24px" }}>
+            <div style={{ color: "#e63946", fontWeight: 700, marginBottom: 8 }}>Error</div>
+            <pre style={{ fontSize: 11, color: "#9090b0", overflow: "auto" }}>{JSON.stringify(error, null, 2)}</pre>
+          </div>
+        ) : loading ? (
+          <div style={{ color: "#3a3a5a", fontSize: 13, letterSpacing: "0.1em" }}>LOADING...</div>
         ) : leagues.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-            No leagues found. Import some matches with league data to get started.
+          <div style={{ background: "#0d0d1a", borderLeft: "3px solid #2a2a3d", padding: "20px 24px", color: "#3a3a5a" }}>
+            No leagues found.
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {leagues.map((l) => (
-              <Link
-                key={l.id}
-                href={`/leagues/${l.id}`}
-                className="group rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-white/20 hover:bg-white/10"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-lg font-semibold group-hover:text-white">
-                      {l.name}
-                    </div>
-                    {l.season && (
-                      <div className="mt-0.5 text-sm text-white/50">{l.season}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 2 }}>
+            {leagues.map((l) => {
+              const logo = getLeagueLogo(l.name);
+              const accent = getAccent(l.format);
+              return (
+                <Link
+                  key={l.id}
+                  href={`/leagues/${l.id}`}
+                  style={{ textDecoration: "none", display: "block", background: "#0d0d1a", borderTop: `3px solid ${accent}`, padding: "24px" }}
+                  className="nav-card"
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+                    {logo ? (
+                      <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "#07070f", flexShrink: 0 }}>
+                        <Image src={logo.img} alt={l.name} width={30} height={30} style={{ filter: logo.filter }} />
+                      </div>
+                    ) : (
+                      <div style={{ width: 44, height: 44, background: "#07070f", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 18, color: accent }}>◆</span>
+                      </div>
                     )}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: "#e8e8f0", lineHeight: 1.2 }}>{l.name}</div>
+                      {l.season && <div style={{ fontSize: 11, color: "#3a3a5a", marginTop: 3, letterSpacing: "0.08em" }}>Season {l.season}</div>}
+                    </div>
                   </div>
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/60 transition group-hover:bg-white/20 group-hover:text-white">
-                    →
-                  </div>
-                </div>
 
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className={cx("rounded-full border px-2 py-0.5 text-xs font-medium", formatColor(l.format))}>
-                    {formatLabel(l.format)}
-                  </span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <div className="rounded-xl bg-black/20 px-3 py-2 text-center">
-                    <div className="text-lg font-bold">{l.team_count}</div>
-                    <div className="text-[10px] uppercase tracking-wide text-white/50">Teams</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 1 }}>
+                    {[
+                      { val: l.team_count, label: "Teams" },
+                      { val: l.match_count, label: "Matches" },
+                      { val: formatLabel(l.format), label: "Format" },
+                    ].map(({ val, label }) => (
+                      <div key={label} style={{ background: "#07070f", padding: "10px 12px" }}>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: "#e0e0f0" }}>{val}</div>
+                        <div style={{ fontSize: 10, color: "#3a3a5a", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="rounded-xl bg-black/20 px-3 py-2 text-center">
-                    <div className="text-lg font-bold">{l.match_count}</div>
-                    <div className="text-[10px] uppercase tracking-wide text-white/50">Matches</div>
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         )}
-      </div>
+      </section>
     </main>
   );
 }

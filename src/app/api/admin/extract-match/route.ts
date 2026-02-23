@@ -68,9 +68,12 @@ If only ONE image is provided (basic view only):
 - Only extract: name, user_id, position, score, level, overall_rating, ping, is_starter, sub_number
 - Set all other stats (goals, assists, passes, etc.) to null
 
-If MULTIPLE images are provided (detailed view available):
-- Extract all detailed player stats
-- Mark "stats_incomplete": false for each player
+If MULTIPLE images are provided:
+- Most of the time, detailed stats are available for BOTH teams. Extract them all and mark "stats_incomplete": false for all players whose stats you can see.
+- The detailed stats view shows a table/list of each player's individual stats (passes, tackles, shots, goals, etc.). If you can see this table for a team, that team has detailed stats.
+- ONLY mark "stats_incomplete": true if you genuinely cannot see a player's detailed stats in ANY of the provided images.
+- In rare cases, detailed stats may only be visible for one team. In that case, mark only the other team's players as stats_incomplete: true.
+- NEVER invent or guess stats you cannot see. But DO extract stats that ARE visible - do not skip them.
 
 For player ratings shown as colored badges (green/yellow/red with numbers), extract the number.
 For stats shown as "X (Y)", X is the total and Y is key/on-target.
@@ -93,7 +96,7 @@ Return ONLY valid JSON with no markdown formatting.`,
               type: "text",
               text: `Extract all match data from these ${base64Images.length} screenshot(s). 
 
-${isSingleImage ? "NOTE: Only 1 image provided - this is likely the basic overview without detailed player stats. Mark all players with stats_incomplete: true and set detailed stats to null." : "NOTE: Multiple images provided - extract full detailed stats for all players."}
+${isSingleImage ? "NOTE: Only 1 image provided - this is likely the basic overview without detailed player stats. Mark all players with stats_incomplete: true and set detailed stats to null." : "NOTE: Multiple images provided - detailed stats are usually available for BOTH teams. Extract all visible stats and set stats_incomplete: false. Only set stats_incomplete: true for a player if their detailed stats are genuinely not visible in any image."}
 
 Return JSON in this exact format:
 {
@@ -152,7 +155,8 @@ Return JSON in this exact format:
   "team_2": { ... same structure ... },
   "match_time": "16:00",
   "half": "Second Half",
-  "has_detailed_stats": ${!isSingleImage}
+  "has_detailed_stats_team_1": true,
+  "has_detailed_stats_team_2": true
 }
 
 When stats_incomplete is true, set these to null: passes, key_passes, assists, shots, shots_on_target, goals, tackles, key_tackles, interceptions, key_interceptions, possessions_lost, gk_saves, gk_catches
@@ -195,7 +199,9 @@ IMPORTANT:
     away_team: parsed.team_2 || parsed.away_team,
     match_time: parsed.match_time,
     half: parsed.half,
-    has_detailed_stats: parsed.has_detailed_stats ?? !isSingleImage,
+    has_detailed_stats: (parsed.has_detailed_stats_team_1 || parsed.has_detailed_stats_team_2) ?? parsed.has_detailed_stats ?? !isSingleImage,
+    has_detailed_stats_team_1: parsed.has_detailed_stats_team_1 ?? parsed.has_detailed_stats ?? !isSingleImage,
+    has_detailed_stats_team_2: parsed.has_detailed_stats_team_2 ?? parsed.has_detailed_stats ?? !isSingleImage,
     home_away_unconfirmed: true,
   };
 }
