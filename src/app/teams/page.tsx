@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
+import TeamsTable from "./TeamsTable";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -107,110 +108,12 @@ export default async function TeamsPage() {
                     </p>
                 </div>
 
-                {/* Teams Table */}
                 {teams.length === 0 ? (
                     <div className="rounded-xl bg-white/5 border border-white/10 p-12 text-center">
                         <p className="text-white/40 text-lg">No teams found</p>
                     </div>
                 ) : (
-                    <div className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-white/10 bg-white/5">
-                                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/70">#</th>
-                                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/70">Team</th>
-                                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/70">League</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">P</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">W</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">D</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">L</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">GF</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">GA</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">GD</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/70">Pts</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {teamsWithStats.map((team, index) => {
-                                        const points = team.stats.won * 3 + team.stats.drawn;
-                                        const gd = team.stats.gf - team.stats.ga;
-
-                                        return (
-                                            <tr
-                                                key={team.id}
-                                                className="border-b border-white/5 hover:bg-white/5 transition"
-                                            >
-                                                <td className="px-4 py-3 text-white/50 text-sm">
-                                                    {index + 1}
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <Link
-                                                        href={`/teams/${team.id}`}
-                                                        className="font-medium text-white hover:text-emerald-400 transition"
-                                                    >
-                                                        {team.name}
-                                                    </Link>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    {team.league ? (
-                                                        <Link
-                                                            href={`/leagues/${team.league.id}`}
-                                                            className="text-sm text-white/60 hover:text-white/80 transition"
-                                                        >
-                                                            {team.league.name}
-                                                            {team.league.season && (
-                                                                <span className="text-white/40 ml-1">
-                                                                    ({team.league.season})
-                                                                </span>
-                                                            )}
-                                                        </Link>
-                                                    ) : (
-                                                        <span className="text-white/30 text-sm">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-3 text-center text-white/70">
-                                                    {team.stats.played}
-                                                </td>
-                                                <td className="px-4 py-3 text-center text-emerald-400">
-                                                    {team.stats.won}
-                                                </td>
-                                                <td className="px-4 py-3 text-center text-yellow-400">
-                                                    {team.stats.drawn}
-                                                </td>
-                                                <td className="px-4 py-3 text-center text-red-400">
-                                                    {team.stats.lost}
-                                                </td>
-                                                <td className="px-4 py-3 text-center text-white/70">
-                                                    {team.stats.gf}
-                                                </td>
-                                                <td className="px-4 py-3 text-center text-white/70">
-                                                    {team.stats.ga}
-                                                </td>
-                                                <td className="px-4 py-3 text-center">
-                                                    <span
-                                                        className={
-                                                            gd > 0
-                                                                ? "text-emerald-400"
-                                                                : gd < 0
-                                                                    ? "text-red-400"
-                                                                    : "text-white/50"
-                                                        }
-                                                    >
-                                                        {gd > 0 ? "+" : ""}
-                                                        {gd}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3 text-center font-bold text-white">
-                                                    {points}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <TeamsTable teams={teamsWithStats} />
                 )}
 
                 {/* Legend */}

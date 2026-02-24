@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   // Try with stage and group_name columns
   const result = await supabaseAdmin
     .from("matches")
-    .select("id,league_id,played_at,home_team,away_team,home_score,away_score,stage,group_name,league:leagues(name)")
+    .select("id,league_id,played_at,home_team,away_team,home_score,away_score,stage,group_name,day,forfeited_by,league:leagues(name)")
     .order("played_at", { ascending: false })
     .limit(100);
 
@@ -102,7 +102,8 @@ export async function POST(req: NextRequest) {
       away_score: body.away_score ?? null,
       stage: body.stage || null,
       group_name: body.group_name || null,
-      day: body.day ?? null,  // ADD THIS
+      day: body.day ?? null,
+      forfeited_by: body.forfeited_by ?? null,
     })
     .select()
     .single();
@@ -175,7 +176,8 @@ export async function PUT(req: NextRequest) {
       away_score: body.away_score ?? null,
       stage: body.stage || null,
       group_name: body.group_name || null,
-      day: body.day ?? null,  // ADD THIS
+      day: body.day ?? null,
+      forfeited_by: body.forfeited_by ?? null,
     })
     .eq("id", body.id)
     .select()

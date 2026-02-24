@@ -201,6 +201,8 @@ export default function AdminDashboardPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [fixtureSearch, setFixtureSearch] = useState("");
 
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [jsonData, setJsonData] = useState("");
@@ -2281,10 +2283,24 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             <div className="bg-gray-800 p-6 rounded-lg">
-              <h2 className="text-lg font-semibold text-white mb-4">Players ({players.length})</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">Players ({players.length})</h2>
+                <input
+                  value={playerSearch}
+                  onChange={(e) => setPlayerSearch(e.target.value)}
+                  placeholder="Search players..."
+                  className="p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm w-56"
+                />
+              </div>
               {players.length === 0 ? <p className="text-gray-400">No players yet.</p> : (
                 <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {players.map((p) => (
+                  {players.filter((p) => {
+                    const q = playerSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return (p.name ?? "").toLowerCase().includes(q) ||
+                           (p.handle ?? "").toLowerCase().includes(q) ||
+                           (p.game_user_id ?? "").toLowerCase().includes(q);
+                  }).map((p) => (
                     <div key={p.id} className="flex items-center justify-between bg-gray-700 p-3 rounded">
                       <div><span className="text-white font-medium">{p.name || p.handle || p.game_user_id?.slice(0, 8)}</span>{p.game_user_id && <span className="text-gray-500 ml-2 text-xs font-mono">{p.game_user_id}</span>}</div>
                       <div className="flex gap-2"><button onClick={() => handleEditPlayer(p)} className="text-blue-400 text-sm">Edit</button><button onClick={() => handleDeletePlayer(p.id)} className="text-red-400 text-sm">Delete</button></div>
@@ -2337,10 +2353,25 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <div className="bg-gray-800 p-6 rounded-lg">
-              <h2 className="text-lg font-semibold text-white mb-4">Fixtures ({fixtures.length})</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">Fixtures ({fixtures.length})</h2>
+                <input
+                  value={fixtureSearch}
+                  onChange={(e) => setFixtureSearch(e.target.value)}
+                  placeholder="Search fixtures..."
+                  className="p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm w-56"
+                />
+              </div>
               {fixtures.length === 0 ? <p className="text-gray-400">No fixtures yet.</p> : (
                 <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                  {fixtures.map((f) => {
+                  {fixtures.filter((f) => {
+                    const q = fixtureSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return f.home_team.toLowerCase().includes(q) ||
+                           f.away_team.toLowerCase().includes(q) ||
+                           (f.league as any)?.name?.toLowerCase().includes(q) ||
+                           (f.group_name ?? "").toLowerCase().includes(q);
+                  }).map((f) => {
                     const isUpcoming = f.home_score === null || f.away_score === null;
                     const isStatsExpanded = expandedFixtureStats === f.id;
                     return (

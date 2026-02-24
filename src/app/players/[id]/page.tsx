@@ -605,12 +605,14 @@ export default function PlayerDetailPage() {
               }
 
               return (
-                <div
+                <Link
                   key={s.match_id}
+                  href={`/matches/${s.match_id}`}
                   className={cx(
-                    "rounded-2xl border border-white/10 bg-white/5 p-4",
+                    "block rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-white/20 hover:bg-white/[0.08]",
                     s.stats_incomplete && "border-amber-500/20"
                   )}
+                  style={{ textDecoration: "none", color: "inherit" }}
                 >
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="flex items-center gap-3">
@@ -666,7 +668,7 @@ export default function PlayerDetailPage() {
                     )}
                     <span className="text-amber-400">Score: {s.score}</span>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -709,9 +711,11 @@ export default function PlayerDetailPage() {
                 else if (teamScore < oppScore) resultText = "L";
 
                 return (
-                  <div
+                  <Link
                     key={s.match_id}
-                    className="rounded-xl border border-white/5 bg-white/[0.02] p-3 opacity-60"
+                    href={`/matches/${s.match_id}`}
+                    className="block rounded-xl border border-white/5 bg-white/[0.02] p-3 opacity-60 transition hover:opacity-80"
+                    style={{ textDecoration: "none", color: "inherit" }}
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-6 w-6 items-center justify-center rounded bg-gray-700/50 text-xs text-gray-400">
@@ -731,7 +735,7 @@ export default function PlayerDetailPage() {
                         Benched
                       </span>
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>

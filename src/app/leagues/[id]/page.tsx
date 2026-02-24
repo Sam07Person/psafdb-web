@@ -83,8 +83,8 @@ function applyMatchToStandings(s: Record<string, StandingRow>, match: any) {
   else if (match.away_score < match.home_score) { away.lost++; }
   else { away.drawn++; away.points += 1; }
 
-  if (match.forfeited_by === "home") { home.points = Math.max(0, home.points - 1); home.forfeit_deductions++; }
-  else if (match.forfeited_by === "away") { away.points = Math.max(0, away.points - 1); away.forfeit_deductions++; }
+  if (match.forfeited_by === "home") { home.points -= 1; home.forfeit_deductions++; }
+  else if (match.forfeited_by === "away") { away.points -= 1; away.forfeit_deductions++; }
 }
 
 function sortRows(rows: StandingRow[]): StandingRow[] {
@@ -197,9 +197,6 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                         {row.team}
                       </Link>
                     ) : row.team}
-                    {row.forfeit_deductions > 0 && (
-                      <span style={{ marginLeft: 6, fontSize: 10, color: "#e63946", background: "#e6394620", padding: "1px 5px" }}>-{row.forfeit_deductions}pts</span>
-                    )}
                   </td>
                   <td style={{ padding: "10px 12px", textAlign: "center", color: "#5a5a7a" }}>{row.played}</td>
                   <td style={{ padding: "10px 12px", textAlign: "center", color: "#4ade80", fontWeight: 600 }}>{row.won}</td>
@@ -210,7 +207,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                   <td style={{ padding: "10px 12px", textAlign: "center", color: gd > 0 ? "#4ade80" : gd < 0 ? "#e63946" : "#5a5a7a", fontWeight: 600 }}>
                     {gd > 0 ? "+" : ""}{gd}
                   </td>
-                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{row.points}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{Math.max(0, row.points)}</td>
                 </tr>
               );
             })}
