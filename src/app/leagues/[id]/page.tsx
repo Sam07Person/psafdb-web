@@ -207,7 +207,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                   <td style={{ padding: "10px 12px", textAlign: "center", color: gd > 0 ? "#4ade80" : gd < 0 ? "#e63946" : "#5a5a7a", fontWeight: 600 }}>
                     {gd > 0 ? "+" : ""}{gd}
                   </td>
-                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{Math.max(0, row.points)}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{row.points}</td>
                 </tr>
               );
             })}
