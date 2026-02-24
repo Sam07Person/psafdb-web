@@ -34,7 +34,7 @@ async function getTeams(): Promise<Team[]> {
 
     return (data || []).map((t: any) => ({
         ...t,
-        league: Array.isArray(t.league) ? t.league[0] : t.league,
+        league: Array.isArray(t.league) ? (t.league[0] ?? null) : (t.league ?? null),
     }));
 }
 
