@@ -12,7 +12,7 @@ type Team = {
     name: string;
     league_id: string | null;
     created_at: string;
-    league?: { id: string; name: string; season: string | null } | null;
+    league: { id: string; name: string; season: string | null } | null;
 };
 
 async function getTeams(): Promise<Team[]> {
