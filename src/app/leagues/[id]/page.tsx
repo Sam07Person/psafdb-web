@@ -12,7 +12,7 @@ const supabase = createClient(
 async function getLeague(id: string) {
   const { data, error } = await supabase
     .from("leagues")
-    .select("id, name, season, format, created_at")
+    .select("id, name, season, format, image, created_at")
     .eq("id", id)
     .single();
   if (error || !data) return null;
@@ -98,15 +98,16 @@ function calculateStandings(teams: any[], matches: any[]) {
   });
 }
 
-function getLeagueLogo(name: string): { img: string; filter: string } | null {
-  const n = name.toLowerCase();
-  if (n.includes("champion") || n.includes("cd")) {
-    return { img: "/cd.png", filter: "invert(1) sepia(1) saturate(3) hue-rotate(20deg) brightness(1.3)" };
-  }
-  if (n.includes("premier") || n.includes("pl")) {
-    return { img: "/pl.png", filter: "invert(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.2)" };
-  }
-  return null;
+function getLeagueLogo(image: string | null): { img: string; filter: string } | null {
+  if (!image) return null;
+  const filters: Record<string, string> = {
+    cd: "invert(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.2)",
+    pl: "invert(1) sepia(1) saturate(3) hue-rotate(20deg) brightness(1.3)",
+    cl: "invert(1) hue-rotate(180deg) brightness(1.1)",
+    ml: "invert(1) hue-rotate(180deg) brightness(1.1)",
+  };
+  if (!filters[image]) return null;
+  return { img: `/${image}.png`, filter: filters[image] };
 }
 
 export const revalidate = 60;
@@ -118,9 +119,10 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
 
   const [teams, matches] = await Promise.all([getLeagueTeams(id), getLeagueMatches(id)]);
   const standings = calculateStandings(teams, matches);
+  const teamIdMap: Record<string, string> = Object.fromEntries(teams.map((t: any) => [t.name, t.id]));
   const playedMatches = matches.filter((m: any) => m.home_score !== null);
   const upcomingMatches = matches.filter((m: any) => m.home_score === null).reverse().slice(0, 5);
-  const logo = getLeagueLogo(league.name);
+  const logo = getLeagueLogo(league.image);
   const totalGoals = matches.reduce((s: number, m: any) => s + (m.home_score || 0) + (m.away_score || 0), 0);
 
   return (
@@ -181,7 +183,11 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                         <tr key={row.team} style={{ borderBottom: "1px solid #0f0f1a", background: isTop ? "#0f0f1e" : "transparent" }}>
                           <td style={{ padding: "10px 12px", color: "#3a3a5a", fontSize: 11, fontWeight: 700 }}>{index + 1}</td>
                           <td style={{ padding: "10px 12px", fontWeight: 700, color: "#e0e0f0" }}>
-                            {row.team}
+                            {teamIdMap[row.team] ? (
+                              <Link href={`/teams/${teamIdMap[row.team]}`} style={{ color: "#e0e0f0", textDecoration: "none" }} className="nav-link">
+                                {row.team}
+                              </Link>
+                            ) : row.team}
                             {row.forfeit_deductions > 0 && (
                               <span style={{ marginLeft: 6, fontSize: 10, color: "#e63946", background: "#e6394620", padding: "1px 5px" }}>-{row.forfeit_deductions}pts</span>
                             )}

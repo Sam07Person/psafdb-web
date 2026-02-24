@@ -8,6 +8,7 @@ type League = {
   name: string;
   season: string | null;
   format: string | null;
+  image: string | null;
 };
 
 type Team = {
@@ -204,7 +205,7 @@ export default function AdminDashboardPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [jsonData, setJsonData] = useState("");
 
-  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league" });
+  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league", image: "" });
   const [editingLeague, setEditingLeague] = useState<string | null>(null);
 
   const [teamForm, setTeamForm] = useState({ id: "", name: "", league_ids: [] as string[] });
@@ -355,12 +356,13 @@ export default function AdminDashboardPage() {
           name: leagueForm.name,
           season: leagueForm.season || null,
           format: leagueForm.format,
+          image: leagueForm.image || null,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingLeague ? "League updated!" : "League created!" });
-        setLeagueForm({ id: "", name: "", season: "", format: "league" });
+        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "" });
         setEditingLeague(null);
         loadLeagues();
       } else {
@@ -374,7 +376,7 @@ export default function AdminDashboardPage() {
   };
 
   const handleEditLeague = (league: League) => {
-    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league" });
+    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "" });
     setEditingLeague(league.id);
   };
 
@@ -778,7 +780,7 @@ export default function AdminDashboardPage() {
     setEditingTeam(null);
     setEditingPlayer(null);
     setEditingFixture(null);
-    setLeagueForm({ id: "", name: "", season: "", format: "league" });
+    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "" });
     setTeamForm({ id: "", name: "", league_ids: [] });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "" });
@@ -2080,6 +2082,33 @@ export default function AdminDashboardPage() {
                 <div><label className="block text-gray-300 mb-2 text-sm">Season</label><input type="text" value={leagueForm.season} onChange={(e) => setLeagueForm({ ...leagueForm, season: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="2024" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Format</label><select value={leagueForm.format} onChange={(e) => setLeagueForm({ ...leagueForm, format: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600"><option value="league">League</option><option value="knockout">Knockout</option><option value="group_knockout">Group + Knockout</option></select></div>
               </div>
+              <div className="mt-4">
+                <label className="block text-gray-300 mb-2 text-sm">League Logo</label>
+                <div className="flex gap-3 items-center">
+                  {[
+                    { value: "cd", src: "/cd.png", label: "CD", filter: "invert(1)" },
+                    { value: "pl", src: "/pl.png", label: "PL", filter: "invert(1)" },
+                    { value: "cl", src: "/cl.png", label: "CL", filter: "invert(1) hue-rotate(180deg) brightness(1.1)" },
+                    { value: "ml", src: "/ml.png", label: "ML", filter: "invert(1) hue-rotate(180deg) brightness(1.1)" },
+                  ].map(({ value, src, label, filter }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setLeagueForm({ ...leagueForm, image: leagueForm.image === value ? "" : value })}
+                      className={`flex flex-col items-center gap-1 p-2 rounded border-2 transition ${leagueForm.image === value ? "border-blue-500 bg-blue-500/20" : "border-gray-600 bg-gray-700 hover:border-gray-500"}`}
+                    >
+                      <img src={src} alt={label} style={{ width: 40, height: 40, filter }} />
+                      <span className="text-xs text-gray-300">{label}</span>
+                    </button>
+                  ))}
+                  {leagueForm.image && (
+                    <button type="button" onClick={() => setLeagueForm({ ...leagueForm, image: "" })} className="text-xs text-gray-500 hover:text-gray-300 ml-1">
+                      Clear
+                    </button>
+                  )}
+                  {!leagueForm.image && <span className="text-xs text-gray-500">No logo selected</span>}
+                </div>
+              </div>
               <div className="mt-4 flex gap-2">
                 <button onClick={handleSaveLeague} disabled={loading || !leagueForm.name} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded">{editingLeague ? "Update" : "Create"} League</button>
                 {editingLeague && <button onClick={cancelEdit} className="bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded">Cancel</button>}
@@ -2091,7 +2120,11 @@ export default function AdminDashboardPage() {
                 <div className="space-y-2">
                   {leagues.map((l) => (
                     <div key={l.id} className="flex items-center justify-between bg-gray-700 p-3 rounded">
-                      <div><span className="text-white font-medium">{l.name}</span>{l.season && <span className="text-gray-400 ml-2">({l.season})</span>}</div>
+                      <div className="flex items-center gap-2">
+                        {l.image && <img src={`/${l.image}.png`} alt={l.image} style={{ width: 24, height: 24, opacity: 0.8, filter: ["cl","ml"].includes(l.image) ? "invert(1) hue-rotate(180deg) brightness(1.1)" : "invert(1)" }} />}
+                        <span className="text-white font-medium">{l.name}</span>
+                        {l.season && <span className="text-gray-400 ml-1">({l.season})</span>}
+                      </div>
                       <div className="flex gap-2"><button onClick={() => handleEditLeague(l)} className="text-blue-400 hover:text-blue-300 text-sm">Edit</button><button onClick={() => handleDeleteLeague(l.id)} className="text-red-400 hover:text-red-300 text-sm">Delete</button></div>
                     </div>
                   ))}

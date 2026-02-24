@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("leagues")
-    .select("id,name,season,format,created_at")
+    .select("id,name,season,format,image,created_at")
     .order("created_at", { ascending: false });
 
   if (error) return json(500, { error: error.message });
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: "Invalid JSON body" });
 
-  const { name, season, format } = body;
+  const { name, season, format, image } = body;
   if (!name || typeof name !== "string") return json(400, { error: "name is required" });
 
   const { data, error } = await supabaseAdmin
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
       name,
       season: season || null,
       format: format || "league",
+      image: image || null,
     })
     .select()
     .single();
@@ -79,7 +80,7 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: "Invalid JSON body" });
 
-  const { id, name, season, format } = body;
+  const { id, name, season, format, image } = body;
   if (!id) return json(400, { error: "id is required" });
   if (!name || typeof name !== "string") return json(400, { error: "name is required" });
 
@@ -89,6 +90,7 @@ export async function PUT(req: NextRequest) {
       name,
       season: season || null,
       format: format || "league",
+      image: image || null,
     })
     .eq("id", id)
     .select()

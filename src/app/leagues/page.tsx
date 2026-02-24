@@ -10,6 +10,7 @@ type LeagueRow = {
   name: string;
   season: string | null;
   format: string | null;
+  image: string | null;
   created_at: string | null;
 };
 
@@ -27,15 +28,18 @@ function formatLabel(format: string | null): string {
   }
 }
 
-function getLeagueLogo(name: string): { img: string; filter: string } | null {
-  const n = name.toLowerCase();
-  if (n.includes("champion") || n.includes("cd")) {
-    return { img: "/cd.png", filter: "invert(1) sepia(1) saturate(3) hue-rotate(20deg) brightness(1.3)" };
-  }
-  if (n.includes("premier") || n.includes("pl")) {
-    return { img: "/pl.png", filter: "invert(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.2)" };
-  }
-  return null;
+function getLeagueLogo(image: string | null): { img: string; filter: string } | null {
+  if (!image) return null;
+  // invert(1) hue-rotate(180deg): removes white background (white→black = invisible on dark),
+  // hue cancels out (H+180+180=H), lightness inverts around 50% preserving colours
+  const filters: Record<string, string> = {
+    cd: "invert(1) sepia(1) saturate(3) hue-rotate(180deg) brightness(1.2)",
+    pl: "invert(1) sepia(1) saturate(3) hue-rotate(20deg) brightness(1.3)",
+    cl: "invert(1) hue-rotate(180deg) brightness(1.1)",
+    ml: "invert(1) hue-rotate(180deg) brightness(1.1)",
+  };
+  if (!filters[image]) return null;
+  return { img: `/${image}.png`, filter: filters[image] };
 }
 
 function getAccent(format: string | null): string {
@@ -57,7 +61,7 @@ export default function LeaguesPage() {
       setLoading(true);
       const { data: leaguesData, error: leaguesError } = await supabase
         .from("leagues")
-        .select("id,name,season,format,created_at")
+        .select("id,name,season,format,image,created_at")
         .order("created_at", { ascending: false });
       if (leaguesError) { setError(leaguesError); setLoading(false); return; }
 
@@ -124,7 +128,7 @@ export default function LeaguesPage() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 2 }}>
             {leagues.map((l) => {
-              const logo = getLeagueLogo(l.name);
+              const logo = getLeagueLogo(l.image);
               const accent = getAccent(l.format);
               return (
                 <Link

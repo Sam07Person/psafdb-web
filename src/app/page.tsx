@@ -44,7 +44,7 @@ export default function HomePage() {
               alt="PSAF"
               width={64}
               height={64}
-              style={{ filter: "invert(1) sepia(1) saturate(3) hue-rotate(320deg) brightness(1.2)" }}
+              unoptimized
             />
             <div>
               <div style={{ fontSize: 11, letterSpacing: "0.3em", color: "#e63946", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
@@ -85,40 +85,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Leagues Spotlight */}
-      <section style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 64px" }}>
-        <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 20 }}>
-          Active Leagues
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 2 }}>
-          {[
-            { img: "/cd.png", name: "Champions Division", abbr: "CD", color: "#f4c430" },
-            { img: "/pl.png", name: "Premier League", abbr: "PL", color: "#4ea8f7" },
-          ].map(({ img, name, abbr, color }) => (
-            <Link
-              key={abbr}
-              href="/leagues"
-              style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 20, background: "#0d0d1a", borderLeft: `3px solid ${color}`, padding: "20px 24px" }}
-              className="nav-card"
-            >
-              <div style={{ width: 48, height: 48, display: "flex", alignItems: "center", justifyContent: "center", background: "#07070f", flexShrink: 0 }}>
-                <Image
-                  src={img}
-                  alt={abbr}
-                  width={36}
-                  height={36}
-                  style={{ filter: `invert(1) sepia(1) saturate(3) hue-rotate(${abbr === "CD" ? "20deg" : "180deg"}) brightness(1.2)` }}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.05em", color: "#e8e8f0" }}>{name}</div>
-                <div style={{ fontSize: 11, color: "#3a3a5a", letterSpacing: "0.15em", fontWeight: 600, textTransform: "uppercase", marginTop: 2 }}>{abbr}</div>
-              </div>
-              <div style={{ marginLeft: "auto", fontSize: 11, color, fontWeight: 700 }}>→</div>
-            </Link>
-          ))}
-        </div>
-      </section>
     </main>
   );
 }
