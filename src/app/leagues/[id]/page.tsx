@@ -20,13 +20,30 @@ async function getLeague(id: string) {
 }
 
 async function getLeagueTeams(leagueId: string) {
-  const { data, error } = await supabase
+  // Teams with direct league_id
+  const { data: direct } = await supabase
     .from("teams")
     .select("id, name")
-    .eq("league_id", leagueId)
-    .order("name", { ascending: true });
-  if (error) return [];
-  return data || [];
+    .eq("league_id", leagueId);
+
+  // Teams via junction table
+  const { data: junction } = await supabase
+    .from("team_leagues")
+    .select("team_id, teams(id, name)")
+    .eq("league_id", leagueId);
+
+  const seen = new Set<string>();
+  const result: { id: string; name: string }[] = [];
+
+  for (const t of direct || []) {
+    if (!seen.has(t.id)) { seen.add(t.id); result.push(t); }
+  }
+  for (const j of junction || []) {
+    const t = (j as any).teams;
+    if (t && !seen.has(t.id)) { seen.add(t.id); result.push({ id: t.id, name: t.name }); }
+  }
+
+  return result.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function getLeagueMatches(leagueId: string) {
@@ -39,63 +56,63 @@ async function getLeagueMatches(leagueId: string) {
   return data || [];
 }
 
-function calculateStandings(teams: any[], matches: any[]) {
-  const standings: Record<string, {
-    team: string; played: number; won: number; drawn: number; lost: number;
-    gf: number; ga: number; points: number; forfeit_deductions: number;
-  }> = {};
+type StandingRow = {
+  team: string; played: number; won: number; drawn: number; lost: number;
+  gf: number; ga: number; points: number; forfeit_deductions: number;
+};
 
-  for (const team of teams) {
-    standings[team.name] = { team: team.name, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
-  }
-  for (const match of matches) {
-    if (!standings[match.home_team]) {
-      standings[match.home_team] = { team: match.home_team, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
-    }
-    if (!standings[match.away_team]) {
-      standings[match.away_team] = { team: match.away_team, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
-    }
-  }
+function applyMatchToStandings(s: Record<string, StandingRow>, match: any) {
+  const ensure = (name: string) => {
+    if (!s[name]) s[name] = { team: name, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
+  };
+  ensure(match.home_team);
+  ensure(match.away_team);
 
-  for (const match of matches) {
-    if (match.home_score === null || match.away_score === null) continue;
-    const home = standings[match.home_team];
-    const away = standings[match.away_team];
+  if (match.home_score === null || match.away_score === null) return;
 
-    if (home) {
-      home.played++;
-      home.gf += match.home_score;
-      home.ga += match.away_score;
-      if (match.home_score > match.away_score) { home.won++; home.points += 3; }
-      else if (match.home_score < match.away_score) { home.lost++; }
-      else { home.drawn++; home.points += 1; }
-    }
-    if (away) {
-      away.played++;
-      away.gf += match.away_score;
-      away.ga += match.home_score;
-      if (match.away_score > match.home_score) { away.won++; away.points += 3; }
-      else if (match.away_score < match.home_score) { away.lost++; }
-      else { away.drawn++; away.points += 1; }
-    }
+  const home = s[match.home_team];
+  const away = s[match.away_team];
 
-    // Forfeit: deduct 1 point from forfeiting team
-    if (match.forfeited_by === "home" && home) {
-      home.points = Math.max(0, home.points - 1);
-      home.forfeit_deductions++;
-    } else if (match.forfeited_by === "away" && away) {
-      away.points = Math.max(0, away.points - 1);
-      away.forfeit_deductions++;
-    }
-  }
+  home.played++; home.gf += match.home_score; home.ga += match.away_score;
+  if (match.home_score > match.away_score) { home.won++; home.points += 3; }
+  else if (match.home_score < match.away_score) { home.lost++; }
+  else { home.drawn++; home.points += 1; }
 
-  return Object.values(standings).sort((a, b) => {
+  away.played++; away.gf += match.away_score; away.ga += match.home_score;
+  if (match.away_score > match.home_score) { away.won++; away.points += 3; }
+  else if (match.away_score < match.home_score) { away.lost++; }
+  else { away.drawn++; away.points += 1; }
+
+  if (match.forfeited_by === "home") { home.points = Math.max(0, home.points - 1); home.forfeit_deductions++; }
+  else if (match.forfeited_by === "away") { away.points = Math.max(0, away.points - 1); away.forfeit_deductions++; }
+}
+
+function sortRows(rows: StandingRow[]): StandingRow[] {
+  return [...rows].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
-    const gdA = a.gf - a.ga;
-    const gdB = b.gf - b.ga;
+    const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
     if (gdB !== gdA) return gdB - gdA;
     return b.gf - a.gf;
   });
+}
+
+function calculateStandings(teams: any[], matches: any[]): StandingRow[] {
+  const s: Record<string, StandingRow> = {};
+  for (const t of teams) s[t.name] = { team: t.name, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
+  for (const m of matches) applyMatchToStandings(s, m);
+  return sortRows(Object.values(s));
+}
+
+function calculateGroupStandings(matches: any[]): Record<string, StandingRow[]> {
+  const byGroup: Record<string, Record<string, StandingRow>> = {};
+  for (const m of matches.filter((m: any) => m.group_name)) {
+    const g = m.group_name;
+    if (!byGroup[g]) byGroup[g] = {};
+    applyMatchToStandings(byGroup[g], m);
+  }
+  const result: Record<string, StandingRow[]> = {};
+  for (const [g, s] of Object.entries(byGroup)) result[g] = sortRows(Object.values(s));
+  return result;
 }
 
 function getLeagueLogo(image: string | null): { img: string; filter: string } | null {
@@ -110,6 +127,14 @@ function getLeagueLogo(image: string | null): { img: string; filter: string } | 
   return { img: `/${image}.png`, filter: filters[image] };
 }
 
+// Canonical knockout stage order (later rounds first)
+const KNOCKOUT_STAGE_ORDER = ["final", "third place", "semifinal", "semi-final", "quarterfinal", "quarter-final", "round of 16", "round of 32", "knockout"];
+function knockoutStageRank(stage: string) {
+  const s = stage.toLowerCase();
+  const idx = KNOCKOUT_STAGE_ORDER.findIndex(k => s.includes(k));
+  return idx === -1 ? 999 : idx;
+}
+
 export const revalidate = 60;
 
 export default async function LeagueDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -118,12 +143,105 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
   if (!league) notFound();
 
   const [teams, matches] = await Promise.all([getLeagueTeams(id), getLeagueMatches(id)]);
-  const standings = calculateStandings(teams, matches);
   const teamIdMap: Record<string, string> = Object.fromEntries(teams.map((t: any) => [t.name, t.id]));
+
+  const isGroupKnockout = league.format === "group_knockout";
+  const isKnockout = league.format === "knockout";
+  const isLeague = !isGroupKnockout && !isKnockout;
+
+  // League format
+  const standings = isLeague ? calculateStandings(teams, matches) : [];
+
+  // Group + knockout format
+  const groupMatches = matches.filter((m: any) => m.group_name);
+  const groupStandings = isGroupKnockout ? calculateGroupStandings(matches) : {};
+  const sortedGroups = Object.keys(groupStandings).sort();
+
+  // Knockout matches (for both knockout-only and group+knockout)
+  const knockoutMatchesPlayed = matches.filter((m: any) => m.home_score !== null && !m.group_name);
+  const knockoutByStage: Record<string, any[]> = {};
+  for (const m of knockoutMatchesPlayed) {
+    const stage = m.stage || "Knockout";
+    if (!knockoutByStage[stage]) knockoutByStage[stage] = [];
+    knockoutByStage[stage].push(m);
+  }
+  const sortedKnockoutStages = Object.keys(knockoutByStage).sort((a, b) => knockoutStageRank(a) - knockoutStageRank(b));
+
   const playedMatches = matches.filter((m: any) => m.home_score !== null);
   const upcomingMatches = matches.filter((m: any) => m.home_score === null).reverse().slice(0, 5);
   const logo = getLeagueLogo(league.image);
   const totalGoals = matches.reduce((s: number, m: any) => s + (m.home_score || 0) + (m.away_score || 0), 0);
+
+  // Shared standings table renderer
+  function StandingsTable({ rows, advanceSpots = 0 }: { rows: StandingRow[]; advanceSpots?: number }) {
+    return (
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: "#09090f" }}>
+              {["#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
+                <th key={h} style={{ padding: "8px 12px", textAlign: h === "Team" || h === "#" ? "left" : "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => {
+              const gd = row.gf - row.ga;
+              const advances = advanceSpots > 0 && index < advanceSpots;
+              return (
+                <tr key={row.team} style={{ borderBottom: "1px solid #0f0f1a", background: advances ? "#0d1a10" : "transparent", borderLeft: advances ? "2px solid #4ade80" : "2px solid transparent" }}>
+                  <td style={{ padding: "10px 12px", color: "#3a3a5a", fontSize: 11, fontWeight: 700 }}>{index + 1}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "#e0e0f0" }}>
+                    {teamIdMap[row.team] ? (
+                      <Link href={`/teams/${teamIdMap[row.team]}`} style={{ color: "#e0e0f0", textDecoration: "none" }} className="nav-link">
+                        {row.team}
+                      </Link>
+                    ) : row.team}
+                    {row.forfeit_deductions > 0 && (
+                      <span style={{ marginLeft: 6, fontSize: 10, color: "#e63946", background: "#e6394620", padding: "1px 5px" }}>-{row.forfeit_deductions}pts</span>
+                    )}
+                  </td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#5a5a7a" }}>{row.played}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#4ade80", fontWeight: 600 }}>{row.won}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#f4c430", fontWeight: 600 }}>{row.drawn}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#e63946", fontWeight: 600 }}>{row.lost}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#9090b0" }}>{row.gf}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#9090b0" }}>{row.ga}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: gd > 0 ? "#4ade80" : gd < 0 ? "#e63946" : "#5a5a7a", fontWeight: 600 }}>
+                    {gd > 0 ? "+" : ""}{gd}
+                  </td>
+                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{row.points}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  function MatchRow({ match }: { match: any }) {
+    const homeWin = match.home_score > match.away_score;
+    const awayWin = match.away_score > match.home_score;
+    return (
+      <Link
+        href={`/matches/${match.id}`}
+        style={{ display: "flex", alignItems: "center", padding: "12px 20px", borderBottom: "1px solid #0f0f1a", textDecoration: "none", background: "transparent" }}
+        className="nav-card"
+      >
+        <span style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: homeWin ? 700 : 400, color: homeWin ? "#e0e0f0" : "#5a5a7a" }}>{match.home_team}</span>
+        <div style={{ margin: "0 16px", display: "flex", alignItems: "center", gap: 8, minWidth: 80, justifyContent: "center" }}>
+          <span style={{ fontWeight: 900, fontSize: 18, color: "#f0f0fa", fontVariantNumeric: "tabular-nums" }}>{match.home_score}</span>
+          <span style={{ color: "#2a2a3a", fontSize: 12 }}>—</span>
+          <span style={{ fontWeight: 900, fontSize: 18, color: "#f0f0fa", fontVariantNumeric: "tabular-nums" }}>{match.away_score}</span>
+        </div>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: awayWin ? 700 : 400, color: awayWin ? "#e0e0f0" : "#5a5a7a" }}>{match.away_team}</span>
+        {match.forfeited_by && (
+          <span style={{ fontSize: 10, color: "#e63946", background: "#e6394620", padding: "2px 6px", marginLeft: 8, letterSpacing: "0.08em" }}>FORFEIT</span>
+        )}
+      </Link>
+    );
+  }
 
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
@@ -147,7 +265,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
               <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "#f0f0fa", margin: 0 }}>{league.name}</h1>
               <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center" }}>
                 {league.season && <span style={{ fontSize: 12, color: "#3a3a5a" }}>Season {league.season}</span>}
-                {league.format && <span style={{ fontSize: 11, color: "#5a5a7a", background: "#0d0d1a", padding: "2px 8px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{league.format.replace("_", " ")}</span>}
+                {league.format && <span style={{ fontSize: 11, color: "#5a5a7a", background: "#0d0d1a", padding: "2px 8px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{league.format.replace(/_/g, " ")}</span>}
               </div>
             </div>
           </div>
@@ -155,112 +273,125 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
       </section>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px", display: "grid", gridTemplateColumns: "1fr 300px", gap: 2 }}>
-        {/* Left: Standings + Results */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {/* Left: main content */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
 
-          {/* Standings */}
-          <div>
-            <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
-              Standings
-            </div>
-            {standings.length === 0 ? (
-              <div style={{ background: "#0d0d1a", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>No teams yet</div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: "#09090f" }}>
-                      {["#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
-                        <th key={h} style={{ padding: "8px 12px", textAlign: h === "Team" || h === "#" ? "left" : "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {standings.map((row, index) => {
-                      const gd = row.gf - row.ga;
-                      const isTop = index === 0 && standings.length > 1;
-                      return (
-                        <tr key={row.team} style={{ borderBottom: "1px solid #0f0f1a", background: isTop ? "#0f0f1e" : "transparent" }}>
-                          <td style={{ padding: "10px 12px", color: "#3a3a5a", fontSize: 11, fontWeight: 700 }}>{index + 1}</td>
-                          <td style={{ padding: "10px 12px", fontWeight: 700, color: "#e0e0f0" }}>
-                            {teamIdMap[row.team] ? (
-                              <Link href={`/teams/${teamIdMap[row.team]}`} style={{ color: "#e0e0f0", textDecoration: "none" }} className="nav-link">
-                                {row.team}
-                              </Link>
-                            ) : row.team}
-                            {row.forfeit_deductions > 0 && (
-                              <span style={{ marginLeft: 6, fontSize: 10, color: "#e63946", background: "#e6394620", padding: "1px 5px" }}>-{row.forfeit_deductions}pts</span>
-                            )}
-                          </td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#5a5a7a" }}>{row.played}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#4ade80", fontWeight: 600 }}>{row.won}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#f4c430", fontWeight: 600 }}>{row.drawn}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#e63946", fontWeight: 600 }}>{row.lost}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#9090b0" }}>{row.gf}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#9090b0" }}>{row.ga}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: gd > 0 ? "#4ade80" : gd < 0 ? "#e63946" : "#5a5a7a", fontWeight: 600 }}>
-                            {gd > 0 ? "+" : ""}{gd}
-                          </td>
-                          <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{row.points}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+          {/* ── LEAGUE FORMAT: single standings table ── */}
+          {isLeague && (
+            <div>
+              <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
+                Standings
               </div>
-            )}
-          </div>
-
-          {/* Recent Results */}
-          <div style={{ marginTop: 2 }}>
-            <div style={{ background: "#0d0d1a", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
-              Recent Results
+              {standings.length === 0
+                ? <div style={{ background: "#0d0d1a", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>No teams yet</div>
+                : <StandingsTable rows={standings} />
+              }
             </div>
-            {playedMatches.length === 0 ? (
-              <div style={{ background: "#0d0d1a", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>No matches played yet</div>
-            ) : (
-              <div>
-                {playedMatches.slice(0, 10).map((match: any) => {
-                  const homeWin = match.home_score > match.away_score;
-                  const awayWin = match.away_score > match.home_score;
-                  return (
-                    <Link
-                      key={match.id}
-                      href={`/matches/${match.id}`}
-                      style={{ display: "flex", alignItems: "center", padding: "12px 20px", borderBottom: "1px solid #0f0f1a", textDecoration: "none", background: "transparent" }}
-                      className="nav-card"
-                    >
-                      <span style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: homeWin ? 700 : 400, color: homeWin ? "#e0e0f0" : "#5a5a7a" }}>{match.home_team}</span>
-                      <div style={{ margin: "0 16px", display: "flex", alignItems: "center", gap: 8, minWidth: 80, justifyContent: "center" }}>
-                        <span style={{ fontWeight: 900, fontSize: 18, color: "#f0f0fa", fontVariantNumeric: "tabular-nums" }}>{match.home_score}</span>
-                        <span style={{ color: "#2a2a3a", fontSize: 12 }}>—</span>
-                        <span style={{ fontWeight: 900, fontSize: 18, color: "#f0f0fa", fontVariantNumeric: "tabular-nums" }}>{match.away_score}</span>
+          )}
+
+          {/* ── GROUP + KNOCKOUT FORMAT: group tables grid ── */}
+          {isGroupKnockout && (
+            <>
+              {sortedGroups.length === 0 ? (
+                <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>
+                  No group stage matches yet
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 2 }}>
+                  {sortedGroups.map(groupName => (
+                    <div key={groupName}>
+                      <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
+                        {groupName}
                       </div>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: awayWin ? 700 : 400, color: awayWin ? "#e0e0f0" : "#5a5a7a" }}>{match.away_team}</span>
-                      {match.forfeited_by && (
-                        <span style={{ fontSize: 10, color: "#e63946", background: "#e6394620", padding: "2px 6px", marginLeft: 8, letterSpacing: "0.08em" }}>FORFEIT</span>
-                      )}
-                    </Link>
-                  );
-                })}
+                      <StandingsTable rows={groupStandings[groupName]} advanceSpots={2} />
+                      <div style={{ background: "#0a0a12", padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ display: "inline-block", width: 8, height: 8, background: "#4ade80", flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, color: "#3a4a3a", letterSpacing: "0.08em" }}>Advances</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Knockout rounds */}
+              {sortedKnockoutStages.length > 0 && (
+                <div style={{ marginTop: 2 }}>
+                  {sortedKnockoutStages.map(stage => (
+                    <div key={stage} style={{ marginBottom: 2 }}>
+                      <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
+                        {stage}
+                      </div>
+                      {knockoutByStage[stage].map((match: any) => (
+                        <MatchRow key={match.id} match={match} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── KNOCKOUT FORMAT: results by stage only ── */}
+          {isKnockout && (
+            <>
+              {sortedKnockoutStages.length === 0 ? (
+                <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>
+                  No matches played yet
+                </div>
+              ) : (
+                sortedKnockoutStages.map(stage => (
+                  <div key={stage} style={{ marginBottom: 2 }}>
+                    <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
+                      {stage}
+                    </div>
+                    {knockoutByStage[stage].map((match: any) => (
+                      <MatchRow key={match.id} match={match} />
+                    ))}
+                  </div>
+                ))
+              )}
+            </>
+          )}
+
+          {/* Recent Results (league format only — groups/knockout handle their own results above) */}
+          {isLeague && (
+            <div style={{ marginTop: 2 }}>
+              <div style={{ background: "#0d0d1a", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
+                Recent Results
               </div>
-            )}
-          </div>
+              {playedMatches.length === 0
+                ? <div style={{ background: "#0d0d1a", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>No matches played yet</div>
+                : playedMatches.slice(0, 10).map((match: any) => <MatchRow key={match.id} match={match} />)
+              }
+            </div>
+          )}
+
+          {/* For group+knockout: also show recent group results below knockout */}
+          {isGroupKnockout && groupMatches.filter((m: any) => m.home_score !== null).length > 0 && (
+            <div style={{ marginTop: 2 }}>
+              <div style={{ background: "#0d0d1a", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
+                Recent Group Results
+              </div>
+              {groupMatches.filter((m: any) => m.home_score !== null).slice(0, 10).map((match: any) => (
+                <MatchRow key={match.id} match={match} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Right Sidebar */}
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {/* Stats */}
           <div style={{ background: "#0d0d1a", borderTop: "3px solid #4ea8f7" }}>
             <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7", borderBottom: "1px solid #1a1a2e" }}>
               League Info
             </div>
             {[
-              { label: "Teams", val: standings.length },
+              { label: "Teams", val: teams.length || standings.length },
+              { label: "Groups", val: isGroupKnockout ? sortedGroups.length : "—" },
               { label: "Matches Played", val: playedMatches.length },
               { label: "Total Goals", val: totalGoals },
               { label: "Forfeits", val: matches.filter((m: any) => m.forfeited_by).length },
-            ].map(({ label, val }) => (
+            ].filter(({ val }) => val !== "—").map(({ label, val }) => (
               <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderBottom: "1px solid #0f0f1a" }}>
                 <span style={{ fontSize: 12, color: "#4a4a6a" }}>{label}</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: "#e0e0f0" }}>{val}</span>
@@ -268,7 +399,6 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
             ))}
           </div>
 
-          {/* Upcoming */}
           {upcomingMatches.length > 0 && (
             <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa" }}>
               <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid #1a1a2e" }}>
@@ -279,6 +409,8 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d8" }}>
                     {match.home_team} <span style={{ color: "#3a3a5a", margin: "0 4px" }}>vs</span> {match.away_team}
                   </div>
+                  {match.group_name && <div style={{ fontSize: 10, color: "#3a3a5a", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>{match.group_name}</div>}
+                  {match.stage && !match.group_name && <div style={{ fontSize: 10, color: "#5a4a7a", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>{match.stage}</div>}
                   <div style={{ fontSize: 11, color: "#3a3a5a", marginTop: 4 }}>
                     {new Date(match.played_at).toLocaleDateString()}
                   </div>

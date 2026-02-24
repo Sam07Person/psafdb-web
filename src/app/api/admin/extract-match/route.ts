@@ -32,6 +32,11 @@ function requireAuth(req: NextRequest) {
   return { ok: true as const };
 }
 
+function normalizeGroupName(raw: string): string {
+  // "Groups C" → "Group C", "groups b" → "Group B"
+  return raw.replace(/^groups?\s+/i, "Group ").trim();
+}
+
 async function extractDataWithOpenAI(base64Images: string[]) {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
@@ -86,6 +91,10 @@ CRITICAL FOR PLAYER NAMES AND IDs:
 - The name will be used as the primary matching key, so ensure names are accurate.
 
 DO NOT assume which team is "home" or "away" based on screen position. Just label them as "team_1" and "team_2".
+
+Look for any text on screen indicating the group or stage, such as "Groups A", "Groups B", "Group C", "Round of 16", "Semifinal", "Final", etc.
+- "group_name": The specific group label if visible (e.g. "Group A"). Normalize "Groups C" → "Group C". Set to null if not a group stage match.
+- "stage": The round/stage label if visible for knockout matches (e.g. "Round of 16", "Semifinal", "Final"). Set to null if not visible or if it is a group stage match.
 
 Return ONLY valid JSON with no markdown formatting.`,
         },
@@ -155,6 +164,8 @@ Return JSON in this exact format:
   "team_2": { ... same structure ... },
   "match_time": "16:00",
   "half": "Second Half",
+  "group_name": "Group A",
+  "stage": null,
   "has_detailed_stats_team_1": true,
   "has_detailed_stats_team_2": true
 }
@@ -199,6 +210,8 @@ IMPORTANT:
     away_team: parsed.team_2 || parsed.away_team,
     match_time: parsed.match_time,
     half: parsed.half,
+    group_name: parsed.group_name ? normalizeGroupName(parsed.group_name) : null,
+    stage: parsed.stage || null,
     has_detailed_stats: (parsed.has_detailed_stats_team_1 || parsed.has_detailed_stats_team_2) ?? parsed.has_detailed_stats ?? !isSingleImage,
     has_detailed_stats_team_1: parsed.has_detailed_stats_team_1 ?? parsed.has_detailed_stats ?? !isSingleImage,
     has_detailed_stats_team_2: parsed.has_detailed_stats_team_2 ?? parsed.has_detailed_stats ?? !isSingleImage,

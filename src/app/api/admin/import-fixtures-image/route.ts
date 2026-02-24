@@ -138,6 +138,10 @@ function findBestLeagueMatch(searchName: string, leagues: { id: string; name: st
   return bestMatch;
 }
 
+function normalizeGroupName(raw: string): string {
+  return raw.replace(/^groups?\s+/i, "Group ").trim();
+}
+
 async function extractFixturesWithOpenAI(base64Image: string) {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
@@ -160,6 +164,7 @@ The screenshots show fixture announcements with:
 - Day/Round number (e.g., "Day 3", "Day 1")
 - Match date and time (always in UK timezone)
 - Two teams per fixture (often with @ mentions)
+- A group label per fixture (e.g., "Groups A", "Groups B", "Group C") — this may appear as a heading above a set of fixtures or inline with each fixture
 
 Return ONLY valid JSON with no markdown formatting.`,
         },
@@ -178,14 +183,16 @@ Return ONLY valid JSON with no markdown formatting.`,
       "away_team": "Borazanspor",
       "date": "2026-02-19",
       "time": "17:00",
-      "stage": "group"
+      "stage": "group",
+      "group_name": "Group A"
     },
     {
       "home_team": "Szot United",
       "away_team": "Velocita FC",
       "date": "2026-02-19",
       "time": "17:30",
-      "stage": "group"
+      "stage": "group",
+      "group_name": "Group B"
     }
   ]
 }
@@ -197,7 +204,8 @@ Notes:
 - Date format: YYYY-MM-DD
 - Time format: HH:MM (24-hour, UK timezone)
 - Stage is usually "group" for league matches, or "knockout", "semi", "final" etc.
-- If score is shown (e.g., "? : ?"), it means the match hasn't been played yet`,
+- If score is shown (e.g., "? : ?"), it means the match hasn't been played yet
+- group_name: Look for group labels like "Groups A", "Groups B", "Group C" — they often appear as section headings above sets of fixtures. Normalize "Groups A" → "Group A". Set to null if no group label is visible for that fixture.`,
             },
             {
               type: "image_url",
@@ -413,6 +421,7 @@ export async function POST(req: NextRequest) {
           away_score: null,
           day: extractedData.day || null,
           stage: fixture.stage || "group",
+          group_name: fixture.group_name ? normalizeGroupName(fixture.group_name) : null,
         })
         .select()
         .single();

@@ -26,6 +26,19 @@ type PlayerStat = {
 
 type SortKey = keyof Omit<PlayerStat, "player_id" | "team_side" | "position" | "players">;
 
+const POSITION_ORDER: Record<string, number> = {
+  GK: 0,
+  LB: 1, LCB: 2, CB: 3, RCB: 4, RB: 5,
+  LWB: 6, RWB: 7,
+  LM: 8, CM: 9, RM: 10,
+  LW: 11, RW: 12,
+  LF: 13, RF: 14, CF: 15, ST: 16,
+};
+
+function posRank(pos: string | null) {
+  return pos ? (POSITION_ORDER[pos] ?? 99) : 99;
+}
+
 const POSITION_STYLE: Record<string, { color: string; background: string }> = {
   GK:  { color: "#fde68a", background: "rgba(251,191,36,0.15)" },
   LB:  { color: "#86efac", background: "rgba(74,222,128,0.12)" },
@@ -63,110 +76,53 @@ const COLUMNS: [string, SortKey][] = [
   ["Score", "score"],
 ];
 
-export default function PlayerStatsTable({
-  playerStats,
-  homeTeam,
-  awayTeam,
+function TeamTable({
+  rows,
+  teamName,
+  sortKey,
+  sortDir,
+  onToggleSort,
+  accentColor,
 }: {
-  playerStats: PlayerStat[];
-  homeTeam: string;
-  awayTeam: string;
+  rows: PlayerStat[];
+  teamName: string;
+  sortKey: SortKey | "position";
+  sortDir: "desc" | "asc";
+  onToggleSort: (key: SortKey) => void;
+  accentColor: string;
 }) {
-  const [playerFilter, setPlayerFilter] = useState("");
-  const [sideFilter, setSideFilter] = useState<"all" | "home" | "away">("all");
-  const [positionFilter, setPositionFilter] = useState("all");
-  const [sortKey, setSortKey] = useState<SortKey>("score");
-  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
-
-  const availablePositions = useMemo(() => {
-    const set = new Set<string>();
-    playerStats.forEach((r) => { if (r.position) set.add(r.position); });
-    return Array.from(set).sort();
-  }, [playerStats]);
-
-  const rows = useMemo(() => {
-    const needle = playerFilter.trim().toLowerCase();
-    let list = playerStats;
-    if (sideFilter !== "all") list = list.filter((r) => r.team_side === sideFilter);
-    if (positionFilter !== "all") list = list.filter((r) => r.position === positionFilter);
-    if (needle) list = list.filter((r) => {
-      const name = (r.players?.name ?? "").toLowerCase();
-      const handle = (r.players?.handle ?? "").toLowerCase();
-      return name.includes(needle) || handle.includes(needle);
-    });
-    const dir = sortDir === "desc" ? -1 : 1;
-    return [...list].sort((a, b) => {
-      const av = (a[sortKey] as number) ?? 0;
-      const bv = (b[sortKey] as number) ?? 0;
-      return av < bv ? dir : av > bv ? -dir : 0;
-    });
-  }, [playerStats, playerFilter, sideFilter, positionFilter, sortKey, sortDir]);
-
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => d === "desc" ? "asc" : "desc");
-    else { setSortKey(key); setSortDir("desc"); }
-  }
-
-  const inputStyle: React.CSSProperties = {
-    background: "#09090f",
-    border: "1px solid #1a1a2e",
-    color: "#e0e0f0",
-    padding: "7px 12px",
-    fontSize: 12,
-    outline: "none",
-    width: "100%",
-  };
-
-  if (playerStats.length === 0) return null;
-
   return (
     <div>
-      {/* Header bar */}
-      <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
-        Player Stats
-      </div>
-
-      {/* Filters */}
-      <div style={{ background: "#0a0a13", borderBottom: "1px solid #1a1a2e", padding: "12px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <input
-          value={playerFilter}
-          onChange={(e) => setPlayerFilter(e.target.value)}
-          placeholder="Search player..."
-          style={{ ...inputStyle, width: 180 }}
-        />
-        <select value={sideFilter} onChange={(e) => setSideFilter(e.target.value as any)} style={inputStyle}>
-          <option value="all">All sides</option>
-          <option value="home">{homeTeam}</option>
-          <option value="away">{awayTeam}</option>
-        </select>
-        <select value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} style={inputStyle}>
-          <option value="all">All positions</option>
-          {availablePositions.map((pos) => (
-            <option key={pos} value={pos}>{pos}</option>
-          ))}
-        </select>
-        <div style={{ marginLeft: "auto", fontSize: 11, color: "#3a3a5a" }}>
+      <div style={{
+        background: "#0d0d1a",
+        borderTop: `3px solid ${accentColor}`,
+        padding: "12px 20px",
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        color: accentColor,
+      }}>
+        {teamName}
+        <span style={{ marginLeft: 10, fontSize: 10, fontWeight: 400, color: "#3a3a5a" }}>
           {rows.length} player{rows.length !== 1 ? "s" : ""}
-        </div>
+        </span>
       </div>
-
-      {/* Table */}
       <div style={{ background: "#0d0d1a", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 900 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 860 }}>
           <thead>
             <tr style={{ background: "#09090f" }}>
               <th style={{ padding: "8px 20px", textAlign: "left", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e", whiteSpace: "nowrap" }}>Player</th>
               <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>Pos</th>
-              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>Side</th>
               {COLUMNS.map(([label, key]) => (
                 <th
                   key={key}
-                  onClick={() => toggleSort(key)}
+                  onClick={() => onToggleSort(key)}
                   style={{
                     padding: "8px 10px",
                     textAlign: "center",
                     fontSize: 10,
-                    color: sortKey === key ? "#a78bfa" : "#3a3a5a",
+                    color: sortKey !== "position" && sortKey === key ? accentColor : "#3a3a5a",
                     fontWeight: 700,
                     letterSpacing: "0.1em",
                     textTransform: "uppercase",
@@ -176,18 +132,23 @@ export default function PlayerStatsTable({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {label}{sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
+                  {label}{sortKey !== "position" && sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={2 + COLUMNS.length} style={{ padding: "24px 20px", textAlign: "center", color: "#2a2a3a", fontSize: 12 }}>
+                  No players found
+                </td>
+              </tr>
+            ) : rows.map((r) => {
               const label = r.players?.name || r.players?.handle || r.player_id.slice(0, 8) + "…";
               const posSty = r.position ? POSITION_STYLE[r.position] : null;
-              const isHome = r.team_side === "home";
               return (
-                <tr key={r.player_id + r.team_side} style={{ borderBottom: "1px solid #0a0a14" }}>
+                <tr key={r.player_id} style={{ borderBottom: "1px solid #0a0a14" }}>
                   <td style={{ padding: "9px 20px", whiteSpace: "nowrap" }}>
                     <Link href={`/players/${r.player_id}`} style={{ fontWeight: 600, color: "#d0d0e8", textDecoration: "none" }} className="nav-link">
                       {label}
@@ -200,18 +161,9 @@ export default function PlayerStatsTable({
                       </span>
                     ) : <span style={{ color: "#2a2a3a" }}>—</span>}
                   </td>
-                  <td style={{ padding: "9px 10px", textAlign: "center" }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: "2px 6px",
-                      color: isHome ? "#93c5fd" : "#fca5a5",
-                      background: isHome ? "rgba(147,197,253,0.1)" : "rgba(239,68,68,0.1)",
-                    }}>
-                      {isHome ? "H" : "A"}
-                    </span>
-                  </td>
                   {COLUMNS.map(([, key]) => {
                     const val = (r[key as keyof PlayerStat] as number) ?? 0;
-                    const isSorted = sortKey === key;
+                    const isSorted = sortKey !== "position" && sortKey === key;
                     return (
                       <td key={key} style={{ padding: "9px 10px", textAlign: "center", color: isSorted ? "#e0e0f0" : val > 0 ? "#9090b0" : "#2a2a3a", fontWeight: isSorted && val > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>
                         {val}
@@ -223,6 +175,123 @@ export default function PlayerStatsTable({
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+export default function PlayerStatsTable({
+  playerStats,
+  homeTeam,
+  awayTeam,
+}: {
+  playerStats: PlayerStat[];
+  homeTeam: string;
+  awayTeam: string;
+}) {
+  const [playerFilter, setPlayerFilter] = useState("");
+  const [positionFilter, setPositionFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey | "position">("position");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("asc");
+
+  const availablePositions = useMemo(() => {
+    const set = new Set<string>();
+    playerStats.forEach((r) => { if (r.position) set.add(r.position); });
+    return Array.from(set).sort();
+  }, [playerStats]);
+
+  const filtered = useMemo(() => {
+    const needle = playerFilter.trim().toLowerCase();
+    return playerStats.filter((r) => {
+      if (positionFilter !== "all" && r.position !== positionFilter) return false;
+      if (needle) {
+        const name = (r.players?.name ?? "").toLowerCase();
+        const handle = (r.players?.handle ?? "").toLowerCase();
+        if (!name.includes(needle) && !handle.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [playerStats, playerFilter, positionFilter]);
+
+  const sorted = useMemo(() => {
+    if (sortKey === "position") {
+      return [...filtered].sort((a, b) => posRank(a.position) - posRank(b.position));
+    }
+    const dir = sortDir === "desc" ? -1 : 1;
+    return [...filtered].sort((a, b) => {
+      const av = (a[sortKey] as number) ?? 0;
+      const bv = (b[sortKey] as number) ?? 0;
+      if (av !== bv) return av < bv ? dir : -dir;
+      // secondary sort by position when tied
+      return posRank(a.position) - posRank(b.position);
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const homeRows = sorted.filter((r) => r.team_side === "home");
+  const awayRows = sorted.filter((r) => r.team_side === "away");
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir("desc"); }
+    // clicking a stat column exits position-order mode
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: "#09090f",
+    border: "1px solid #1a1a2e",
+    color: "#e0e0f0",
+    padding: "7px 12px",
+    fontSize: 12,
+    outline: "none",
+  };
+
+  if (playerStats.length === 0) return null;
+
+  return (
+    <div>
+      {/* Section header */}
+      <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
+        Player Stats
+      </div>
+
+      {/* Filters */}
+      <div style={{ background: "#0a0a13", borderBottom: "1px solid #1a1a2e", padding: "12px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          value={playerFilter}
+          onChange={(e) => setPlayerFilter(e.target.value)}
+          placeholder="Search player..."
+          style={{ ...inputStyle, width: 180 }}
+        />
+        <select value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} style={inputStyle}>
+          <option value="all">All positions</option>
+          {availablePositions.map((pos) => (
+            <option key={pos} value={pos}>{pos}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Home team */}
+      <div style={{ marginTop: 2 }}>
+        <TeamTable
+          rows={homeRows}
+          teamName={homeTeam}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onToggleSort={toggleSort}
+          accentColor="#93c5fd"
+        />
+      </div>
+
+      {/* Away team */}
+      <div style={{ marginTop: 2 }}>
+        <TeamTable
+          rows={awayRows}
+          teamName={awayTeam}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onToggleSort={toggleSort}
+          accentColor="#fca5a5"
+        />
       </div>
     </div>
   );

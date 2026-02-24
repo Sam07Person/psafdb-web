@@ -1135,6 +1135,16 @@ export default function AdminDashboardPage() {
     }));
   };
 
+  // Update match-level metadata (group_name, stage, etc.)
+  const updateGroupPreviewMeta = (groupId: string, field: string, value: any) => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        return { ...g, editedData: { ...g.editedData, [field]: value || null } };
+      }
+      return g;
+    }));
+  };
+
   // Update team stats
   const updateGroupPreviewTeam = (groupId: string, teamSide: "home" | "away", field: string, value: any) => {
     setMatchGroups(prev => prev.map(g => {
@@ -1699,6 +1709,11 @@ export default function AdminDashboardPage() {
                             <div className="text-center text-gray-500 text-sm mt-1">
                               {group.editedData.home_team?.players?.length || 0} + {group.editedData.away_team?.players?.length || 0} players extracted
                             </div>
+                            {(group.editedData.group_name || group.editedData.stage) && (
+                              <div className="text-center text-yellow-400 text-xs font-semibold mt-1 tracking-wide uppercase">
+                                {group.editedData.group_name || group.editedData.stage}
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
@@ -1766,6 +1781,30 @@ export default function AdminDashboardPage() {
                             className="bg-transparent border-b border-gray-600 text-white w-full focus:border-blue-500 focus:outline-none"
                           />
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Group / Stage */}
+                    <div className="flex items-center gap-4 justify-center">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-400 whitespace-nowrap">Group:</label>
+                        <input
+                          type="text"
+                          value={editingGroup.editedData.group_name || ""}
+                          onChange={(e) => updateGroupPreviewMeta(editingGroupId, "group_name", e.target.value)}
+                          placeholder="e.g. Group A"
+                          className="bg-gray-700 text-white text-sm px-2 py-1 rounded w-36 focus:outline-none border border-gray-600 focus:border-yellow-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-400 whitespace-nowrap">Stage:</label>
+                        <input
+                          type="text"
+                          value={editingGroup.editedData.stage || ""}
+                          onChange={(e) => updateGroupPreviewMeta(editingGroupId, "stage", e.target.value)}
+                          placeholder="e.g. Semifinal"
+                          className="bg-gray-700 text-white text-sm px-2 py-1 rounded w-36 focus:outline-none border border-gray-600 focus:border-yellow-500"
+                        />
                       </div>
                     </div>
 
