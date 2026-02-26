@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { calcSubRatings, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
@@ -20,6 +21,8 @@ type MatchInfo = {
   away_team: string;
   home_score: number;
   away_score: number;
+  league_id?: string | null;
+  leagues?: { tier?: number | null } | null;
 };
 
 type MatchPlayerStat = {
@@ -173,7 +176,7 @@ export default function PlayerDetailPage() {
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score)"
+          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(tier))"
         )
         .eq("player_id", playerId)
         .order("match_id", { ascending: false });
@@ -196,7 +199,7 @@ export default function PlayerDetailPage() {
         if (matchIds.length > 0) {
           const { data: matchesData } = await supabase
             .from("matches")
-            .select("id,played_at,home_team,away_team,home_score,away_score")
+            .select("id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(tier)")
             .in("id", matchIds);
 
           const matchMap = new Map<string, MatchInfo>();
@@ -355,6 +358,54 @@ export default function PlayerDetailPage() {
 
   const mostPlayedPosition = Object.entries(positionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
+
+  // Calculate overall rating — only use matches with complete stats AND match info (mirrors rating page logic)
+  const ratingMatchSet = matchesWithStats.filter(s => s.matches);
+
+  // Dominant league tier from same match set
+  const tierCounts: Record<number, number> = {};
+  for (const s of ratingMatchSet) {
+    const tier = (s.matches as any)?.leagues?.tier ?? 2;
+    tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
+  }
+  const dominantTierEntry = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0];
+  const dominantLeagueTier = dominantTierEntry ? parseInt(dominantTierEntry[0]) : 2;
+
+  const ratingStatRows: MatchStatRow[] = ratingMatchSet.map(s => ({
+    goals: s.goals ?? 0,
+    assists: s.assists ?? 0,
+    key_passes: s.key_passes ?? 0,
+    shots_on_target: s.shots_on_target ?? 0,
+    passes: s.passes ?? 0,
+    tackles: s.tackles ?? 0,
+    key_tackles: s.key_tackles ?? 0,
+    interceptions: s.interceptions ?? 0,
+    key_interceptions: s.key_interceptions ?? 0,
+    possessions_lost: s.possessions_lost ?? 0,
+    gk_saves: s.gk_saves ?? 0,
+    gk_catches: s.gk_catches ?? 0,
+    score: s.score ?? 0,
+    position: s.position,
+  }));
+  const ratingResults: MatchResult[] = ratingMatchSet.map(s => {
+    const isHome = s.team_side === "home";
+    const my = isHome ? s.matches!.home_score : s.matches!.away_score;
+    const opp = isHome ? s.matches!.away_score : s.matches!.home_score;
+    return my > opp ? "W" : my < opp ? "L" : "D";
+  });
+
+  // Derive dominant position from the same match set used for rating (not from all played matches)
+  const ratingPosCounts: Record<string, number> = {};
+  for (const s of ratingMatchSet) {
+    if (s.position) ratingPosCounts[s.position] = (ratingPosCounts[s.position] ?? 0) + 1;
+  }
+  const ratingPosition = Object.entries(ratingPosCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
+
+  const subRatings = calcSubRatings(ratingStatRows, ratingResults);
+  const overallRating = ratingStatRows.length > 0 ? calcOverallRating(subRatings, ratingPosition, dominantLeagueTier) : null;
+  const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "#3a3a5a";
+  const ratingLabelText = overallRating !== null ? getRatingLabel(overallRating) : null;
+
   const teamsPlayedFor = Array.from(new Set(
     playedMatches.map(s => {
       if (!s.matches) return null;
@@ -449,6 +500,20 @@ export default function PlayerDetailPage() {
                 {lastClub.teamName}
               </span>
             </div>
+          )}
+          {overallRating !== null && (
+            <Link href={`/players/${playerId}/rating`} style={{ textDecoration: "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#0d0d1a", border: `1.5px solid ${ratingColor}`, padding: "8px 14px", cursor: "pointer" }}>
+                <div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{overallRating}</div>
+                  <div style={{ fontSize: 9, color: "#5a5a7a", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>Rating</div>
+                </div>
+                <div style={{ fontSize: 11, color: ratingColor, fontWeight: 700, letterSpacing: "0.06em" }}>
+                  {ratingLabelText}
+                  <div style={{ fontSize: 10, color: "#3a3a5a", fontWeight: 400, marginTop: 2 }}>Full breakdown →</div>
+                </div>
+              </div>
+            </Link>
           )}
         </div>
       </div>

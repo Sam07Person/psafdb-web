@@ -9,6 +9,7 @@ type League = {
   season: string | null;
   format: string | null;
   image: string | null;
+  tier: number | null;
 };
 
 type Team = {
@@ -207,7 +208,7 @@ export default function AdminDashboardPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [jsonData, setJsonData] = useState("");
 
-  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league", image: "" });
+  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
   const [editingLeague, setEditingLeague] = useState<string | null>(null);
 
   const [teamForm, setTeamForm] = useState({ id: "", name: "", league_ids: [] as string[] });
@@ -359,12 +360,13 @@ export default function AdminDashboardPage() {
           season: leagueForm.season || null,
           format: leagueForm.format,
           image: leagueForm.image || null,
+          tier: leagueForm.tier,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingLeague ? "League updated!" : "League created!" });
-        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "" });
+        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
         setEditingLeague(null);
         loadLeagues();
       } else {
@@ -378,7 +380,7 @@ export default function AdminDashboardPage() {
   };
 
   const handleEditLeague = (league: League) => {
-    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "" });
+    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "", tier: league.tier ?? 2 });
     setEditingLeague(league.id);
   };
 
@@ -782,7 +784,7 @@ export default function AdminDashboardPage() {
     setEditingTeam(null);
     setEditingPlayer(null);
     setEditingFixture(null);
-    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "" });
+    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
     setTeamForm({ id: "", name: "", league_ids: [] });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "" });
@@ -2118,10 +2120,20 @@ export default function AdminDashboardPage() {
           <div className="space-y-6">
             <div className="bg-gray-800 p-6 rounded-lg">
               <h2 className="text-lg font-semibold text-white mb-4">{editingLeague ? "Edit League" : "Add New League"}</h2>
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div><label className="block text-gray-300 mb-2 text-sm">Name *</label><input type="text" value={leagueForm.name} onChange={(e) => setLeagueForm({ ...leagueForm, name: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="League name" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Season</label><input type="text" value={leagueForm.season} onChange={(e) => setLeagueForm({ ...leagueForm, season: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="2024" /></div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 mt-4">
                 <div><label className="block text-gray-300 mb-2 text-sm">Format</label><select value={leagueForm.format} onChange={(e) => setLeagueForm({ ...leagueForm, format: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600"><option value="league">League</option><option value="knockout">Knockout</option><option value="group_knockout">Group + Knockout</option></select></div>
+                <div>
+                  <label className="block text-gray-300 mb-2 text-sm">Tier <span className="text-gray-500 font-normal">(affects player ratings)</span></label>
+                  <select value={leagueForm.tier} onChange={(e) => setLeagueForm({ ...leagueForm, tier: parseInt(e.target.value) })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600">
+                    <option value={1}>Tier 1 – Elite (+5 rating pts)</option>
+                    <option value={2}>Tier 2 – Standard</option>
+                    <option value={3}>Tier 3 – Amateur (−5 rating pts)</option>
+                  </select>
+                </div>
               </div>
               <div className="mt-4">
                 <label className="block text-gray-300 mb-2 text-sm">League Logo</label>
@@ -2329,6 +2341,16 @@ export default function AdminDashboardPage() {
               <div className="grid gap-4 md:grid-cols-2 mt-4">
                 <div><label className="block text-gray-300 mb-2 text-sm">Home Score</label><input type="number" min="0" value={fixtureForm.home_score} onChange={(e) => setFixtureForm({ ...fixtureForm, home_score: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="—" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Away Score</label><input type="number" min="0" value={fixtureForm.away_score} onChange={(e) => setFixtureForm({ ...fixtureForm, away_score: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="—" /></div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 mt-4">
+                <div>
+                  <label className="block text-gray-300 mb-2 text-sm">Group Name</label>
+                  <input type="text" value={fixtureForm.group_name} onChange={(e) => setFixtureForm({ ...fixtureForm, group_name: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="e.g. Group A" />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2 text-sm">Stage</label>
+                  <input type="text" value={fixtureForm.stage} onChange={(e) => setFixtureForm({ ...fixtureForm, stage: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="e.g. Semifinal, Final, group" />
+                </div>
               </div>
               <div className="mt-4">
                 <label className="block text-gray-300 mb-2 text-sm">Forfeit</label>
