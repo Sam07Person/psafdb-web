@@ -343,12 +343,12 @@ export default function PlayersPage() {
                     {p.rating != null ? (
                       <div
                         className="flex shrink-0 flex-col items-center justify-center rounded-xl px-3 py-1.5 text-center"
-                        style={{ backgroundColor: ratingColor + "22", border: `1px solid ${ratingColor}55` }}
+                        style={{ backgroundColor: (ratingColor ?? "") + "22", border: `1px solid ${ratingColor ?? ""}55` }}
                       >
-                        <div className="text-xl font-bold leading-none" style={{ color: ratingColor }}>
+                        <div className="text-xl font-bold leading-none" style={{ color: ratingColor ?? undefined }}>
                           {p.rating}
                         </div>
-                        <div className="mt-0.5 text-[9px] uppercase tracking-widest" style={{ color: ratingColor + "cc" }}>
+                        <div className="mt-0.5 text-[9px] uppercase tracking-widest" style={{ color: (ratingColor ?? "") + "cc" }}>
                           {ratingLabel}
                         </div>
                       </div>
