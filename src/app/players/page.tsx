@@ -93,9 +93,13 @@ export default function PlayersPage() {
         return;
       }
 
-      // Group stats per player
+      // Group stats per player (normalize matches from array to object)
       const statsByPlayer = new Map<string, RawStatRow[]>();
-      for (const stat of (statsData ?? []) as RawStatRow[]) {
+      for (const raw of (statsData ?? []) as any[]) {
+        const stat: RawStatRow = {
+          ...raw,
+          matches: Array.isArray(raw.matches) ? raw.matches[0] ?? null : raw.matches ?? null,
+        };
         const existing = statsByPlayer.get(stat.player_id) ?? [];
         existing.push(stat);
         statsByPlayer.set(stat.player_id, existing);
