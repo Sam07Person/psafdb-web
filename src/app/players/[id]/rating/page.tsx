@@ -237,9 +237,10 @@ export default function PlayerRatingPage() {
     calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? statRows[0], getResult(s), s.position).final
   );
 
-  const overall = playedStats.length > 0 ? calcOverallRating(allMatchRatingValues, leagueTier) : 0;
-  const ratingColor = getRatingColor(overall);
-  const ratingLabel = getRatingLabel(overall);
+  const hasEnoughForRating = playedStats.length >= 3;
+  const overall = hasEnoughForRating ? calcOverallRating(allMatchRatingValues, leagueTier) : null;
+  const ratingColor = overall !== null ? getRatingColor(overall) : "#3a3a5a";
+  const ratingLabel = overall !== null ? getRatingLabel(overall) : null;
 
   // Per-match display sorted newest first, max 20
   const sortedStats = [...playedStats].sort((a, b) => {
@@ -349,11 +350,14 @@ export default function PlayerRatingPage() {
             {/* Overall rating badge */}
             <div style={{ textAlign: "center", background: "#0d0d1a", border: `2px solid ${ratingColor}`, padding: "16px 28px", minWidth: 110 }}>
               <div style={{ fontSize: 52, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-                {playedStats.length > 0 ? overall : "—"}
+                {overall !== null ? overall : playedStats.length > 0 ? "N/A" : "—"}
               </div>
               <div style={{ fontSize: 10, color: "#5a5a7a", letterSpacing: "0.2em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Overall</div>
-              {playedStats.length > 0 && (
+              {overall !== null && (
                 <div style={{ fontSize: 12, color: ratingColor, fontWeight: 700, marginTop: 2 }}>{ratingLabel}</div>
+              )}
+              {!hasEnoughForRating && playedStats.length > 0 && (
+                <div style={{ fontSize: 10, color: "#5a5a7a", marginTop: 4 }}>{playedStats.length}/3 matches</div>
               )}
             </div>
           </div>
@@ -364,6 +368,12 @@ export default function PlayerRatingPage() {
         {playedStats.length === 0 ? (
           <div style={{ background: "#0d0d1a", padding: "48px 24px", textAlign: "center", color: "#3a3a5a", fontSize: 14 }}>
             No complete match statistics available to calculate a rating.
+          </div>
+        ) : !hasEnoughForRating ? (
+          <div style={{ background: "#0d0d1a", padding: "48px 24px", textAlign: "center", color: "#3a3a5a", fontSize: 14 }}>
+            <div style={{ fontSize: 16, color: "#5a5a7a", marginBottom: 8 }}>Rating not yet available</div>
+            <div>A minimum of <strong style={{ color: "#7070a0" }}>3 played matches</strong> is required for an official rating.</div>
+            <div style={{ marginTop: 8 }}>{playedStats.length} of 3 matches recorded.</div>
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24, alignItems: "start" }}>

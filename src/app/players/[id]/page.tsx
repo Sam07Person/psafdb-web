@@ -404,7 +404,8 @@ export default function PlayerDetailPage() {
   const matchRatingValues = ratingStatRows.map((row, i) =>
     calcMatchRating(row, ratingResults[i], row.position)
   );
-  const overallRating = matchRatingValues.length > 0 ? calcOverallRating(matchRatingValues, dominantLeagueTier) : null;
+  const hasEnoughForRating = matchRatingValues.length >= 3;
+  const overallRating = hasEnoughForRating ? calcOverallRating(matchRatingValues, dominantLeagueTier) : null;
   const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "#3a3a5a";
   const ratingLabelText = overallRating !== null ? getRatingLabel(overallRating) : null;
 
@@ -503,15 +504,17 @@ export default function PlayerDetailPage() {
               </span>
             </div>
           )}
-          {overallRating !== null && (
+          {matchRatingValues.length > 0 && (
             <Link href={`/players/${playerId}/rating`} style={{ textDecoration: "none" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#0d0d1a", border: `1.5px solid ${ratingColor}`, padding: "8px 14px", cursor: "pointer" }}>
                 <div>
-                  <div style={{ fontSize: 28, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{overallRating}</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                    {overallRating !== null ? overallRating : "N/A"}
+                  </div>
                   <div style={{ fontSize: 9, color: "#5a5a7a", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>Rating</div>
                 </div>
                 <div style={{ fontSize: 11, color: ratingColor, fontWeight: 700, letterSpacing: "0.06em" }}>
-                  {ratingLabelText}
+                  {ratingLabelText ?? `${matchRatingValues.length}/3 matches`}
                   <div style={{ fontSize: 10, color: "#3a3a5a", fontWeight: 400, marginTop: 2 }}>Full breakdown →</div>
                 </div>
               </div>
