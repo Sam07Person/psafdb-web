@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
+import {
+  calcMatchRating,
+  calcOverallRating,
+  getRatingColor,
+  getRatingLabel,
+  type MatchStatRow,
+  type MatchResult,
+} from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
@@ -16,6 +24,29 @@ type PlayerWithStats = PlayerRow & {
   matches_played: number;
   total_goals: number;
   total_assists: number;
+  rating: number | null;
+};
+
+type RawStatRow = {
+  player_id: string;
+  team_side: "home" | "away" | null;
+  goals: number | null;
+  assists: number | null;
+  key_passes: number | null;
+  shots_on_target: number | null;
+  passes: number | null;
+  tackles: number | null;
+  key_tackles: number | null;
+  interceptions: number | null;
+  key_interceptions: number | null;
+  possessions_lost: number | null;
+  gk_saves: number | null;
+  gk_catches: number | null;
+  score: number | null;
+  position: string | null;
+  benched: boolean | null;
+  stats_incomplete: boolean | null;
+  matches: { home_score: number | null; away_score: number | null; leagues: { tier: number | null } | null } | null;
 };
 
 function cx(...s: Array<string | false | null | undefined>) {
@@ -28,7 +59,7 @@ export default function PlayersPage() {
   const [error, setError] = useState<any>(null);
 
   const [q, setQ] = useState("");
-  const [sortKey, setSortKey] = useState<"name" | "matches_played" | "total_goals" | "total_assists">("total_goals");
+  const [sortKey, setSortKey] = useState<"name" | "matches_played" | "total_goals" | "total_assists" | "rating">("rating");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
   useEffect(() => {
@@ -49,10 +80,12 @@ export default function PlayersPage() {
         return;
       }
 
-      // Fetch aggregated stats for all players
+      // Fetch all stats needed for rating calculation
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
-        .select("player_id,goals,assists");
+        .select(
+          "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier))"
+        );
 
       if (statsError) {
         setError(statsError);
@@ -60,25 +93,96 @@ export default function PlayersPage() {
         return;
       }
 
-      // Aggregate stats per player
-      const statsMap = new Map<string, { matches: number; goals: number; assists: number }>();
-      for (const stat of statsData ?? []) {
-        const existing = statsMap.get(stat.player_id) || { matches: 0, goals: 0, assists: 0 };
-        statsMap.set(stat.player_id, {
-          matches: existing.matches + 1,
-          goals: existing.goals + (stat.goals ?? 0),
-          assists: existing.assists + (stat.assists ?? 0),
-        });
+      // Group stats per player
+      const statsByPlayer = new Map<string, RawStatRow[]>();
+      for (const stat of (statsData ?? []) as RawStatRow[]) {
+        const existing = statsByPlayer.get(stat.player_id) ?? [];
+        existing.push(stat);
+        statsByPlayer.set(stat.player_id, existing);
       }
 
-      // Combine players with their stats
+      // Combine players with their stats and compute ratings
       const combined: PlayerWithStats[] = (playersData ?? []).map((p) => {
-        const stats = statsMap.get(p.id) || { matches: 0, goals: 0, assists: 0 };
+        const stats = statsByPlayer.get(p.id) ?? [];
+
+        // Aggregate basic stats
+        let totalGoals = 0;
+        let totalAssists = 0;
+        for (const s of stats) {
+          totalGoals += s.goals ?? 0;
+          totalAssists += s.assists ?? 0;
+        }
+
+        // Compute rating
+        let rating: number | null = null;
+        if (stats.length > 0) {
+          // Only use played (non-benched, complete) stats for rating
+          const playedStats = stats.filter(
+            s => !s.benched && !s.stats_incomplete && s.matches
+          );
+
+          if (playedStats.length >= 3) {
+            // Determine dominant position
+            const posCounts = new Map<string, number>();
+            for (const s of playedStats) {
+              if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
+            }
+            let dominantPos: string | null = null;
+            let maxCount = 0;
+            for (const [pos, count] of posCounts) {
+              if (count > maxCount) { maxCount = count; dominantPos = pos; }
+            }
+
+            // Determine dominant league tier
+            const tierCounts = new Map<number, number>();
+            for (const s of playedStats) {
+              const tier = s.matches?.leagues?.tier ?? 2;
+              tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
+            }
+            let dominantTier = 2;
+            let maxTierCount = 0;
+            for (const [tier, count] of tierCounts) {
+              if (count > maxTierCount) { maxTierCount = count; dominantTier = tier; }
+            }
+
+            // Per-match ratings
+            const matchRatingValues: number[] = [];
+            for (const s of playedStats) {
+              const m = s.matches!;
+              const isHome = s.team_side === "home";
+              const myScore = isHome ? (m.home_score ?? 0) : (m.away_score ?? 0);
+              const oppScore = isHome ? (m.away_score ?? 0) : (m.home_score ?? 0);
+              const result: MatchResult = myScore > oppScore ? "W" : myScore < oppScore ? "L" : "D";
+
+              const statRow: MatchStatRow = {
+                goals: s.goals ?? 0,
+                assists: s.assists ?? 0,
+                key_passes: s.key_passes ?? 0,
+                shots_on_target: s.shots_on_target ?? 0,
+                passes: s.passes ?? 0,
+                tackles: s.tackles ?? 0,
+                key_tackles: s.key_tackles ?? 0,
+                interceptions: s.interceptions ?? 0,
+                key_interceptions: s.key_interceptions ?? 0,
+                possessions_lost: s.possessions_lost ?? 0,
+                gk_saves: s.gk_saves ?? 0,
+                gk_catches: s.gk_catches ?? 0,
+                score: s.score ?? 0,
+                position: s.position,
+              };
+              matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
+            }
+
+            rating = calcOverallRating(matchRatingValues, dominantTier);
+          }
+        }
+
         return {
           ...p,
-          matches_played: stats.matches,
-          total_goals: stats.goals,
-          total_assists: stats.assists,
+          matches_played: stats.length,
+          total_goals: totalGoals,
+          total_assists: totalAssists,
+          rating,
         };
       });
 
@@ -106,6 +210,9 @@ export default function PlayersPage() {
       if (sortKey === "name") {
         av = (a.name ?? a.handle ?? "").toLowerCase();
         bv = (b.name ?? b.handle ?? "").toLowerCase();
+      } else if (sortKey === "rating") {
+        av = a.rating ?? -1;
+        bv = b.rating ?? -1;
       } else {
         av = a[sortKey] ?? 0;
         bv = b[sortKey] ?? 0;
@@ -182,6 +289,8 @@ export default function PlayersPage() {
               }}
               className="mt-2 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none focus:border-white/20"
             >
+              <option value="rating:desc">Rating (high → low)</option>
+              <option value="rating:asc">Rating (low → high)</option>
               <option value="total_goals:desc">Goals (high → low)</option>
               <option value="total_goals:asc">Goals (low → high)</option>
               <option value="total_assists:desc">Assists (high → low)</option>
@@ -209,6 +318,8 @@ export default function PlayersPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredPlayers.map((p) => {
               const displayName = p.name || p.handle || `Player ${p.id.slice(0, 8)}`;
+              const ratingColor = p.rating != null ? getRatingColor(p.rating) : null;
+              const ratingLabel = p.rating != null ? getRatingLabel(p.rating) : null;
 
               return (
                 <Link
@@ -225,9 +336,23 @@ export default function PlayersPage() {
                         <div className="mt-0.5 truncate text-sm text-white/50">@{p.handle}</div>
                       )}
                     </div>
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/60 transition group-hover:bg-white/20 group-hover:text-white">
-                      →
-                    </div>
+                    {p.rating != null ? (
+                      <div
+                        className="flex shrink-0 flex-col items-center justify-center rounded-xl px-3 py-1.5 text-center"
+                        style={{ backgroundColor: ratingColor + "22", border: `1px solid ${ratingColor}55` }}
+                      >
+                        <div className="text-xl font-bold leading-none" style={{ color: ratingColor }}>
+                          {p.rating}
+                        </div>
+                        <div className="mt-0.5 text-[9px] uppercase tracking-widest" style={{ color: ratingColor + "cc" }}>
+                          {ratingLabel}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/60 transition group-hover:bg-white/20 group-hover:text-white">
+                        →
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-2">

@@ -26,7 +26,7 @@ type PositionWeights = {
 export function getPositionWeights(role: PositionRole): PositionWeights {
   switch (role) {
     case "GK":  return { attacking: 0.00, defending: 0.15, passing: 0.05, consistency: 0.10, gk: 0.70 };
-    case "DEF": return { attacking: 0.15, defending: 0.60, passing: 0.15, consistency: 0.10, gk: 0.00 };
+    case "DEF": return { attacking: 0.125, defending: 0.625, passing: 0.15, consistency: 0.10, gk: 0.00 };
     case "MID": return { attacking: 0.35, defending: 0.30, passing: 0.25, consistency: 0.10, gk: 0.00 };
     case "FWD": return { attacking: 0.65, defending: 0.10, passing: 0.15, consistency: 0.10, gk: 0.00 };
   }
