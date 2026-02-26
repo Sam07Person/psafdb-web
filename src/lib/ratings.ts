@@ -61,12 +61,19 @@ export type SubRatings = {
 
 // ── Sub-rating calculators (single match, raw stats) ─────────────────────────
 
-function attackingScore(s: MatchStatRow): number {
+function attackingScore(s: MatchStatRow, role: PositionRole): number {
+  // Position-specific thresholds (≈1.6× position avg → 100%)
+  // Calibrated from real data — FWD: goals≈1.55, assists≈0.75, SoT≈2.53
+  //                              MID: goals≈0.90, assists≈0.90, SoT≈1.70
+  //                              DEF: goals≈0.05, assists≈0.175, SoT≈0.25
+  const gThresh   = role === "FWD" ? 2.5  : role === "MID" ? 1.5  : 0.08;
+  const aThresh   = role === "FWD" ? 1.2  : role === "MID" ? 1.5  : 0.30;
+  const sotThresh = role === "FWD" ? 4.0  : role === "MID" ? 2.7  : 0.40;
   return (
-    Math.min(40, (s.goals / 1.0) * 40) +
-    Math.min(25, (s.assists / 0.8) * 25) +
+    Math.min(40, (s.goals / gThresh) * 40) +
+    Math.min(25, (s.assists / aThresh) * 25) +
     Math.min(20, (s.key_passes / 3.0) * 20) +
-    Math.min(15, (s.shots_on_target / 2.5) * 15)
+    Math.min(15, (s.shots_on_target / sotThresh) * 15)
   );
 }
 
@@ -95,13 +102,15 @@ function gkScore(s: MatchStatRow): number {
 
 export function calcSubRatings(
   stats: MatchStatRow[],
-  results: MatchResult[]
+  results: MatchResult[],
+  dominantPosition?: string | null
 ): SubRatings {
   if (stats.length === 0) {
     return { attacking: 0, defending: 0, passing: 0, consistency: 0, gk: 0 };
   }
 
   const n = stats.length;
+  const role = getPositionRole(dominantPosition);
 
   // Per-match averages
   const avg = (fn: (s: MatchStatRow) => number) =>
@@ -119,11 +128,16 @@ export function calcSubRatings(
   const avgCatches = avg(s => s.gk_catches);
   const avgGameScore = avg(s => s.score);
 
+  // Position-specific attacking thresholds (same as attackingScore)
+  const gThresh   = role === "FWD" ? 2.5  : role === "MID" ? 1.5  : 0.08;
+  const aThresh   = role === "FWD" ? 1.2  : role === "MID" ? 1.5  : 0.30;
+  const sotThresh = role === "FWD" ? 4.0  : role === "MID" ? 2.7  : 0.40;
+
   const attacking = Math.min(100,
-    Math.min(40, (avgGoals / 1.0) * 40) +
-    Math.min(25, (avgAssists / 0.8) * 25) +
+    Math.min(40, (avgGoals / gThresh) * 40) +
+    Math.min(25, (avgAssists / aThresh) * 25) +
     Math.min(20, (avgKP / 3.0) * 20) +
-    Math.min(15, (avgSOT / 2.5) * 15)
+    Math.min(15, (avgSOT / sotThresh) * 15)
   );
 
   const defending = Math.min(100,
@@ -194,7 +208,7 @@ export function calcMatchRating(
     : result === "W" ? 70 : result === "D" ? 40 : 15;
 
   const base =
-    attackingScore(stat) * w.attacking +
+    attackingScore(stat, role) * w.attacking +
     defendingScore(stat) * w.defending +
     passingScore(stat) * w.passing +
     consScore * w.consistency +

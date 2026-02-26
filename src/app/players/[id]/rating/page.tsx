@@ -42,6 +42,7 @@ type StatRow = {
   score: number;
   goals: number;
   assists: number;
+  shots: number;
   key_passes: number;
   shots_on_target: number;
   passes: number;
@@ -111,7 +112,7 @@ export default function PlayerRatingPage() {
       const { data: statsData, error: statsErr } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,team_side,position,score,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(id,name,tier))"
+          "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(id,name,tier))"
         )
         .eq("player_id", playerId);
 
@@ -120,7 +121,7 @@ export default function PlayerRatingPage() {
         const { data: fallback } = await supabase
           .from("match_player_stats")
           .select(
-            "match_id,team_side,position,score,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id)"
+            "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id)"
           )
           .eq("player_id", playerId);
 
@@ -213,7 +214,7 @@ export default function PlayerRatingPage() {
   const dominantTier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
   const leagueTier = dominantTier ? parseInt(dominantTier) : 2;
 
-  const subRatings: SubRatings = calcSubRatings(statRows, results);
+  const subRatings: SubRatings = calcSubRatings(statRows, results, dominantPosition);
   const overall = playedStats.length > 0 ? calcOverallRating(subRatings, dominantPosition, leagueTier) : 0;
   const ratingColor = getRatingColor(overall);
   const ratingLabel = getRatingLabel(overall);
@@ -249,20 +250,52 @@ export default function PlayerRatingPage() {
     };
   }).slice(0, 20);
 
-  // Per-match averages for sub-rating details
+  // Per-match averages for stat display
   const n = statRows.length;
   const avg = (fn: (s: MatchStatRow) => number) =>
     n > 0 ? (statRows.reduce((sum, s) => sum + fn(s), 0) / n) : 0;
 
-  const avgGoals = avg(s => s.goals);
-  const avgAssists = avg(s => s.assists);
-  const avgKP = avg(s => s.key_passes);
-  const avgPasses = avg(s => s.passes);
-  const avgTackles = avg(s => s.tackles + s.key_tackles);
-  const avgInt = avg(s => s.interceptions + s.key_interceptions);
-  const avgSaves = avg(s => s.gk_saves);
-  const avgCatches = avg(s => s.gk_catches);
-  const avgScore = avg(s => s.score);
+  const avgGoals     = avg(s => s.goals);
+  const avgAssists   = avg(s => s.assists);
+  const avgShots     = n > 0 ? playedStats.reduce((sum, s) => sum + (s.shots ?? 0), 0) / n : 0;
+  const avgSOT       = avg(s => s.shots_on_target);
+  const avgPasses    = avg(s => s.passes);
+  const avgKP        = avg(s => s.key_passes);
+  const avgTackles   = avg(s => s.tackles);
+  const avgKTackles  = avg(s => s.key_tackles);
+  const avgInt       = avg(s => s.interceptions);
+  const avgKInt      = avg(s => s.key_interceptions);
+  const avgPL        = avg(s => s.possessions_lost);
+  const avgSaves     = avg(s => s.gk_saves);
+  const avgCatches   = avg(s => s.gk_catches);
+  const avgScore     = avg(s => s.score);
+
+  // Helper: clamp a raw value to [0, 100]
+  const sr = (val: number) => Math.min(100, Math.max(0, Math.round(val)));
+
+  // Position-specific thresholds for attacking stats (2× position avg → 100, avg → 50)
+  // Data: FWD goals≈1.55, MID goals≈0.90, DEF goals≈0.05 | FWD assists≈0.75, MID≈0.90, DEF≈0.175
+  //       FWD shots≈3.5, MID≈2.65, DEF≈0.35 | FWD SoT≈2.5, MID≈1.7, DEF≈0.25
+  const goalsThresh   = role === "FWD" ? 3.1  : role === "MID" ? 1.8  : 0.10;
+  const assistsThresh = role === "FWD" ? 1.5  : role === "MID" ? 1.8  : 0.35;
+  const shotsThresh   = role === "FWD" ? 7.0  : role === "MID" ? 5.3  : 0.70;
+  const sotThresh     = role === "FWD" ? 5.0  : role === "MID" ? 3.4  : 0.50;
+
+  // Individual stat ratings (0–100) — calibrated so position-average ≈ 50
+  // Defensive/passing reference averages/player/match: tackles≈8.6, kTackles≈0.87, int≈4.3, kInt≈0.49, possLost≈15, passes≈12.6, kPasses≈1.2
+  const rGoals    = sr(avgGoals / goalsThresh * 100);
+  const rAssists  = sr(avgAssists / assistsThresh * 100);
+  const rShots    = sr(avgShots / shotsThresh * 100);
+  const rSOT      = sr(avgSOT / sotThresh * 100);
+  const rPasses   = sr(avgPasses / 25 * 100);       // avg≈12.6 → 50; 25/match → 100
+  const rKP       = sr(avgKP / 2.4 * 100);          // avg≈1.2 → 50; 2.4/match → 100
+  const rTackles  = sr(avgTackles / 17 * 100);      // avg≈8.6 → 50; 17/match → 100
+  const rKTackles = sr(avgKTackles / 1.75 * 100);   // avg≈0.87 → 50; 1.75/match → 100
+  const rInt      = sr(avgInt / 8.5 * 100);         // avg≈4.3 → 50; 8.5/match → 100
+  const rKInt     = sr(avgKInt * 100);              // avg≈0.49 → 49; 1.0/match → 100
+  const rPL       = sr((1 - avgPL / 30) * 100);    // avg≈15 → 50 (inverted); 0 poss_lost → 100
+  const rSaves    = sr(avgSaves / 7 * 100);         // 7/match → 100
+  const rCatches  = sr(avgCatches / 4 * 100);      // 4/match → 100
 
   const tierLabel = leagueTier === 1 ? "Tier 1 – Elite (+5 pts)" : leagueTier === 3 ? "Tier 3 – Amateur (−5 pts)" : "Tier 2 – Standard";
 
@@ -317,38 +350,40 @@ export default function PlayerRatingPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24, alignItems: "start" }}>
             {/* Left: sub-ratings + match history */}
             <div>
-              {/* Sub-ratings */}
+              {/* Stat breakdown */}
               <div style={{ background: "#0d0d1a", padding: "24px", marginBottom: 24 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase", marginBottom: 20 }}>Rating Breakdown</div>
 
                 {role !== "GK" && (
-                  <SubRatingBar
-                    label="Attacking"
-                    value={subRatings.attacking}
-                    detail={`${avgGoals.toFixed(2)} goals/match · ${avgAssists.toFixed(2)} assists/match · ${avgKP.toFixed(1)} key passes/match`}
-                  />
+                  <>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10 }}>Attacking</div>
+                    <SubRatingBar label="Goals"           value={rGoals}   detail={`${avgGoals.toFixed(2)}/match`} />
+                    <SubRatingBar label="Assists"         value={rAssists} detail={`${avgAssists.toFixed(2)}/match`} />
+                    <SubRatingBar label="Shots"           value={rShots}   detail={`${avgShots.toFixed(1)}/match`} />
+                    <SubRatingBar label="Shots on Target" value={rSOT}     detail={`${avgSOT.toFixed(1)}/match`} />
+                  </>
                 )}
-                <SubRatingBar
-                  label="Defending"
-                  value={subRatings.defending}
-                  detail={`${avgTackles.toFixed(1)} tackles/match · ${avgInt.toFixed(1)} interceptions/match`}
-                />
-                <SubRatingBar
-                  label="Passing"
-                  value={subRatings.passing}
-                  detail={`${avgPasses.toFixed(0)} passes/match · ${avgKP.toFixed(1)} key passes/match`}
-                />
-                <SubRatingBar
-                  label="Consistency"
-                  value={subRatings.consistency}
-                  detail={avgScore > 0 ? `Avg game score: ${subRatings.consistency.toFixed(0)} / 100` : `Based on W/D/L record`}
-                />
+
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: role !== "GK" ? 18 : 0 }}>Passing</div>
+                <SubRatingBar label="Passes"     value={rPasses} detail={`${avgPasses.toFixed(0)}/match`} />
+                <SubRatingBar label="Key Passes" value={rKP}     detail={`${avgKP.toFixed(1)}/match`} />
+
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Defending</div>
+                <SubRatingBar label="Tackles"          value={rTackles}  detail={`${avgTackles.toFixed(1)}/match`} />
+                <SubRatingBar label="Key Tackles"      value={rKTackles} detail={`${avgKTackles.toFixed(1)}/match`} />
+                <SubRatingBar label="Interceptions"    value={rInt}      detail={`${avgInt.toFixed(1)}/match`} />
+                <SubRatingBar label="Key Interceptions"value={rKInt}     detail={`${avgKInt.toFixed(1)}/match`} />
+                <SubRatingBar label="Lost Possession"  value={rPL}       detail={`${avgPL.toFixed(1)}/match (lower is better)`} />
+
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Consistency</div>
+                <SubRatingBar label="Game Score" value={subRatings.consistency} detail={avgScore > 0 ? `Avg game score: ${subRatings.consistency.toFixed(0)} / 100` : `Based on W/D/L record`} />
+
                 {role === "GK" && (
-                  <SubRatingBar
-                    label="GK Performance"
-                    value={subRatings.gk}
-                    detail={`${avgSaves.toFixed(1)} saves/match · ${avgCatches.toFixed(1)} catches/match`}
-                  />
+                  <>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Goalkeeping</div>
+                    <SubRatingBar label="Saves"   value={rSaves}   detail={`${avgSaves.toFixed(1)}/match`} />
+                    <SubRatingBar label="Catches" value={rCatches} detail={`${avgCatches.toFixed(1)}/match`} />
+                  </>
                 )}
               </div>
 

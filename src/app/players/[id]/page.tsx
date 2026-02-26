@@ -401,7 +401,7 @@ export default function PlayerDetailPage() {
   }
   const ratingPosition = Object.entries(ratingPosCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 
-  const subRatings = calcSubRatings(ratingStatRows, ratingResults);
+  const subRatings = calcSubRatings(ratingStatRows, ratingResults, ratingPosition);
   const overallRating = ratingStatRows.length > 0 ? calcOverallRating(subRatings, ratingPosition, dominantLeagueTier) : null;
   const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "#3a3a5a";
   const ratingLabelText = overallRating !== null ? getRatingLabel(overallRating) : null;
