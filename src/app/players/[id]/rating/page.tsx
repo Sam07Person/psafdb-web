@@ -7,13 +7,14 @@ import { useParams } from "next/navigation";
 import {
   calcSubRatings,
   calcOverallRating,
-  calcMatchRating,
+  calcMatchBreakdown,
   getRatingColor,
   getRatingLabel,
   getMatchRatingColor,
   getPositionRole,
   type MatchStatRow,
   type MatchResult,
+  type MatchBreakdown,
   type SubRatings,
 } from "@/lib/ratings";
 
@@ -88,6 +89,7 @@ export default function PlayerRatingPage() {
   const [stats, setStats] = useState<StatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supabase || !playerId) return;
@@ -215,26 +217,41 @@ export default function PlayerRatingPage() {
   const leagueTier = dominantTier ? parseInt(dominantTier) : 2;
 
   const subRatings: SubRatings = calcSubRatings(statRows, results, dominantPosition);
-  const overall = playedStats.length > 0 ? calcOverallRating(subRatings, dominantPosition, leagueTier) : 0;
+
+  // Map match_id → statRow for O(1) lookup
+  const statRowByMatchId = new Map<string, MatchStatRow>(
+    playedStats.map((s, i) => [s.match_id, statRows[i]])
+  );
+
+  // Helper: determine result for a stat row
+  function getResult(s: StatRow): MatchResult {
+    const m = s.matches!;
+    const isHome = s.team_side === "home";
+    const my = isHome ? m.home_score : m.away_score;
+    const opp = isHome ? m.away_score : m.home_score;
+    return my > opp ? "W" : my < opp ? "L" : "D";
+  }
+
+  // Compute per-match ratings for ALL played matches (used for overall average)
+  const allMatchRatingValues = playedStats.map(s =>
+    calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? statRows[0], getResult(s), s.position).final
+  );
+
+  const overall = playedStats.length > 0 ? calcOverallRating(allMatchRatingValues, leagueTier) : 0;
   const ratingColor = getRatingColor(overall);
   const ratingLabel = getRatingLabel(overall);
 
-  // Per-match ratings (sorted newest first)
+  // Per-match display sorted newest first, max 20
   const sortedStats = [...playedStats].sort((a, b) => {
     const aDate = a.matches?.played_at ?? "";
     const bDate = b.matches?.played_at ?? "";
     return bDate.localeCompare(aDate);
   });
 
-  const matchRatings = sortedStats.map((s, i) => {
-    const result = (() => {
-      const m = s.matches!;
-      const isHome = s.team_side === "home";
-      const myScore = isHome ? m.home_score : m.away_score;
-      const oppScore = isHome ? m.away_score : m.home_score;
-      return myScore > oppScore ? "W" as MatchResult : myScore < oppScore ? "L" as MatchResult : "D" as MatchResult;
-    })();
-    const statRow: MatchStatRow = statRows[playedStats.indexOf(s)] ?? statRows[0];
+  const matchRatings = sortedStats.map(s => {
+    const result = getResult(s);
+    const statRow = statRowByMatchId.get(s.match_id) ?? statRows[0];
+    const breakdown = calcMatchBreakdown(statRow, result, s.position);
     return {
       matchId: s.matches!.id,
       date: s.matches!.played_at,
@@ -245,8 +262,10 @@ export default function PlayerRatingPage() {
       mySide: s.team_side,
       position: s.position,
       result,
-      rating: calcMatchRating(statRow, result, s.position),
+      rating: breakdown.final,
       leagueName: (s.matches as any)?.leagues?.name ?? null,
+      statRow,
+      breakdown,
     };
   }).slice(0, 20);
 
@@ -390,8 +409,9 @@ export default function PlayerRatingPage() {
               {/* Match rating history */}
               {matchRatings.length > 0 && (
                 <div style={{ background: "#0d0d1a" }}>
-                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a2e", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase" }}>
-                    Match Ratings (last {matchRatings.length})
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a2e", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase" }}>Match Ratings (last {matchRatings.length})</span>
+                    <span style={{ fontSize: 10, color: "#3a3a5a" }}>click row to expand</span>
                   </div>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -402,15 +422,28 @@ export default function PlayerRatingPage() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody>
-                        {matchRatings.map((mr, i) => {
-                          const resultColor = mr.result === "W" ? "#4ade80" : mr.result === "D" ? "#f4c430" : "#e63946";
-                          const rColor = getMatchRatingColor(mr.rating);
-                          return (
-                            <tr key={mr.matchId} style={{ borderBottom: "1px solid #0f0f1a" }}>
+                      {matchRatings.map((mr) => {
+                        const resultColor = mr.result === "W" ? "#4ade80" : mr.result === "D" ? "#f4c430" : "#e63946";
+                        const rColor = getMatchRatingColor(mr.rating);
+                        const isExpanded = expandedMatchId === mr.matchId;
+                        const bd = mr.breakdown;
+                        const sr = mr.statRow;
+                        const cats: { key: keyof typeof bd.weights; label: string }[] = [
+                          { key: "attacking", label: "Attacking" },
+                          { key: "defending", label: "Defending" },
+                          { key: "passing", label: "Passing" },
+                          { key: "consistency", label: "Consistency" },
+                          { key: "gk", label: "GK Perf." },
+                        ];
+                        return (
+                          <tbody key={mr.matchId}>
+                            <tr
+                              onClick={() => setExpandedMatchId(isExpanded ? null : mr.matchId)}
+                              style={{ borderBottom: isExpanded ? "none" : "1px solid #0f0f1a", cursor: "pointer" }}
+                            >
                               <td style={{ padding: "10px 12px", color: "#5a5a7a", whiteSpace: "nowrap" }}>{formatDate(mr.date)}</td>
                               <td style={{ padding: "10px 12px" }}>
-                                <Link href={`/matches/${mr.matchId}`} style={{ color: "#c0c0d8", textDecoration: "none" }} className="nav-link">
+                                <Link href={`/matches/${mr.matchId}`} style={{ color: "#c0c0d8", textDecoration: "none" }} className="nav-link" onClick={e => e.stopPropagation()}>
                                   <span style={{ fontWeight: mr.mySide === "home" ? 700 : 400, color: mr.mySide === "home" ? "#e0e0f0" : "#7070a0" }}>{mr.homeTeam}</span>
                                   <span style={{ color: "#3a3a5a", margin: "0 6px" }}>{mr.homeScore}–{mr.awayScore}</span>
                                   <span style={{ fontWeight: mr.mySide === "away" ? 700 : 400, color: mr.mySide === "away" ? "#e0e0f0" : "#7070a0" }}>{mr.awayTeam}</span>
@@ -420,12 +453,62 @@ export default function PlayerRatingPage() {
                               <td style={{ padding: "10px 12px", fontWeight: 700, color: resultColor }}>{mr.result}</td>
                               <td style={{ padding: "10px 12px", color: "#5a5a7a", fontSize: 11 }}>{mr.position ?? "—"}</td>
                               <td style={{ padding: "10px 12px", textAlign: "center" }}>
-                                <span style={{ fontWeight: 900, fontSize: 15, color: rColor }}>{mr.rating.toFixed(1)}</span>
+                                <span style={{ fontWeight: 900, fontSize: 15, color: rColor }}>{mr.rating}</span>
+                                <span style={{ fontSize: 9, color: "#3a3a5a", marginLeft: 5 }}>{isExpanded ? "▲" : "▼"}</span>
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
+                            {isExpanded && (
+                              <tr style={{ borderBottom: "1px solid #0f0f1a", background: "#06060e" }}>
+                                <td colSpan={5} style={{ padding: "4px 16px 16px" }}>
+                                  {/* Stats used */}
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", padding: "10px 0 12px", borderBottom: "1px solid #0f0f1a", fontSize: 11 }}>
+                                    {[
+                                      { label: "Goals", v: sr.goals },
+                                      { label: "Assists", v: sr.assists },
+                                      { label: "SOT", v: sr.shots_on_target },
+                                      { label: "Key Passes", v: sr.key_passes },
+                                      { label: "Passes", v: sr.passes },
+                                      { label: "Tackles", v: sr.tackles },
+                                      { label: "Key Tackles", v: sr.key_tackles },
+                                      { label: "Interceptions", v: sr.interceptions },
+                                      { label: "Key Int.", v: sr.key_interceptions },
+                                      { label: "Poss. Lost", v: sr.possessions_lost },
+                                      ...(sr.gk_saves > 0 ? [{ label: "GK Saves", v: sr.gk_saves }] : []),
+                                      ...(sr.gk_catches > 0 ? [{ label: "GK Catches", v: sr.gk_catches }] : []),
+                                      ...(sr.score > 0 ? [{ label: "Game Score", v: sr.score }] : []),
+                                    ].map(({ label, v }) => (
+                                      <span key={label} style={{ color: "#4a4a6a" }}>
+                                        {label}: <strong style={{ color: "#8080a0", fontWeight: 600 }}>{v}</strong>
+                                      </span>
+                                    ))}
+                                  </div>
+
+                                  {/* Sub-rating contributions */}
+                                  <div style={{ padding: "10px 0 4px" }}>
+                                    {cats.filter(c => bd.weights[c.key] > 0).map(c => (
+                                      <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}>
+                                        <span style={{ fontSize: 12, color: "#7070a0", width: 100 }}>{c.label}</span>
+                                        <span style={{ fontSize: 13, fontWeight: 700, color: getRatingColor(bd.scores[c.key]), width: 32, textAlign: "right" }}>{Math.round(bd.scores[c.key])}</span>
+                                        <span style={{ fontSize: 10, color: "#3a3a5a", width: 34, textAlign: "right" }}>×{Math.round(bd.weights[c.key] * 100)}%</span>
+                                        <span style={{ fontSize: 11, color: "#5a5a7a" }}>= {(bd.scores[c.key] * bd.weights[c.key]).toFixed(1)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {/* Formula summary */}
+                                  <div style={{ marginTop: 6, paddingTop: 8, borderTop: "1px solid #0f0f1a", display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: "#5a5a7a", flexWrap: "wrap" }}>
+                                    <span>Base: <strong style={{ color: "#9090b0" }}>{bd.base.toFixed(1)}</strong></span>
+                                    {bd.resultBonus > 0 && (
+                                      <span>+ {mr.result === "W" ? "Win" : "Draw"} bonus: <strong style={{ color: "#9090b0" }}>+{bd.resultBonus}</strong></span>
+                                    )}
+                                    <span>= <strong style={{ color: rColor, fontSize: 15 }}>{bd.final}</strong></span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        );
+                      })}
                     </table>
                   </div>
                 </div>
@@ -455,10 +538,10 @@ export default function PlayerRatingPage() {
               <div style={{ background: "#0d0d1a", padding: "20px" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase", marginBottom: 12 }}>How It's Calculated</div>
                 <p style={{ fontSize: 12, color: "#4a4a6a", lineHeight: 1.6, margin: 0 }}>
-                  The overall rating is a <strong style={{ color: "#7070a0" }}>0–100 score</strong> calculated from per-match averages of goals, assists, passes, tackles, interceptions, and other stats.
+                  Each match is rated <strong style={{ color: "#7070a0" }}>0–100</strong> based on goals, assists, passes, tackles, interceptions, and other stats weighted by position.
                 </p>
                 <p style={{ fontSize: 12, color: "#4a4a6a", lineHeight: 1.6, margin: "10px 0 0" }}>
-                  Weights are adjusted by position — forwards are rated more on attacking, defenders on defensive output, etc.
+                  The overall rating is the <strong style={{ color: "#7070a0" }}>average of all match ratings</strong>. Forwards are weighted more on attacking, defenders on defensive output, etc.
                 </p>
                 <p style={{ fontSize: 12, color: "#4a4a6a", lineHeight: 1.6, margin: "10px 0 0" }}>
                   League tier applies a <strong style={{ color: "#7070a0" }}>±5 point</strong> adjustment (Elite leagues award more, Amateur leagues slightly less).

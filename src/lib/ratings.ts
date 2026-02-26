@@ -26,7 +26,7 @@ type PositionWeights = {
 export function getPositionWeights(role: PositionRole): PositionWeights {
   switch (role) {
     case "GK":  return { attacking: 0.00, defending: 0.15, passing: 0.05, consistency: 0.10, gk: 0.70 };
-    case "DEF": return { attacking: 0.20, defending: 0.55, passing: 0.15, consistency: 0.10, gk: 0.00 };
+    case "DEF": return { attacking: 0.15, defending: 0.60, passing: 0.15, consistency: 0.10, gk: 0.00 };
     case "MID": return { attacking: 0.35, defending: 0.30, passing: 0.25, consistency: 0.10, gk: 0.00 };
     case "FWD": return { attacking: 0.65, defending: 0.10, passing: 0.15, consistency: 0.10, gk: 0.00 };
   }
@@ -78,10 +78,13 @@ function attackingScore(s: MatchStatRow, role: PositionRole): number {
 }
 
 function defendingScore(s: MatchStatRow): number {
-  return (
+  // Key tackles get a separate bonus so they count even when the combined bucket is capped.
+  // Calibrated: avg key_tackles≈0.87 → ~2 bonus pts; 4 key_tackles → capped at +4.
+  return Math.min(100,
     Math.min(50, ((s.tackles + s.key_tackles) / 6.0) * 50) +
     Math.min(35, ((s.interceptions + s.key_interceptions) / 4.5) * 35) +
-    Math.min(15, Math.max(0, 1 - s.possessions_lost / 14.0) * 15)
+    Math.min(15, Math.max(0, 1 - s.possessions_lost / 14.0) * 15) +
+    Math.min(4, (s.key_tackles / 1.75) * 4)
   );
 }
 
@@ -96,6 +99,20 @@ function gkScore(s: MatchStatRow): number {
     Math.min(65, (s.gk_saves / 7.0) * 65) +
     Math.min(35, (s.gk_catches / 4.0) * 35)
   );
+}
+
+// ── Game-score normalizer (position-aware) ────────────────────────────────────
+// Calibrated from real data: FWD avg≈449, MID avg≈567, DEF avg≈366, GK avg≈576
+// Divisors chosen so position-average score maps to ~50.
+function normalizeGameScore(rawScore: number, role: PositionRole): number {
+  if (rawScore <= 0) return 0;
+  if (rawScore > 100) {
+    // Scores are on the game's 0–700 scale — use position-specific divisor
+    const divisor = role === "FWD" ? 9.0 : role === "MID" ? 11.3 : role === "GK" ? 11.5 : 7.3;
+    return Math.min(100, rawScore / divisor);
+  }
+  // Legacy: 0–100 (direct) or 0–10 (×10)
+  return Math.min(100, rawScore > 10 ? rawScore : rawScore * 10);
 }
 
 // ── Career sub-ratings from all matches ──────────────────────────────────────
@@ -122,6 +139,7 @@ export function calcSubRatings(
   const avgSOT = avg(s => s.shots_on_target);
   const avgPasses = avg(s => s.passes);
   const avgTackles = avg(s => s.tackles + s.key_tackles);
+  const avgKeyTackles = avg(s => s.key_tackles);
   const avgInt = avg(s => s.interceptions + s.key_interceptions);
   const avgPL = avg(s => s.possessions_lost);
   const avgSaves = avg(s => s.gk_saves);
@@ -143,7 +161,8 @@ export function calcSubRatings(
   const defending = Math.min(100,
     Math.min(50, (avgTackles / 6.0) * 50) +
     Math.min(35, (avgInt / 4.5) * 35) +
-    Math.min(15, Math.max(0, 1 - avgPL / 14.0) * 15)
+    Math.min(15, Math.max(0, 1 - avgPL / 14.0) * 15) +
+    Math.min(4, (avgKeyTackles / 1.75) * 4)
   );
 
   const rawPassing = avgPasses * 4.6 + avgKP * 15.0;
@@ -155,9 +174,7 @@ export function calcSubRatings(
 
   let consistency: number;
   if (avgGameScore > 0) {
-    // Auto-detect scale: >100 → 0–700 game scale (/7), >10 → 0–100 (direct), else → 0–10 (×10)
-    const normalized = avgGameScore > 100 ? avgGameScore / 7 : avgGameScore > 10 ? avgGameScore : avgGameScore * 10;
-    consistency = Math.min(100, normalized);
+    consistency = normalizeGameScore(avgGameScore, role);
   } else {
     const winRate = total > 0 ? wins / total : 0;
     const drawRate = total > 0 ? draws / total : 0;
@@ -172,52 +189,74 @@ export function calcSubRatings(
   return { attacking, defending, passing, consistency, gk };
 }
 
-// ── Overall rating ────────────────────────────────────────────────────────────
+// ── Per-match breakdown + rating (0–100) ─────────────────────────────────────
 
-export function calcOverallRating(
-  subRatings: SubRatings,
-  dominantPosition: string | null | undefined,
-  leagueTier: number = 2
-): number {
-  const role = getPositionRole(dominantPosition);
+export type MatchBreakdown = {
+  role: PositionRole;
+  weights: { attacking: number; defending: number; passing: number; consistency: number; gk: number };
+  scores: { attacking: number; defending: number; passing: number; consistency: number; gk: number };
+  base: number;
+  resultBonus: number;
+  final: number;
+};
+
+export function calcMatchBreakdown(
+  stat: MatchStatRow,
+  result: MatchResult,
+  position: string | null | undefined
+): MatchBreakdown {
+  const role = getPositionRole(position);
   const w = getPositionWeights(role);
 
+  const consScore = stat.score > 0
+    ? normalizeGameScore(stat.score, role)
+    : result === "W" ? 70 : result === "D" ? 40 : 15;
+
+  const scores = {
+    attacking: attackingScore(stat, role),
+    defending: defendingScore(stat),
+    passing: passingScore(stat),
+    consistency: consScore,
+    gk: gkScore(stat),
+  };
+
   const base =
-    subRatings.attacking * w.attacking +
-    subRatings.defending * w.defending +
-    subRatings.passing * w.passing +
-    subRatings.consistency * w.consistency +
-    subRatings.gk * w.gk;
+    scores.attacking * w.attacking +
+    scores.defending * w.defending +
+    scores.passing * w.passing +
+    scores.consistency * w.consistency +
+    scores.gk * w.gk;
 
-  const tierBonus = leagueTier === 1 ? 5 : leagueTier === 3 ? -5 : 0;
-  return Math.round(Math.min(100, Math.max(0, base + tierBonus)));
+  const resultBonus = result === "W" ? 5 : result === "D" ? 2 : 0;
+
+  return {
+    role,
+    weights: w,
+    scores,
+    base,
+    resultBonus,
+    final: Math.round(Math.min(100, Math.max(0, base + resultBonus))),
+  };
 }
-
-// ── Per-match rating (0–10) ───────────────────────────────────────────────────
 
 export function calcMatchRating(
   stat: MatchStatRow,
   result: MatchResult,
   position: string | null | undefined
 ): number {
-  const role = getPositionRole(position);
-  const w = getPositionWeights(role);
+  return calcMatchBreakdown(stat, result, position).final;
+}
 
-  const consScore = stat.score > 0
-    ? Math.min(100, stat.score > 100 ? stat.score / 7 : stat.score > 10 ? stat.score : stat.score * 10)
-    : result === "W" ? 70 : result === "D" ? 40 : 15;
+// ── Overall rating: average of per-match ratings + tier adjustment ────────────
 
-  const base =
-    attackingScore(stat, role) * w.attacking +
-    defendingScore(stat) * w.defending +
-    passingScore(stat) * w.passing +
-    consScore * w.consistency +
-    gkScore(stat) * w.gk;
-
-  const normalized = base / 10;
-  const resultBonus = result === "W" ? 0.5 : result === "D" ? 0.2 : 0;
-
-  return Math.min(10, Math.max(0, parseFloat((normalized + resultBonus).toFixed(1))));
+export function calcOverallRating(
+  matchRatings: number[],
+  leagueTier: number = 2
+): number {
+  if (matchRatings.length === 0) return 0;
+  const avg = matchRatings.reduce((sum, r) => sum + r, 0) / matchRatings.length;
+  const tierBonus = leagueTier === 1 ? 5 : leagueTier === 3 ? -5 : 0;
+  return Math.round(Math.min(100, Math.max(0, avg + tierBonus)));
 }
 
 // ── Display helpers ───────────────────────────────────────────────────────────
@@ -239,9 +278,5 @@ export function getRatingLabel(rating: number): string {
 }
 
 export function getMatchRatingColor(rating: number): string {
-  if (rating >= 8) return "#22c55e";
-  if (rating >= 7) return "#84cc16";
-  if (rating >= 6) return "#eab308";
-  if (rating >= 5) return "#f97316";
-  return "#ef4444";
+  return getRatingColor(rating);
 }

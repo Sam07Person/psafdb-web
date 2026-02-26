@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { calcSubRatings, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
@@ -401,8 +401,10 @@ export default function PlayerDetailPage() {
   }
   const ratingPosition = Object.entries(ratingPosCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 
-  const subRatings = calcSubRatings(ratingStatRows, ratingResults, ratingPosition);
-  const overallRating = ratingStatRows.length > 0 ? calcOverallRating(subRatings, ratingPosition, dominantLeagueTier) : null;
+  const matchRatingValues = ratingStatRows.map((row, i) =>
+    calcMatchRating(row, ratingResults[i], row.position)
+  );
+  const overallRating = matchRatingValues.length > 0 ? calcOverallRating(matchRatingValues, dominantLeagueTier) : null;
   const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "#3a3a5a";
   const ratingLabelText = overallRating !== null ? getRatingLabel(overallRating) : null;
 
