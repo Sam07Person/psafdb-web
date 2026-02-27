@@ -182,22 +182,28 @@ export default function PlayerRatingPage() {
   });
 
   // Build MatchStatRow array for rating calculations
-  const statRows: MatchStatRow[] = playedStats.map(s => ({
-    goals: s.goals ?? 0,
-    assists: s.assists ?? 0,
-    key_passes: s.key_passes ?? 0,
-    shots_on_target: s.shots_on_target ?? 0,
-    passes: s.passes ?? 0,
-    tackles: s.tackles ?? 0,
-    key_tackles: s.key_tackles ?? 0,
-    interceptions: s.interceptions ?? 0,
-    key_interceptions: s.key_interceptions ?? 0,
-    possessions_lost: s.possessions_lost ?? 0,
-    gk_saves: s.gk_saves ?? 0,
-    gk_catches: s.gk_catches ?? 0,
-    score: s.score ?? 0,
-    position: s.position,
-  }));
+  const statRows: MatchStatRow[] = playedStats.map(s => {
+    const m = s.matches!;
+    const isHome = s.team_side === "home";
+    const goalsConceded = isHome ? m.away_score : m.home_score;
+    return {
+      goals: s.goals ?? 0,
+      assists: s.assists ?? 0,
+      key_passes: s.key_passes ?? 0,
+      shots_on_target: s.shots_on_target ?? 0,
+      passes: s.passes ?? 0,
+      tackles: s.tackles ?? 0,
+      key_tackles: s.key_tackles ?? 0,
+      interceptions: s.interceptions ?? 0,
+      key_interceptions: s.key_interceptions ?? 0,
+      possessions_lost: s.possessions_lost ?? 0,
+      gk_saves: s.gk_saves ?? 0,
+      gk_catches: s.gk_catches ?? 0,
+      goals_conceded: goalsConceded ?? 0,
+      score: s.score ?? 0,
+      position: s.position,
+    };
+  });
 
   // Dominant position
   const posCounts: Record<string, number> = {};
@@ -288,6 +294,7 @@ export default function PlayerRatingPage() {
   const avgPL        = avg(s => s.possessions_lost);
   const avgSaves     = avg(s => s.gk_saves);
   const avgCatches   = avg(s => s.gk_catches);
+  const avgGC        = avg(s => s.goals_conceded ?? 0);
   const avgScore     = avg(s => s.score);
 
   // Helper: clamp a raw value to [0, 100]
@@ -314,8 +321,9 @@ export default function PlayerRatingPage() {
   const rInt      = sr(avgInt / 8.5 * 100);         // avg≈4.3 → 50; 8.5/match → 100
   const rKInt     = sr(avgKInt * 100);              // avg≈0.49 → 49; 1.0/match → 100
   const rPL       = sr((1 - avgPL / 30) * 100);    // avg≈15 → 50 (inverted); 0 poss_lost → 100
-  const rSaves    = sr(avgSaves / 7 * 100);         // 7/match → 100
-  const rCatches  = sr(avgCatches / 4 * 100);      // 4/match → 100
+  const rSaves    = sr(avgSaves / 8.80 * 100);      // avg≈4.4 → 50; 8.80/match → 100
+  const rCatches  = sr(avgCatches / 4.68 * 100);   // avg≈2.34 → 50; 4.68/match → 100
+  const rGC       = sr(Math.max(0, (1 - avgGC / 8.6) * 100)); // avg≈4.3 → 50; 0 GC → 100 (inverted)
 
   const tierLabel = leagueTier === 1 ? "Tier 1 – Elite (+5 pts)" : leagueTier === 3 ? "Tier 3 – Amateur (−5 pts)" : "Tier 2 – Standard";
 
@@ -410,8 +418,9 @@ export default function PlayerRatingPage() {
                 {role === "GK" && (
                   <>
                     <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Goalkeeping</div>
-                    <SubRatingBar label="Saves"   value={rSaves}   detail={`${avgSaves.toFixed(1)}/match`} />
-                    <SubRatingBar label="Catches" value={rCatches} detail={`${avgCatches.toFixed(1)}/match`} />
+                    <SubRatingBar label="Goals Conceded" value={rGC}      detail={`${avgGC.toFixed(1)}/match (lower is better)`} />
+                    <SubRatingBar label="Saves"          value={rSaves}   detail={`${avgSaves.toFixed(1)}/match`} />
+                    <SubRatingBar label="Catches"        value={rCatches} detail={`${avgCatches.toFixed(1)}/match`} />
                   </>
                 )}
               </div>
@@ -483,6 +492,7 @@ export default function PlayerRatingPage() {
                                       { label: "Interceptions", v: sr.interceptions },
                                       { label: "Key Int.", v: sr.key_interceptions },
                                       { label: "Poss. Lost", v: sr.possessions_lost },
+                                      ...(getPositionRole(mr.position) === "GK" ? [{ label: "Goals Conceded", v: sr.goals_conceded ?? 0 }] : []),
                                       ...(sr.gk_saves > 0 ? [{ label: "GK Saves", v: sr.gk_saves }] : []),
                                       ...(sr.gk_catches > 0 ? [{ label: "GK Catches", v: sr.gk_catches }] : []),
                                       ...(sr.score > 0 ? [{ label: "Game Score", v: sr.score }] : []),
@@ -495,12 +505,23 @@ export default function PlayerRatingPage() {
 
                                   {/* Sub-rating contributions */}
                                   <div style={{ padding: "10px 0 4px" }}>
-                                    {cats.filter(c => bd.weights[c.key] > 0).map(c => (
-                                      <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}>
-                                        <span style={{ fontSize: 12, color: "#7070a0", width: 100 }}>{c.label}</span>
-                                        <span style={{ fontSize: 13, fontWeight: 700, color: getRatingColor(bd.scores[c.key]), width: 32, textAlign: "right" }}>{Math.round(bd.scores[c.key])}</span>
-                                        <span style={{ fontSize: 10, color: "#3a3a5a", width: 34, textAlign: "right" }}>×{Math.round(bd.weights[c.key] * 100)}%</span>
-                                        <span style={{ fontSize: 11, color: "#5a5a7a" }}>= {(bd.scores[c.key] * bd.weights[c.key]).toFixed(1)}</span>
+                                    {cats.filter(c => bd.weights[c.key] > 0).flatMap(c => {
+                                      if (c.key === "gk" && getPositionRole(mr.position) === "GK") {
+                                        const gc = sr.goals_conceded ?? 0;
+                                        // Effective weights: GC 35%, saves 28%, catches 12%
+                                        return [
+                                          { key: "gk-gc",      label: "Goals Conceded", score: Math.min(100, Math.max(0, (1 - gc / 8.6) * 100)), weight: 0.35 },
+                                          { key: "gk-saves",   label: "Saves",          score: Math.min(100, (sr.gk_saves / 8.80) * 100),           weight: 0.28 },
+                                          { key: "gk-catches", label: "Catches",        score: Math.min(100, (sr.gk_catches / 4.68) * 100),         weight: 0.12 },
+                                        ];
+                                      }
+                                      return [{ key: c.key, label: c.label, score: bd.scores[c.key], weight: bd.weights[c.key] }];
+                                    }).map(({ key, label, score, weight }) => (
+                                      <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}>
+                                        <span style={{ fontSize: 12, color: "#7070a0", width: 130 }}>{label}</span>
+                                        <span style={{ fontSize: 13, fontWeight: 700, color: getRatingColor(score), width: 32, textAlign: "right" }}>{Math.round(score)}</span>
+                                        <span style={{ fontSize: 10, color: "#3a3a5a", width: 34, textAlign: "right" }}>×{Math.round(weight * 100)}%</span>
+                                        <span style={{ fontSize: 11, color: "#5a5a7a" }}>= {(score * weight).toFixed(1)}</span>
                                       </div>
                                     ))}
                                   </div>

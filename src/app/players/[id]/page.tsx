@@ -371,22 +371,27 @@ export default function PlayerDetailPage() {
   const dominantTierEntry = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0];
   const dominantLeagueTier = dominantTierEntry ? parseInt(dominantTierEntry[0]) : 2;
 
-  const ratingStatRows: MatchStatRow[] = ratingMatchSet.map(s => ({
-    goals: s.goals ?? 0,
-    assists: s.assists ?? 0,
-    key_passes: s.key_passes ?? 0,
-    shots_on_target: s.shots_on_target ?? 0,
-    passes: s.passes ?? 0,
-    tackles: s.tackles ?? 0,
-    key_tackles: s.key_tackles ?? 0,
-    interceptions: s.interceptions ?? 0,
-    key_interceptions: s.key_interceptions ?? 0,
-    possessions_lost: s.possessions_lost ?? 0,
-    gk_saves: s.gk_saves ?? 0,
-    gk_catches: s.gk_catches ?? 0,
-    score: s.score ?? 0,
-    position: s.position,
-  }));
+  const ratingStatRows: MatchStatRow[] = ratingMatchSet.map(s => {
+    const isHome = s.team_side === "home";
+    const goalsConceded = isHome ? s.matches!.away_score : s.matches!.home_score;
+    return {
+      goals: s.goals ?? 0,
+      assists: s.assists ?? 0,
+      key_passes: s.key_passes ?? 0,
+      shots_on_target: s.shots_on_target ?? 0,
+      passes: s.passes ?? 0,
+      tackles: s.tackles ?? 0,
+      key_tackles: s.key_tackles ?? 0,
+      interceptions: s.interceptions ?? 0,
+      key_interceptions: s.key_interceptions ?? 0,
+      possessions_lost: s.possessions_lost ?? 0,
+      gk_saves: s.gk_saves ?? 0,
+      gk_catches: s.gk_catches ?? 0,
+      goals_conceded: goalsConceded ?? 0,
+      score: s.score ?? 0,
+      position: s.position,
+    };
+  });
   const ratingResults: MatchResult[] = ratingMatchSet.map(s => {
     const isHome = s.team_side === "home";
     const my = isHome ? s.matches!.home_score : s.matches!.away_score;

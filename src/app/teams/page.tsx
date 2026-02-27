@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import TeamsTable from "./TeamsTable";
+import { calcMatchRating, calcOverallRating, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,21 +70,153 @@ async function getTeamStats(teamName: string) {
     return { played: won + drawn + lost, won, drawn, lost, gf, ga };
 }
 
+// Batch-compute team ratings for all teams using 2 queries total.
+// Team rating = average of current squad players' individual ratings (≥3 rated players required).
+// Current squad = players whose most recent match was for this team.
+async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, number | null>> {
+    if (teamNames.length === 0) return new Map();
+
+    // Q1: all matches with league tier
+    const { data: matchesRaw } = await supabase
+        .from("matches")
+        .select("id,home_team,away_team,played_at,home_score,away_score,leagues(tier)");
+
+    if (!matchesRaw) return new Map(teamNames.map(n => [n, null]));
+
+    const matchMap = new Map<string, any>();
+    for (const m of matchesRaw as any[]) {
+        matchMap.set(m.id, {
+            ...m,
+            leagues: Array.isArray(m.leagues) ? m.leagues[0] ?? null : m.leagues ?? null,
+        });
+    }
+
+    // Q2: all player stats (no join — use matchMap for match info)
+    const { data: statsRaw } = await supabase
+        .from("match_player_stats")
+        .select("player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete");
+
+    if (!statsRaw) return new Map(teamNames.map(n => [n, null]));
+
+    const teamNameSet = new Set(teamNames);
+
+    // Group stats per player, attaching match info
+    const statsByPlayer = new Map<string, any[]>();
+    for (const stat of statsRaw as any[]) {
+        const matchInfo = matchMap.get(stat.match_id);
+        if (!matchInfo) continue;
+        const list = statsByPlayer.get(stat.player_id) ?? [];
+        list.push({ ...stat, matchInfo });
+        statsByPlayer.set(stat.player_id, list);
+    }
+
+    // Determine each player's current team (most recent match overall)
+    const playerCurrentTeam = new Map<string, string>();
+    for (const [playerId, stats] of statsByPlayer) {
+        let latestDate = "";
+        let latestTeam = "";
+        for (const s of stats) {
+            if (s.matchInfo.played_at > latestDate) {
+                latestDate = s.matchInfo.played_at;
+                latestTeam = s.team_side === "home" ? s.matchInfo.home_team : s.matchInfo.away_team;
+            }
+        }
+        if (latestTeam && teamNameSet.has(latestTeam)) {
+            playerCurrentTeam.set(playerId, latestTeam);
+        }
+    }
+
+    // Compute individual rating per current-squad player, accumulate per team
+    const teamRatingAccum = new Map<string, number[]>();
+
+    for (const [playerId, currentTeam] of playerCurrentTeam) {
+        const stats = statsByPlayer.get(playerId) ?? [];
+        const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete);
+
+        if (played.length < 3) continue;
+
+        // Dominant position
+        const posCounts = new Map<string, number>();
+        for (const s of played) {
+            if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
+        }
+        let dominantPos: string | null = null, maxPosCount = 0;
+        for (const [pos, count] of posCounts) {
+            if (count > maxPosCount) { maxPosCount = count; dominantPos = pos; }
+        }
+
+        // Dominant tier
+        const tierCounts = new Map<number, number>();
+        for (const s of played) {
+            const tier = s.matchInfo.leagues?.tier ?? 2;
+            tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
+        }
+        let dominantTier = 2, maxTierCount = 0;
+        for (const [tier, count] of tierCounts) {
+            if (count > maxTierCount) { maxTierCount = count; dominantTier = tier; }
+        }
+
+        // Per-match ratings
+        const matchRatingValues: number[] = [];
+        for (const s of played) {
+            const m = s.matchInfo;
+            const isHome = s.team_side === "home";
+            const my = isHome ? (m.home_score ?? 0) : (m.away_score ?? 0);
+            const opp = isHome ? (m.away_score ?? 0) : (m.home_score ?? 0);
+            const result: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
+            const statRow: MatchStatRow = {
+                goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
+                shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
+                tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
+                interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
+                possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
+                gk_catches: s.gk_catches ?? 0, goals_conceded: opp, score: s.score ?? 0, position: s.position,
+            };
+            matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
+        }
+
+        const playerRating = calcOverallRating(matchRatingValues, dominantTier);
+        const existing = teamRatingAccum.get(currentTeam) ?? [];
+        existing.push(playerRating);
+        teamRatingAccum.set(currentTeam, existing);
+    }
+
+    // Final team ratings — require ≥3 rated squad members
+    const result = new Map<string, number | null>();
+    for (const teamName of teamNames) {
+        const ratings = teamRatingAccum.get(teamName) ?? [];
+        result.set(
+            teamName,
+            ratings.length >= 3
+                ? Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length)
+                : null
+        );
+    }
+    return result;
+}
+
 export const revalidate = 60;
 
 export default async function TeamsPage() {
     const teams = await getTeams();
 
-    // Get stats for all teams
-    const teamsWithStats = await Promise.all(
-        teams.map(async (team) => ({
-            ...team,
-            stats: await getTeamStats(team.name),
-        }))
-    );
+    const [teamsWithStats, teamRatings] = await Promise.all([
+        Promise.all(
+            teams.map(async (team) => ({
+                ...team,
+                stats: await getTeamStats(team.name),
+            }))
+        ),
+        computeAllTeamRatings(teams.map(t => t.name)),
+    ]);
+
+    const teamsWithRatings = teamsWithStats.map(t => ({
+        ...t,
+        rating: teamRatings.get(t.name) ?? null,
+    }));
 
     // Sort by points (W*3 + D*1), then goal difference
-    teamsWithStats.sort((a, b) => {
+    teamsWithRatings.sort((a, b) => {
         const pointsA = a.stats.won * 3 + a.stats.drawn;
         const pointsB = b.stats.won * 3 + b.stats.drawn;
         if (pointsB !== pointsA) return pointsB - pointsA;
@@ -113,7 +246,7 @@ export default async function TeamsPage() {
                         <p className="text-white/40 text-lg">No teams found</p>
                     </div>
                 ) : (
-                    <TeamsTable teams={teamsWithStats} />
+                    <TeamsTable teams={teamsWithRatings} />
                 )}
 
                 {/* Legend */}
@@ -126,6 +259,7 @@ export default async function TeamsPage() {
                     <span>GA = Goals Against</span>
                     <span>GD = Goal Difference</span>
                     <span>Pts = Points</span>
+                    <span>Rating = Avg of current squad player ratings (min. 3 rated players)</span>
                 </div>
             </div>
         </main>

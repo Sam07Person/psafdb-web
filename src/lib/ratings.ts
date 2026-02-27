@@ -25,7 +25,7 @@ type PositionWeights = {
 
 export function getPositionWeights(role: PositionRole): PositionWeights {
   switch (role) {
-    case "GK":  return { attacking: 0.00, defending: 0.15, passing: 0.05, consistency: 0.10, gk: 0.70 };
+    case "GK":  return { attacking: 0.00, defending: 0.10, passing: 0.05, consistency: 0.10, gk: 0.75 };
     case "DEF": return { attacking: 0.125, defending: 0.625, passing: 0.15, consistency: 0.10, gk: 0.00 };
     case "MID": return { attacking: 0.35, defending: 0.30, passing: 0.25, consistency: 0.10, gk: 0.00 };
     case "FWD": return { attacking: 0.65, defending: 0.10, passing: 0.15, consistency: 0.10, gk: 0.00 };
@@ -45,6 +45,7 @@ export type MatchStatRow = {
   possessions_lost: number;
   gk_saves: number;
   gk_catches: number;
+  goals_conceded?: number; // goals let in (GK only); omit for outfield players
   score: number; // game-generated 0–10 match score
   position: string | null;
 };
@@ -94,21 +95,27 @@ function passingScore(s: MatchStatRow): number {
   return Math.min(100, raw <= 85 ? raw : 85 + (raw - 85) / 6);
 }
 
+// Calibrated: avg goals_conceded≈4.3, avg saves≈4.4, avg catches≈2.34 → average GK scores ~60
+// Effective weights: GC 35%, saves 28%, catches 12% (sum = 75% = gk position weight)
+// Internal pts scaled ×1.2 so avg → 60: GC=56.00, saves=44.80, catches=19.20 (max sum=120, capped at 100)
+// At averages: (1 - 4.3/8.6)*56 + (4.4/8.8)*44.8 + (2.34/4.68)*19.2 = 28 + 22.4 + 9.6 = 60
 function gkScore(s: MatchStatRow): number {
-  return (
-    Math.min(65, (s.gk_saves / 7.0) * 65) +
-    Math.min(35, (s.gk_catches / 4.0) * 35)
+  const gc = s.goals_conceded ?? 0;
+  return Math.min(100,
+    Math.min(56.00, Math.max(0, (1 - gc / 8.6) * 56.00)) +
+    Math.min(44.80, (s.gk_saves / 8.80) * 44.80) +
+    Math.min(19.20, (s.gk_catches / 4.68) * 19.20)
   );
 }
 
 // ── Game-score normalizer (position-aware) ────────────────────────────────────
-// Calibrated from real data: FWD avg≈449, MID avg≈567, DEF avg≈366, GK avg≈576
+// Calibrated from real data: FWD avg≈449, MID avg≈567, DEF avg≈366, GK avg≈550
 // Divisors chosen so position-average score maps to ~50.
 function normalizeGameScore(rawScore: number, role: PositionRole): number {
   if (rawScore <= 0) return 0;
   if (rawScore > 100) {
     // Scores are on the game's 0–700 scale — use position-specific divisor
-    const divisor = role === "FWD" ? 9.0 : role === "MID" ? 11.3 : role === "GK" ? 11.5 : 7.3;
+    const divisor = role === "FWD" ? 9.0 : role === "MID" ? 11.3 : role === "GK" ? 11.0 : 7.3;
     return Math.min(100, rawScore / divisor);
   }
   // Legacy: 0–100 (direct) or 0–10 (×10)

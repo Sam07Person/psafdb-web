@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -89,6 +90,7 @@ type PlayerWithStats = {
   assists: number;
   last_position: string | null;
   last_match_date: string;
+  rating?: number | null;
 };
 
 async function getTeamSquad(teamName: string): Promise<PlayerWithStats[]> {
@@ -298,6 +300,77 @@ async function getTeamAllTimePlayers(teamName: string): Promise<PlayerWithStats[
   }).sort((a, b) => b.matches_for_team - a.matches_for_team);
 }
 
+// Fetch full stats for given player IDs and compute individual ratings.
+async function getSquadRatings(playerIds: string[]): Promise<Map<string, number | null>> {
+  if (playerIds.length === 0) return new Map();
+
+  const { data: statsRaw } = await supabase
+    .from("match_player_stats")
+    .select("player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier))")
+    .in("player_id", playerIds);
+
+  if (!statsRaw) return new Map(playerIds.map(id => [id, null]));
+
+  // Group by player, normalize matches
+  const statsByPlayer = new Map<string, any[]>();
+  for (const raw of statsRaw as any[]) {
+    const stat = { ...raw, matches: Array.isArray(raw.matches) ? raw.matches[0] ?? null : raw.matches ?? null };
+    const list = statsByPlayer.get(stat.player_id) ?? [];
+    list.push(stat);
+    statsByPlayer.set(stat.player_id, list);
+  }
+
+  const ratings = new Map<string, number | null>();
+
+  for (const playerId of playerIds) {
+    const stats = statsByPlayer.get(playerId) ?? [];
+    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && s.matches);
+
+    if (played.length < 3) { ratings.set(playerId, null); continue; }
+
+    const posCounts = new Map<string, number>();
+    for (const s of played) {
+      if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
+    }
+    let dominantPos: string | null = null, maxPosCount = 0;
+    for (const [pos, count] of posCounts) {
+      if (count > maxPosCount) { maxPosCount = count; dominantPos = pos; }
+    }
+
+    const tierCounts = new Map<number, number>();
+    for (const s of played) {
+      const tier = s.matches?.leagues?.tier ?? 2;
+      tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
+    }
+    let dominantTier = 2, maxTierCount = 0;
+    for (const [tier, count] of tierCounts) {
+      if (count > maxTierCount) { maxTierCount = count; dominantTier = tier; }
+    }
+
+    const matchRatingValues: number[] = [];
+    for (const s of played) {
+      const m = s.matches;
+      const isHome = s.team_side === "home";
+      const my = isHome ? (m.home_score ?? 0) : (m.away_score ?? 0);
+      const opp = isHome ? (m.away_score ?? 0) : (m.home_score ?? 0);
+      const result: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
+      const statRow: MatchStatRow = {
+        goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
+        shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
+        tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
+        interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
+        possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
+        gk_catches: s.gk_catches ?? 0, goals_conceded: opp, score: s.score ?? 0, position: s.position,
+      };
+      matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
+    }
+
+    ratings.set(playerId, calcOverallRating(matchRatingValues, dominantTier));
+  }
+
+  return ratings;
+}
+
 const POSITION_COLORS: Record<string, string> = {
   GK: "border-yellow-400/30 bg-yellow-400/10 text-yellow-200",
   LB: "border-green-400/30 bg-green-400/10 text-green-200",
@@ -339,6 +412,23 @@ export default async function TeamDetailPage({
     getTeamAllTimePlayers(team.name),
   ]);
 
+  // Fetch individual ratings for current squad
+  const squadRatings = await getSquadRatings(currentSquad.map(p => p.id));
+
+  // Attach ratings to squad players
+  const currentSquadWithRatings = currentSquad.map(p => ({
+    ...p,
+    rating: squadRatings.get(p.id) ?? null,
+  }));
+
+  // Team rating = average of squad members who have an official rating (≥3 required)
+  const ratedSquadValues = Array.from(squadRatings.values()).filter((r): r is number => r !== null);
+  const teamRating = ratedSquadValues.length >= 3
+    ? Math.round(ratedSquadValues.reduce((a, b) => a + b, 0) / ratedSquadValues.length)
+    : null;
+  const teamRatingColor = teamRating !== null ? getRatingColor(teamRating) : null;
+  const teamRatingLabel = teamRating !== null ? getRatingLabel(teamRating) : null;
+
   const points = stats.won * 3 + stats.drawn;
   const gd = stats.gf - stats.ga;
   const winRate = stats.played > 0 ? Math.round((stats.won / stats.played) * 100) : 0;
@@ -372,6 +462,20 @@ export default async function TeamDetailPage({
             </Link>
           )}
         </div>
+
+        {/* Team Rating Badge */}
+        {teamRating !== null && (
+          <div className="mb-6 inline-flex items-center gap-4 rounded-xl border px-5 py-3" style={{ borderColor: teamRatingColor + "55", background: teamRatingColor + "11" }}>
+            <div>
+              <div className="text-4xl font-black tabular-nums leading-none" style={{ color: teamRatingColor ?? undefined }}>{teamRating}</div>
+              <div className="text-xs font-bold tracking-widest uppercase mt-1" style={{ color: teamRatingColor + "aa" }}>Team Rating</div>
+            </div>
+            <div className="text-sm font-bold" style={{ color: teamRatingColor ?? undefined }}>
+              {teamRatingLabel}
+              <div className="text-xs font-normal mt-0.5" style={{ color: "#5a5a7a" }}>Avg of {ratedSquadValues.length} rated players</div>
+            </div>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
@@ -429,31 +533,39 @@ export default async function TeamDetailPage({
               <p className="text-xs text-white/50">Players whose last match was for this team</p>
             </div>
             
-            {currentSquad.length === 0 ? (
+            {currentSquadWithRatings.length === 0 ? (
               <div className="p-6 text-center text-white/40">No current players</div>
             ) : (
               <div className="divide-y divide-white/5">
-                {currentSquad.map((player) => (
-                  <Link
-                    key={player.id}
-                    href={`/players/${player.id}`}
-                    className="flex items-center justify-between p-3 hover:bg-white/5 transition"
-                  >
-                    <div className="flex items-center gap-3">
-                      {player.last_position && (
-                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${POSITION_COLORS[player.last_position] || "border-white/30 bg-white/10 text-white/80"}`}>
-                          {player.last_position}
-                        </span>
-                      )}
-                      <span className="font-medium">{player.name || player.handle}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-white/50">{player.matches_for_team} apps</span>
-                      {player.goals > 0 && <span className="text-emerald-400">{player.goals}G</span>}
-                      {player.assists > 0 && <span className="text-sky-400">{player.assists}A</span>}
-                    </div>
-                  </Link>
-                ))}
+                {currentSquadWithRatings.map((player) => {
+                  const pRatingColor = player.rating !== null ? getRatingColor(player.rating) : null;
+                  return (
+                    <Link
+                      key={player.id}
+                      href={`/players/${player.id}`}
+                      className="flex items-center justify-between p-3 hover:bg-white/5 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        {player.last_position && (
+                          <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${POSITION_COLORS[player.last_position] || "border-white/30 bg-white/10 text-white/80"}`}>
+                            {player.last_position}
+                          </span>
+                        )}
+                        <span className="font-medium">{player.name || player.handle}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="text-white/50">{player.matches_for_team} apps</span>
+                        {player.goals > 0 && <span className="text-emerald-400">{player.goals}G</span>}
+                        {player.assists > 0 && <span className="text-sky-400">{player.assists}A</span>}
+                        {pRatingColor ? (
+                          <span className="font-bold tabular-nums text-base" style={{ color: pRatingColor }}>{player.rating}</span>
+                        ) : (
+                          <span className="text-white/20 text-xs">N/A</span>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </div>

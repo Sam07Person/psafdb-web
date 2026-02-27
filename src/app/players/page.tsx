@@ -25,6 +25,7 @@ type PlayerWithStats = PlayerRow & {
   total_goals: number;
   total_assists: number;
   rating: number | null;
+  dominant_position: string | null;
 };
 
 type RawStatRow = {
@@ -171,6 +172,7 @@ export default function PlayersPage() {
                 possessions_lost: s.possessions_lost ?? 0,
                 gk_saves: s.gk_saves ?? 0,
                 gk_catches: s.gk_catches ?? 0,
+                goals_conceded: oppScore,
                 score: s.score ?? 0,
                 position: s.position,
               };
@@ -181,12 +183,24 @@ export default function PlayersPage() {
           }
         }
 
+        // Dominant position from all stats with a position set
+        const posCounts = new Map<string, number>();
+        for (const s of stats) {
+          if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
+        }
+        let dominant_position: string | null = null;
+        let maxPosCount = 0;
+        for (const [pos, count] of posCounts) {
+          if (count > maxPosCount) { maxPosCount = count; dominant_position = pos; }
+        }
+
         return {
           ...p,
           matches_played: stats.length,
           total_goals: totalGoals,
           total_assists: totalAssists,
           rating,
+          dominant_position,
         };
       });
 
@@ -338,6 +352,11 @@ export default function PlayersPage() {
                       </div>
                       {p.handle && p.name && (
                         <div className="mt-0.5 truncate text-sm text-white/50">@{p.handle}</div>
+                      )}
+                      {p.dominant_position && (
+                        <div className="mt-1 inline-block rounded bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+                          {p.dominant_position}
+                        </div>
                       )}
                     </div>
                     {p.rating != null ? (

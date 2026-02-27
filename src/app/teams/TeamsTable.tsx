@@ -2,19 +2,22 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { getRatingColor, getRatingLabel } from "@/lib/ratings";
 
 type TeamRow = {
   id: string;
   name: string;
   league: { id: string; name: string; season: string | null } | null;
   stats: { played: number; won: number; drawn: number; lost: number; gf: number; ga: number };
+  rating: number | null;
 };
 
-type SortKey = "name" | "league" | "played" | "won" | "drawn" | "lost" | "gf" | "ga" | "gd" | "pts";
+type SortKey = "name" | "league" | "played" | "won" | "drawn" | "lost" | "gf" | "ga" | "gd" | "pts" | "rating";
 
 const COLUMNS: { label: string; key: SortKey; align: "left" | "center" }[] = [
   { label: "Team",   key: "name",   align: "left" },
   { label: "League", key: "league", align: "left" },
+  { label: "Rating", key: "rating", align: "center" },
   { label: "P",  key: "played", align: "center" },
   { label: "W",  key: "won",    align: "center" },
   { label: "D",  key: "drawn",  align: "center" },
@@ -38,6 +41,7 @@ function getValue(team: TeamRow, key: SortKey): string | number {
     case "ga":     return stats.ga;
     case "gd":     return stats.gf - stats.ga;
     case "pts":    return stats.won * 3 + stats.drawn;
+    case "rating": return team.rating ?? -1;
   }
 }
 
@@ -143,6 +147,8 @@ export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
                 {rows.map((team, index) => {
                   const pts = team.stats.won * 3 + team.stats.drawn;
                   const gd = team.stats.gf - team.stats.ga;
+                  const rColor = team.rating !== null ? getRatingColor(team.rating) : null;
+                  const rLabel = team.rating !== null ? getRatingLabel(team.rating) : null;
                   return (
                     <tr key={team.id} className="border-b border-white/5 hover:bg-white/5 transition">
                       <td className="px-4 py-3 text-white/30 text-sm">{index + 1}</td>
@@ -157,6 +163,18 @@ export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
                             {team.league.name}
                             {team.league.season && <span className="text-white/30 ml-1">({team.league.season})</span>}
                           </Link>
+                        ) : (
+                          <span className="text-white/20 text-sm">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {rColor ? (
+                          <span
+                            className="inline-flex flex-col items-center leading-none"
+                            title={rLabel ?? undefined}
+                          >
+                            <span className="text-base font-bold tabular-nums" style={{ color: rColor }}>{team.rating}</span>
+                          </span>
                         ) : (
                           <span className="text-white/20 text-sm">—</span>
                         )}
