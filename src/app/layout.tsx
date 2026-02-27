@@ -28,6 +28,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 { href: "/leagues", label: "Leagues" },
                 { href: "/teams", label: "Teams" },
                 { href: "/players", label: "Players" },
+                { href: "/awards", label: "Awards" },
               ].map(({ href, label }) => (
                 <Link
                   key={href}

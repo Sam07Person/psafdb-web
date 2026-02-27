@@ -42,8 +42,7 @@ async function getTeamMatches(teamName: string) {
       league:leagues!matches_league_id_fkey(id, name)
     `)
     .or(`home_team.eq.${teamName},away_team.eq.${teamName}`)
-    .order("played_at", { ascending: false })
-    .limit(20);
+    .order("played_at", { ascending: false });
 
   return (data || []).map((m: any) => ({
     ...m,

@@ -2,6 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import PlayerStatsTable from "./PlayerStatsTable";
+import {
+  calcMatchBreakdown,
+  calcOverallRating,
+  type MatchStatRow,
+  type MatchResult,
+} from "@/lib/ratings";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,6 +57,70 @@ async function getPlayerStats(matchId: string) {
   return data2;
 }
 
+async function getTeamIds(homeTeam: string, awayTeam: string): Promise<Map<string, string>> {
+  const { data } = await supabase
+    .from("teams")
+    .select("id,name")
+    .in("name", [homeTeam, awayTeam]);
+  const map = new Map<string, string>();
+  for (const t of data ?? []) map.set(t.name, t.id);
+  return map;
+}
+
+async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<string, number>> {
+  if (!playerIds.length) return {};
+  const { data } = await supabase
+    .from("match_player_stats")
+    .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,is_starter,sub_number,matches(home_score,away_score,leagues(tier))")
+    .in("player_id", playerIds);
+  if (!data) return {};
+
+  const normalized = data.map((s: any) => ({
+    ...s,
+    benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
+    stats_incomplete: s.stats_incomplete ?? false,
+    matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
+  }));
+
+  const byPlayer = new Map<string, any[]>();
+  for (const s of normalized) {
+    if (!byPlayer.has(s.player_id)) byPlayer.set(s.player_id, []);
+    byPlayer.get(s.player_id)!.push(s);
+  }
+
+  const result: Record<string, number> = {};
+  for (const [pid, stats] of byPlayer) {
+    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && s.matches);
+    if (played.length < 3) continue;
+    const matchRatingsList: number[] = [];
+    const tierCounts: Record<number, number> = {};
+    for (const s of played) {
+      const m = s.matches;
+      const isHome = s.team_side === "home";
+      const statRow: MatchStatRow = {
+        goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
+        shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
+        tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
+        interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
+        possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
+        gk_catches: s.gk_catches ?? 0,
+        goals_conceded: (isHome ? m.away_score : m.home_score) ?? 0,
+        score: s.score ?? 0, position: s.position,
+      };
+      const my = isHome ? m.home_score : m.away_score;
+      const opp = isHome ? m.away_score : m.home_score;
+      const res: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
+      matchRatingsList.push(calcMatchBreakdown(statRow, res, s.position).final);
+      const tier = m.leagues?.tier ?? 2;
+      tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
+    }
+    if (matchRatingsList.length < 3) continue;
+    const domTier = +Object.entries(tierCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0][0];
+    result[pid] = calcOverallRating(matchRatingsList, domTier);
+  }
+  return result;
+}
+
 export const revalidate = 60;
 
 const TEAM_STAT_ROWS: [string, string, boolean][] = [
@@ -78,11 +148,43 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const match = await getMatch(id);
   if (!match) notFound();
 
-  const [teamStats, playerStats] = await Promise.all([getTeamStats(id), getPlayerStats(id)]);
+  const [teamStats, playerStats, teamIds] = await Promise.all([getTeamStats(id), getPlayerStats(id), getTeamIds(match.home_team, match.away_team)]);
 
   const homeStats = teamStats.find((s: any) => s.team_side === "home") ?? null;
   const awayStats = teamStats.find((s: any) => s.team_side === "away") ?? null;
   const played = match.home_score !== null && match.away_score !== null;
+
+  // Per-match ratings (0–100) for each player in this game
+  const matchRatings: Record<string, number> = {};
+  if (played) {
+    for (const s of playerStats) {
+      const isHome = s.team_side === "home";
+      const statRow: MatchStatRow = {
+        goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
+        shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
+        tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
+        interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
+        possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
+        gk_catches: s.gk_catches ?? 0,
+        goals_conceded: isHome ? match.away_score! : match.home_score!,
+        score: s.score ?? 0, position: s.position,
+      };
+      const my = isHome ? match.home_score! : match.away_score!;
+      const opp = isHome ? match.away_score! : match.home_score!;
+      const res: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
+      matchRatings[s.player_id] = calcMatchBreakdown(statRow, res, s.position).final;
+    }
+  }
+
+  // Overall career ratings for all players in this game
+  const playerIds = [...new Set(playerStats.map((s: any) => s.player_id as string))];
+  const overallRatings = await getPlayerOverallRatings(playerIds);
+
+  const enrichedPlayerStats = playerStats.map((s: any) => ({
+    ...s,
+    matchRating: matchRatings[s.player_id] ?? null,
+    overallRating: overallRatings[s.player_id] ?? null,
+  }));
   const league = (match as any).league ?? null;
   const homeWin = played && match.home_score! > match.away_score!;
   const awayWin = played && match.away_score! > match.home_score!;
@@ -113,7 +215,9 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
             <div style={{ flex: 1, textAlign: "right" }}>
               <div style={{ fontSize: "clamp(18px, 3vw, 30px)", fontWeight: 900, letterSpacing: "-0.02em", color: homeWin ? "#f0f0fa" : "#4a4a6a" }}>
-                {match.home_team}
+                {teamIds.get(match.home_team) ? (
+                  <Link href={`/teams/${teamIds.get(match.home_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.home_team}</Link>
+                ) : match.home_team}
               </div>
               {homeWin && <div style={{ fontSize: 10, color: "#4ade80", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Winner</div>}
             </div>
@@ -141,7 +245,9 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
 
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "clamp(18px, 3vw, 30px)", fontWeight: 900, letterSpacing: "-0.02em", color: awayWin ? "#f0f0fa" : "#4a4a6a" }}>
-                {match.away_team}
+                {teamIds.get(match.away_team) ? (
+                  <Link href={`/teams/${teamIds.get(match.away_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.away_team}</Link>
+                ) : match.away_team}
               </div>
               {awayWin && <div style={{ fontSize: 10, color: "#4ade80", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Winner</div>}
             </div>
@@ -161,9 +267,13 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: "#09090f" }}>
-                    <th style={{ padding: "10px 24px", textAlign: "right", fontSize: 13, fontWeight: 800, color: "#e0e0f0", borderBottom: "1px solid #1a1a2e", width: "38%" }}>{match.home_team}</th>
+                    <th style={{ padding: "10px 24px", textAlign: "right", fontSize: 13, fontWeight: 800, color: "#e0e0f0", borderBottom: "1px solid #1a1a2e", width: "38%" }}>
+                      {teamIds.get(match.home_team) ? <Link href={`/teams/${teamIds.get(match.home_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.home_team}</Link> : match.home_team}
+                    </th>
                     <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e", width: "24%" }}>Stat</th>
-                    <th style={{ padding: "10px 24px", textAlign: "left", fontSize: 13, fontWeight: 800, color: "#e0e0f0", borderBottom: "1px solid #1a1a2e", width: "38%" }}>{match.away_team}</th>
+                    <th style={{ padding: "10px 24px", textAlign: "left", fontSize: 13, fontWeight: 800, color: "#e0e0f0", borderBottom: "1px solid #1a1a2e", width: "38%" }}>
+                      {teamIds.get(match.away_team) ? <Link href={`/teams/${teamIds.get(match.away_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.away_team}</Link> : match.away_team}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -189,7 +299,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
 
         {/* Player Stats — interactive client component */}
         <PlayerStatsTable
-          playerStats={playerStats}
+          playerStats={enrichedPlayerStats}
           homeTeam={match.home_team}
           awayTeam={match.away_team}
         />

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { getRatingColor } from "@/lib/ratings";
 
 type PlayerStat = {
   player_id: string;
@@ -21,6 +22,8 @@ type PlayerStat = {
   possessions_lost: number;
   gk_saves: number;
   gk_catches: number;
+  matchRating: number | null;
+  overallRating: number | null;
   players?: { handle: string | null; name: string | null } | null;
 };
 
@@ -74,6 +77,7 @@ const COLUMNS: [string, SortKey][] = [
   ["Saves", "gk_saves"],
   ["Catch", "gk_catches"],
   ["Score", "score"],
+  ["Rtg",   "matchRating"],
 ];
 
 function TeamTable({
@@ -150,9 +154,21 @@ function TeamTable({
               return (
                 <tr key={r.player_id} style={{ borderBottom: "1px solid #0a0a14" }}>
                   <td style={{ padding: "9px 20px", whiteSpace: "nowrap" }}>
-                    <Link href={`/players/${r.player_id}`} style={{ fontWeight: 600, color: "#d0d0e8", textDecoration: "none" }} className="nav-link">
-                      {label}
-                    </Link>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <Link href={`/players/${r.player_id}`} style={{ fontWeight: 600, color: "#d0d0e8", textDecoration: "none" }} className="nav-link">
+                        {label}
+                      </Link>
+                      {r.overallRating != null && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 900, letterSpacing: "0.04em",
+                          color: getRatingColor(r.overallRating),
+                          border: `1px solid ${getRatingColor(r.overallRating)}55`,
+                          padding: "1px 5px", background: "rgba(0,0,0,0.3)", flexShrink: 0,
+                        }}>
+                          {r.overallRating}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: "9px 10px", textAlign: "center" }}>
                     {r.position ? (
@@ -162,8 +178,18 @@ function TeamTable({
                     ) : <span style={{ color: "#2a2a3a" }}>—</span>}
                   </td>
                   {COLUMNS.map(([, key]) => {
-                    const val = (r[key as keyof PlayerStat] as number) ?? 0;
                     const isSorted = sortKey !== "position" && sortKey === key;
+                    if (key === "matchRating") {
+                      const rtg = r.matchRating;
+                      return (
+                        <td key={key} style={{ padding: "9px 10px", textAlign: "center", background: isSorted ? "rgba(255,255,255,0.03)" : undefined }}>
+                          {rtg != null
+                            ? <span style={{ fontWeight: 900, fontSize: 13, color: getRatingColor(rtg) }}>{rtg}</span>
+                            : <span style={{ color: "#2a2a3a" }}>—</span>}
+                        </td>
+                      );
+                    }
+                    const val = (r[key as keyof PlayerStat] as number) ?? 0;
                     return (
                       <td key={key} style={{ padding: "9px 10px", textAlign: "center", color: isSorted ? "#e0e0f0" : val > 0 ? "#9090b0" : "#2a2a3a", fontWeight: isSorted && val > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>
                         {val}

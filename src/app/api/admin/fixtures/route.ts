@@ -35,16 +35,14 @@ export async function GET(req: NextRequest) {
   const result = await supabaseAdmin
     .from("matches")
     .select("id,league_id,played_at,home_team,away_team,home_score,away_score,stage,group_name,day,forfeited_by,league:leagues(name)")
-    .order("played_at", { ascending: false })
-    .limit(100);
+    .order("played_at", { ascending: false });
 
   // If stage/group_name don't exist, fall back
   if (result.error) {
     const fallbackResult = await supabaseAdmin
       .from("matches")
       .select("id,league_id,played_at,home_team,away_team,home_score,away_score,league:leagues(name)")
-      .order("played_at", { ascending: false })
-      .limit(100);
+      .order("played_at", { ascending: false });
 
     if (fallbackResult.error) return json(500, { error: fallbackResult.error.message });
 

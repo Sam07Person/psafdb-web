@@ -95,16 +95,18 @@ function passingScore(s: MatchStatRow): number {
   return Math.min(100, raw <= 85 ? raw : 85 + (raw - 85) / 6);
 }
 
-// Calibrated: avg goals_conceded≈4.3, avg saves≈4.4, avg catches≈2.34 → average GK scores ~60
-// Effective weights: GC 35%, saves 28%, catches 12% (sum = 75% = gk position weight)
-// Internal pts scaled ×1.2 so avg → 60: GC=56.00, saves=44.80, catches=19.20 (max sum=120, capped at 100)
-// At averages: (1 - 4.3/8.6)*56 + (4.4/8.8)*44.8 + (2.34/4.68)*19.2 = 28 + 22.4 + 9.6 = 60
+// Calibrated: avg goals_conceded≈4.3, avg saves≈4.2, avg catches≈2.0 → average GK scores ~60
+// Effective weights: GC 34%, saves 29%, catches 12% (sum = 75% = gk position weight)
+// Internal pts scaled ×1.2 so avg → 60: GC=54.40, saves=46.40, catches=19.20 (soft targets, no hard cap)
+// At averages: (1 - 4.3/8.6)*54.4 + (4.2/8.4)*46.4 + (2.0/4.0)*19.2 = 27.2 + 23.2 + 9.6 = 60
+// Sub-components are uncapped — exceptional stats can push gkScore above 100.
+// Final match rating is capped at 100 in calcMatchBreakdown.
 function gkScore(s: MatchStatRow): number {
   const gc = s.goals_conceded ?? 0;
-  return Math.min(100,
-    Math.min(56.00, Math.max(0, (1 - gc / 8.6) * 56.00)) +
-    Math.min(44.80, (s.gk_saves / 8.80) * 44.80) +
-    Math.min(19.20, (s.gk_catches / 4.68) * 19.20)
+  return (
+    Math.max(0, (1 - gc / 8.6) * 54.40) +
+    (s.gk_saves / 8.40) * 46.40 +
+    (s.gk_catches / 4.00) * 19.20
   );
 }
 

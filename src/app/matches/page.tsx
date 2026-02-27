@@ -27,8 +27,7 @@ export default function MatchesPage() {
       const { data } = await supabase
         .from("matches")
         .select("id,league_id,played_at,home_team,away_team,home_score,away_score,forfeited_by,league:leagues(name,season)")
-        .order("played_at", { ascending: false })
-        .limit(100);
+        .order("played_at", { ascending: false });
       setMatches((data ?? []) as unknown as MatchRow[]);
       setLoading(false);
     })();

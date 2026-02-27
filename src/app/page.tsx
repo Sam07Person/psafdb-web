@@ -30,6 +30,13 @@ const NAV_ITEMS = [
     accent: "#a78bfa",
     icon: "◉",
   },
+  {
+    href: "/awards",
+    label: "Awards",
+    sub: "Team of the Week",
+    accent: "#f4a261",
+    icon: "★",
+  },
 ];
 
 export default function HomePage() {
