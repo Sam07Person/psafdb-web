@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
@@ -22,7 +22,8 @@ type MatchInfo = {
   home_score: number;
   away_score: number;
   league_id?: string | null;
-  leagues?: { tier?: number | null } | null;
+  day?: number | null;
+  leagues?: { name?: string; tier?: number | null } | null;
 };
 
 type MatchPlayerStat = {
@@ -140,6 +141,85 @@ function PositionBadge({ position }: { position: string | null }) {
   );
 }
 
+// ── TOTW helpers ────────────────────────────────────────────────────────────
+type SlotKey = "GK" | "LB" | "RB" | "CM" | "LW" | "RW";
+
+const SLOT_POOLS: Record<SlotKey, string[]> = {
+  GK: ["GK"],
+  LB: ["LB", "LWB", "LCB"],
+  RB: ["RB", "RWB", "RCB"],
+  CM: ["CM", "LM", "RM", "CF", "ST", "CB"],
+  LW: ["LW", "LF"],
+  RW: ["RW", "RF"],
+};
+
+const SLOT_ORDER: SlotKey[] = ["GK", "LW", "RW", "LB", "RB", "CM"];
+
+type TOTWRawStat = {
+  player_id: string;
+  team_side: "home" | "away";
+  position: string | null;
+  score: number;
+  goals: number; assists: number; shots_on_target: number;
+  key_passes: number; passes: number;
+  tackles: number; key_tackles: number;
+  interceptions: number; key_interceptions: number;
+  possessions_lost: number; gk_saves: number; gk_catches: number;
+  benched: boolean; stats_incomplete: boolean;
+  players: { id: string; handle: string | null; name: string | null } | null;
+  matches: { id: string; home_score: number; away_score: number } | null;
+};
+
+type TOTWAppearance = {
+  leagueName: string;
+  day: number;
+  slot: SlotKey;
+  rating: number;
+  matchId: string;
+};
+
+function calcLocalTOTW(stats: TOTWRawStat[]): Partial<Record<SlotKey, { playerId: string; rating: number; matchId: string }>> {
+  const entries = stats
+    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.matches && s.players)
+    .map(s => {
+      const m = s.matches!;
+      const isHome = s.team_side === "home";
+      const goalsConceded = isHome ? m.away_score : m.home_score;
+      const myScore = isHome ? m.home_score : m.away_score;
+      const oppScore = isHome ? m.away_score : m.home_score;
+      const result: MatchResult = myScore > oppScore ? "W" : myScore < oppScore ? "L" : "D";
+      const statRow: MatchStatRow = {
+        goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
+        shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
+        tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
+        interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
+        possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
+        gk_catches: s.gk_catches ?? 0, goals_conceded: goalsConceded,
+        score: s.score ?? 0, position: s.position,
+      };
+      return { stat: s, rating: calcMatchBreakdown(statRow, result, s.position).final };
+    });
+
+  entries.sort((a, b) => b.rating - a.rating);
+
+  const result: Partial<Record<SlotKey, { playerId: string; rating: number; matchId: string }>> = {};
+  const used = new Set<string>();
+
+  for (const slotKey of SLOT_ORDER) {
+    const pool = SLOT_POOLS[slotKey];
+    for (const { stat, rating } of entries) {
+      const pos = stat.position?.toUpperCase().trim() ?? "";
+      if (!pool.includes(pos)) continue;
+      if (used.has(stat.player_id)) continue;
+      result[slotKey] = { playerId: stat.player_id, rating, matchId: stat.matches!.id };
+      used.add(stat.player_id);
+      break;
+    }
+  }
+  return result;
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 export default function PlayerDetailPage() {
   const params = useParams();
   const playerId = params.id as string;
@@ -152,6 +232,9 @@ export default function PlayerDetailPage() {
 
   const [showAllMatches, setShowAllMatches] = useState(false);
   const [showBenchedMatches, setShowBenchedMatches] = useState(false);
+  const [totwAppearances, setTotwAppearances] = useState<TOTWAppearance[]>([]);
+  const [totwLoading, setTotwLoading] = useState(false);
+  const [showAwards, setShowAwards] = useState(true);
 
   useEffect(() => {
     if (!supabase || !playerId) return;
@@ -176,7 +259,7 @@ export default function PlayerDetailPage() {
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(tier))"
+          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,day,leagues(id,name,tier))"
         )
         .eq("player_id", playerId)
         .order("match_id", { ascending: false });
@@ -268,6 +351,55 @@ export default function PlayerDetailPage() {
       setLoading(false);
     })();
   }, [playerId]);
+
+  // Compute TOTW appearances once matchStats are loaded
+  useEffect(() => {
+    if (!supabase || matchStats.length === 0) return;
+
+    const combos = new Map<string, { leagueId: string; day: number; leagueName: string }>();
+    for (const s of matchStats) {
+      if (s.benched || s.stats_incomplete || !s.matches?.league_id || s.matches.day == null) continue;
+      const key = `${s.matches.league_id}|${s.matches.day}`;
+      if (!combos.has(key)) {
+        combos.set(key, {
+          leagueId: s.matches.league_id,
+          day: s.matches.day,
+          leagueName: (s.matches as any).leagues?.name ?? "Unknown League",
+        });
+      }
+    }
+    if (combos.size === 0) return;
+
+    setTotwLoading(true);
+    (async () => {
+      const appearances: TOTWAppearance[] = [];
+      for (const { leagueId, day, leagueName } of combos.values()) {
+        const { data: dayMatches } = await supabase!
+          .from("matches")
+          .select("id")
+          .eq("league_id", leagueId)
+          .eq("day", day);
+        if (!dayMatches?.length) continue;
+        const matchIds = dayMatches.map((m: any) => m.id);
+
+        const { data: dayStats } = await supabase!
+          .from("match_player_stats")
+          .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,players(id,handle,name),matches(id,home_score,away_score)")
+          .in("match_id", matchIds);
+        if (!dayStats?.length) continue;
+
+        const totw = calcLocalTOTW(dayStats as any);
+        for (const [slot, entry] of Object.entries(totw) as [SlotKey, { playerId: string; rating: number; matchId: string }][]) {
+          if (entry?.playerId === playerId) {
+            appearances.push({ leagueName, day, slot, rating: entry.rating, matchId: entry.matchId });
+          }
+        }
+      }
+      appearances.sort((a, b) => b.day - a.day);
+      setTotwAppearances(appearances);
+      setTotwLoading(false);
+    })();
+  }, [matchStats, playerId]);
 
   const playedMatches = matchStats.filter(s => !s.benched);
   const benchedMatches = matchStats.filter(s => s.benched);
@@ -632,6 +764,60 @@ export default function PlayerDetailPage() {
             <StatCard label="GK Saves" value={totalStats.gk_saves} color="text-yellow-400" />
             <StatCard label="GK Catches" value={totalStats.gk_catches} color="text-yellow-400" />
           </div>
+        )}
+      </div>
+
+      {/* Awards */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-semibold">
+            Awards
+            {totwAppearances.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-white/40">
+                ({totwAppearances.length} TOTW{totwAppearances.length !== 1 ? "s" : ""})
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowAwards(v => !v)}
+            className="text-sm text-white/60 hover:text-white"
+          >
+            {showAwards ? "Hide" : "Show"}
+          </button>
+        </div>
+        {showAwards && (
+          totwLoading ? (
+            <div className="mt-3 text-sm text-white/40">Loading awards…</div>
+          ) : totwAppearances.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">
+              No Team of the Week appearances yet.
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {totwAppearances.map((a, i) => (
+                <Link
+                  key={i}
+                  href={`/matches/${a.matchId}`}
+                  style={{ textDecoration: "none", color: "inherit", display: "block" }}
+                >
+                  <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-white/20 hover:bg-white/[0.08]">
+                    <div style={{ fontSize: 22, color: "#f4a261", flexShrink: 0 }}>★</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#e0e0f0" }}>
+                        Team of the Week — Matchday {a.day}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#5a5a7a", marginTop: 2 }}>
+                        {a.leagueName} • {a.slot}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: getRatingColor(a.rating), fontVariantNumeric: "tabular-nums" }}>
+                      {a.rating}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )
         )}
       </div>
 
