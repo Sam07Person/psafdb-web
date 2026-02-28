@@ -35,6 +35,10 @@ html, body {
 .accent-border-l { border-left: 3px solid #e63946; }
 .accent-border-l-gold { border-left: 3px solid #f4c430; }
 
+/* Hide vertical scrollbar only, keep horizontal */
+.hide-scrollbar { overflow-y: hidden; }
+.hide-scrollbar::-webkit-scrollbar:vertical { display: none; }
+
 /* stat value numbers */
 .stat-num {
   font-variant-numeric: tabular-nums;

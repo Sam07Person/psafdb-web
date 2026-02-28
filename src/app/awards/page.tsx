@@ -350,7 +350,7 @@ export default function AwardsPage() {
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px" }}>
         {/* League tabs */}
         {leagues.length > 0 && (
-          <div style={{ display: "flex", gap: 0, flexWrap: "nowrap", marginBottom: 28, borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
+          <div className="hide-scrollbar" style={{ display: "flex", gap: 0, flexWrap: "nowrap", marginBottom: 28, borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
             {leagues.map(l => (
               <button
                 key={l.id}
@@ -363,7 +363,7 @@ export default function AwardsPage() {
                   textTransform: "uppercase",
                   background: "transparent",
                   border: "none",
-                  borderBottom: selectedLeagueId === l.id ? "2px solid #7070f0" : "2px solid transparent",
+                  borderTop: selectedLeagueId === l.id ? "2px solid #7070f0" : "2px solid transparent",
                   color: selectedLeagueId === l.id ? "#e0e0f0" : "#5a5a7a",
                   cursor: "pointer",
                   marginBottom: -1,
