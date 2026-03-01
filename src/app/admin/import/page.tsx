@@ -26,6 +26,7 @@ type Player = {
   name: string | null;
   handle: string | null;
   game_user_id: string | null;
+  discord_id: string | null;
 };
 
 type Fixture = {
@@ -196,7 +197,12 @@ export default function AdminDashboardPage() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"import" | "leagues" | "teams" | "players" | "fixtures">("leagues");
+  const [activeTab, setActiveTab] = useState<"import" | "leagues" | "teams" | "players" | "fixtures" | "settings">("leagues");
+  const [tierSettings, setTierSettings] = useState([
+    { tier: 1, label: "Elite", bonus: 5 },
+    { tier: 2, label: "Standard", bonus: 0 },
+    { tier: 3, label: "Amateur", bonus: -5 },
+  ]);
 
   const [leagues, setLeagues] = useState<League[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -215,7 +221,7 @@ export default function AdminDashboardPage() {
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [mergingTeams, setMergingTeams] = useState<{ source: string | null; target: string | null }>({ source: null, target: null });
 
-  const [playerForm, setPlayerForm] = useState({ id: "", name: "", handle: "", game_user_id: "" });
+  const [playerForm, setPlayerForm] = useState({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
   const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
   const [mergingPlayers, setMergingPlayers] = useState<{ source: string | null; target: string | null }>({ source: null, target: null });
 
@@ -270,7 +276,40 @@ export default function AdminDashboardPage() {
   };
 
   const loadAllData = async () => {
-    await Promise.all([loadLeagues(), loadTeams(), loadPlayers(), loadFixtures()]);
+    await Promise.all([loadLeagues(), loadTeams(), loadPlayers(), loadFixtures(), loadTierSettings()]);
+  };
+
+  const loadTierSettings = async () => {
+    try {
+      const res = await fetch("/api/admin/settings");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) setTierSettings(data);
+      }
+    } catch (err) {
+      console.error("Failed to load tier settings:", err);
+    }
+  };
+
+  const handleSaveTierSettings = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({ tiers: tierSettings }),
+      });
+      if (res.ok) {
+        setMessage({ type: "success", text: "Tier settings saved." });
+      } else {
+        const d = await res.json();
+        setMessage({ type: "error", text: d.error || "Failed to save tier settings." });
+      }
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to save tier settings." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadLeagues = async () => {
@@ -516,12 +555,13 @@ export default function AdminDashboardPage() {
           name: playerForm.name || null,
           handle: playerForm.handle || null,
           game_user_id: playerForm.game_user_id || null,
+          discord_id: playerForm.discord_id || null,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingPlayer ? "Player updated!" : "Player created!" });
-        setPlayerForm({ id: "", name: "", handle: "", game_user_id: "" });
+        setPlayerForm({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
         setEditingPlayer(null);
         loadPlayers();
       } else {
@@ -535,7 +575,7 @@ export default function AdminDashboardPage() {
   };
 
   const handleEditPlayer = (player: Player) => {
-    setPlayerForm({ id: player.id, name: player.name || "", handle: player.handle || "", game_user_id: player.game_user_id || "" });
+    setPlayerForm({ id: player.id, name: player.name || "", handle: player.handle || "", game_user_id: player.game_user_id || "", discord_id: player.discord_id || "" });
     setEditingPlayer(player.id);
   };
 
@@ -787,7 +827,7 @@ export default function AdminDashboardPage() {
     setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
     setTeamForm({ id: "", name: "", league_ids: [] });
     setMergingTeams({ source: null, target: null });
-    setPlayerForm({ id: "", name: "", handle: "", game_user_id: "" });
+    setPlayerForm({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
     setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "", forfeited_by: "" });
     setExpandedFixtureStats(null);
     setEditingMatchStats(null);
@@ -1449,7 +1489,7 @@ export default function AdminDashboardPage() {
         )}
 
         <div className="flex flex-wrap gap-2 mb-6">
-          {(["leagues", "teams", "players", "fixtures", "import"] as const).map((tab) => (
+          {(["leagues", "teams", "players", "fixtures", "import", "settings"] as const).map((tab) => (
             <button key={tab} onClick={() => { setActiveTab(tab); cancelEdit(); setMessage(null); }} className={cx("px-4 py-2 rounded-lg text-sm font-medium transition capitalize", activeTab === tab ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white")}>
               {tab}
             </button>
@@ -2257,10 +2297,11 @@ export default function AdminDashboardPage() {
           <div className="space-y-6">
             <div className="bg-gray-800 p-6 rounded-lg">
               <h2 className="text-lg font-semibold text-white mb-4">{editingPlayer ? "Edit Player" : "Add New Player"}</h2>
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <div><label className="block text-gray-300 mb-2 text-sm">Name</label><input type="text" value={playerForm.name} onChange={(e) => setPlayerForm({ ...playerForm, name: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="Player name" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Handle</label><input type="text" value={playerForm.handle} onChange={(e) => setPlayerForm({ ...playerForm, handle: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="@handle" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Game User ID</label><input type="text" value={playerForm.game_user_id} onChange={(e) => setPlayerForm({ ...playerForm, game_user_id: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="8-char ID" /></div>
+                <div><label className="block text-gray-300 mb-2 text-sm">Discord ID</label><input type="text" value={playerForm.discord_id} onChange={(e) => setPlayerForm({ ...playerForm, discord_id: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="Discord user ID" /></div>
               </div>
               <div className="mt-4 flex gap-2">
                 <button onClick={handleSavePlayer} disabled={loading || (!playerForm.name && !playerForm.handle && !playerForm.game_user_id)} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded">{editingPlayer ? "Update" : "Create"} Player</button>
@@ -2513,6 +2554,53 @@ export default function AdminDashboardPage() {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+        {activeTab === "settings" && (
+          <div className="space-y-6">
+            <div className="bg-gray-800 p-6 rounded-lg">
+              <h2 className="text-lg font-semibold text-white mb-1">Rating Tier Bonuses</h2>
+              <p className="text-gray-400 text-sm mb-6">Adjust the point bonus applied to player ratings based on league tier. Changes affect all rating calculations.</p>
+              <div className="space-y-4 max-w-md">
+                {tierSettings.map((ts, i) => (
+                  <div key={ts.tier} className="flex items-center gap-4">
+                    <div className="w-8 text-gray-400 text-sm font-medium">T{ts.tier}</div>
+                    <input
+                      type="text"
+                      value={ts.label}
+                      onChange={(e) => {
+                        const next = [...tierSettings];
+                        next[i] = { ...next[i], label: e.target.value };
+                        setTierSettings(next);
+                      }}
+                      className="flex-1 p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm"
+                      placeholder="Label"
+                    />
+                    <input
+                      type="number"
+                      value={ts.bonus}
+                      onChange={(e) => {
+                        const next = [...tierSettings];
+                        next[i] = { ...next[i], bonus: parseInt(e.target.value) || 0 };
+                        setTierSettings(next);
+                      }}
+                      className="w-24 p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm text-center"
+                      placeholder="Bonus"
+                    />
+                    <span className="text-gray-500 text-sm w-16">{ts.bonus >= 0 ? `+${ts.bonus}` : ts.bonus} pts</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6">
+                <button
+                  onClick={handleSaveTierSettings}
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-2 px-6 rounded"
+                >
+                  {loading ? "Saving..." : "Save Tier Settings"}
+                </button>
+              </div>
             </div>
           </div>
         )}

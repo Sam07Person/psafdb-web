@@ -5,6 +5,7 @@ import PlayerStatsTable from "./PlayerStatsTable";
 import {
   calcMatchBreakdown,
   calcOverallRating,
+  DEFAULT_TIER_BONUSES,
   type MatchStatRow,
   type MatchResult,
 } from "@/lib/ratings";
@@ -69,6 +70,11 @@ async function getTeamIds(homeTeam: string, awayTeam: string): Promise<Map<strin
 
 async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<string, number>> {
   if (!playerIds.length) return {};
+
+  const { data: tierSettingsData } = await supabase.from("tier_settings").select("tier,bonus");
+  const tierBonuses: Record<number, number> = { ...DEFAULT_TIER_BONUSES };
+  if (tierSettingsData) for (const row of tierSettingsData) tierBonuses[row.tier] = row.bonus;
+
   const { data } = await supabase
     .from("match_player_stats")
     .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,is_starter,sub_number,matches(home_score,away_score,leagues(tier))")
@@ -116,7 +122,7 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
     }
     if (matchRatingsList.length < 3) continue;
     const domTier = +Object.entries(tierCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0][0];
-    result[pid] = calcOverallRating(matchRatingsList, domTier);
+    result[pid] = calcOverallRating(matchRatingsList, domTier, tierBonuses);
   }
   return result;
 }

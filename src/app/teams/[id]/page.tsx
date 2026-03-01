@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -303,6 +303,10 @@ async function getTeamAllTimePlayers(teamName: string): Promise<PlayerWithStats[
 async function getSquadRatings(playerIds: string[]): Promise<Map<string, number | null>> {
   if (playerIds.length === 0) return new Map();
 
+  const { data: tierSettingsData } = await supabase.from("tier_settings").select("tier,bonus");
+  const tierBonuses: Record<number, number> = { ...DEFAULT_TIER_BONUSES };
+  if (tierSettingsData) for (const row of tierSettingsData) tierBonuses[row.tier] = row.bonus;
+
   const { data: statsRaw } = await supabase
     .from("match_player_stats")
     .select("player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier))")
@@ -364,7 +368,7 @@ async function getSquadRatings(playerIds: string[]): Promise<Map<string, number 
       matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
     }
 
-    ratings.set(playerId, calcOverallRating(matchRatingValues, dominantTier));
+    ratings.set(playerId, calcOverallRating(matchRatingValues, dominantTier, tierBonuses));
   }
 
   return ratings;

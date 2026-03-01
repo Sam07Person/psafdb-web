@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("players")
-    .select("id,name,handle,game_user_id,created_at")
+    .select("id,name,handle,game_user_id,discord_id,created_at")
     .order("name", { ascending: true });
 
   if (error) return json(500, { error: error.message });
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: "Invalid JSON body" });
 
-  const { name, handle, game_user_id } = body;
+  const { name, handle, game_user_id, discord_id } = body;
   if (!name && !handle && !game_user_id) {
     return json(400, { error: "At least one of name, handle, or game_user_id is required" });
   }
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
       name: name || null,
       handle: handle || null,
       game_user_id: game_user_id || null,
+      discord_id: discord_id || null,
     })
     .select()
     .single();
@@ -78,7 +79,7 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: "Invalid JSON body" });
 
-  const { id, name, handle, game_user_id } = body;
+  const { id, name, handle, game_user_id, discord_id } = body;
   if (!id) return json(400, { error: "id is required" });
 
   const { data, error } = await supabaseAdmin
@@ -87,6 +88,7 @@ export async function PUT(req: NextRequest) {
       name: name || null,
       handle: handle || null,
       game_user_id: game_user_id || null,
+      discord_id: discord_id || null,
     })
     .eq("id", id)
     .select()

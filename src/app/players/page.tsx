@@ -8,6 +8,7 @@ import {
   calcOverallRating,
   getRatingColor,
   getRatingLabel,
+  DEFAULT_TIER_BONUSES,
   type MatchStatRow,
   type MatchResult,
 } from "@/lib/ratings";
@@ -58,10 +59,24 @@ export default function PlayersPage() {
   const [players, setPlayers] = useState<PlayerWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<any>(null);
+  const [tierBonuses, setTierBonuses] = useState<Record<number, number>>(DEFAULT_TIER_BONUSES);
 
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "matches_played" | "total_goals" | "total_assists" | "rating">("rating");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  useEffect(() => {
+    fetch("/api/admin/settings")
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.tierSettings)) {
+          const map: Record<number, number> = {};
+          for (const row of d.tierSettings) map[row.tier] = row.bonus;
+          setTierBonuses(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -81,25 +96,43 @@ export default function PlayersPage() {
         return;
       }
 
-      // Fetch all stats needed for rating calculation
-      const { data: statsData, error: statsError } = await supabase
-        .from("match_player_stats")
-        .select(
-          "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier))"
-        );
+      // Fetch all stats using pagination to bypass Supabase's server-side row cap (default 1000)
+      const CHUNK = 1000;
+      let allStatsRaw: any[] = [];
+      let from = 0;
+      let fetchError: any = null;
+      while (true) {
+        const { data: chunk, error: chunkErr } = await supabase
+          .from("match_player_stats")
+          .select(
+            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier))"
+          )
+          .range(from, from + CHUNK - 1);
+        if (chunkErr) { fetchError = chunkErr; break; }
+        if (!chunk || chunk.length === 0) break;
+        allStatsRaw = allStatsRaw.concat(chunk);
+        if (chunk.length < CHUNK) break;
+        from += CHUNK;
+      }
 
-      if (statsError) {
-        setError(statsError);
+      if (fetchError) {
+        setError(fetchError);
         setLoading(false);
         return;
       }
+      const statsData = allStatsRaw;
 
-      // Group stats per player (normalize matches from array to object)
+      // Group stats per player (normalize matches + nested leagues from array to object)
       const statsByPlayer = new Map<string, RawStatRow[]>();
       for (const raw of (statsData ?? []) as any[]) {
+        const rawMatch = Array.isArray(raw.matches) ? raw.matches[0] ?? null : raw.matches ?? null;
+        const normalizedMatch = rawMatch ? {
+          ...rawMatch,
+          leagues: Array.isArray(rawMatch.leagues) ? rawMatch.leagues[0] ?? null : rawMatch.leagues ?? null,
+        } : null;
         const stat: RawStatRow = {
           ...raw,
-          matches: Array.isArray(raw.matches) ? raw.matches[0] ?? null : raw.matches ?? null,
+          matches: normalizedMatch,
         };
         const existing = statsByPlayer.get(stat.player_id) ?? [];
         existing.push(stat);
@@ -179,7 +212,7 @@ export default function PlayersPage() {
               matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
             }
 
-            rating = calcOverallRating(matchRatingValues, dominantTier);
+            rating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
           }
         }
 

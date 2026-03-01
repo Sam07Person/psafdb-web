@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import TeamsTable from "./TeamsTable";
-import { calcMatchRating, calcOverallRating, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchRating, calcOverallRating, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -75,6 +75,10 @@ async function getTeamStats(teamName: string) {
 // Current squad = players whose most recent match was for this team.
 async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, number | null>> {
     if (teamNames.length === 0) return new Map();
+
+    const { data: tierSettingsData } = await supabase.from("tier_settings").select("tier,bonus");
+    const tierBonuses: Record<number, number> = { ...DEFAULT_TIER_BONUSES };
+    if (tierSettingsData) for (const row of tierSettingsData) tierBonuses[row.tier] = row.bonus;
 
     // Q1: all matches with league tier
     const { data: matchesRaw } = await supabase
@@ -175,7 +179,7 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
             matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
         }
 
-        const playerRating = calcOverallRating(matchRatingValues, dominantTier);
+        const playerRating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
         const existing = teamRatingAccum.get(currentTeam) ?? [];
         existing.push(playerRating);
         teamRatingAccum.set(currentTeam, existing);

@@ -8,13 +8,13 @@ import {
   calcSubRatings,
   calcOverallRating,
   calcMatchBreakdown,
+  DEFAULT_TIER_BONUSES,
   getRatingColor,
   getRatingLabel,
   getMatchRatingColor,
   getPositionRole,
   type MatchStatRow,
   type MatchResult,
-  type MatchBreakdown,
   type SubRatings,
 } from "@/lib/ratings";
 
@@ -90,6 +90,20 @@ export default function PlayerRatingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  const [tierBonuses, setTierBonuses] = useState<Record<number, number>>(DEFAULT_TIER_BONUSES);
+
+  useEffect(() => {
+    fetch("/api/admin/settings")
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.tierSettings)) {
+          const map: Record<number, number> = {};
+          for (const row of d.tierSettings) map[row.tier] = row.bonus;
+          setTierBonuses(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!supabase || !playerId) return;
@@ -127,20 +141,24 @@ export default function PlayerRatingPage() {
           )
           .eq("player_id", playerId);
 
-        const normalized = (fallback ?? []).map((s: any) => ({
-          ...s,
-          benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
-          stats_incomplete: s.stats_incomplete ?? false,
-          matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
-        }));
+        const normalized = (fallback ?? []).map((s: any) => {
+          const rawMatch = Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null;
+          const normalizedMatch = rawMatch ? {
+            ...rawMatch,
+            leagues: Array.isArray(rawMatch.leagues) ? rawMatch.leagues[0] ?? null : rawMatch.leagues ?? null,
+          } : null;
+          return { ...s, benched: s.benched ?? false, stats_incomplete: s.stats_incomplete ?? false, matches: normalizedMatch };
+        });
         setStats(normalized);
       } else {
-        const normalized = (statsData ?? []).map((s: any) => ({
-          ...s,
-          benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
-          stats_incomplete: s.stats_incomplete ?? false,
-          matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
-        }));
+        const normalized = (statsData ?? []).map((s: any) => {
+          const rawMatch = Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null;
+          const normalizedMatch = rawMatch ? {
+            ...rawMatch,
+            leagues: Array.isArray(rawMatch.leagues) ? rawMatch.leagues[0] ?? null : rawMatch.leagues ?? null,
+          } : null;
+          return { ...s, benched: s.benched ?? false, stats_incomplete: s.stats_incomplete ?? false, matches: normalizedMatch };
+        });
         setStats(normalized);
       }
 
@@ -240,11 +258,11 @@ export default function PlayerRatingPage() {
 
   // Compute per-match ratings for ALL played matches (used for overall average)
   const allMatchRatingValues = playedStats.map(s =>
-    calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? statRows[0], getResult(s), s.position).final
+    calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? statRows[0], getResult(s), s.position ?? dominantPosition).final
   );
 
   const hasEnoughForRating = playedStats.length >= 3;
-  const overall = hasEnoughForRating ? calcOverallRating(allMatchRatingValues, leagueTier) : null;
+  const overall = hasEnoughForRating ? calcOverallRating(allMatchRatingValues, leagueTier, tierBonuses) : null;
   const ratingColor = overall !== null ? getRatingColor(overall) : "#3a3a5a";
   const ratingLabel = overall !== null ? getRatingLabel(overall) : null;
 
@@ -258,7 +276,7 @@ export default function PlayerRatingPage() {
   const matchRatings = sortedStats.map(s => {
     const result = getResult(s);
     const statRow = statRowByMatchId.get(s.match_id) ?? statRows[0];
-    const breakdown = calcMatchBreakdown(statRow, result, s.position);
+    const breakdown = calcMatchBreakdown(statRow, result, s.position ?? dominantPosition);
     return {
       matchId: s.matches!.id,
       date: s.matches!.played_at,
@@ -300,30 +318,35 @@ export default function PlayerRatingPage() {
   // Helper: clamp a raw value to [0, 100]
   const sr = (val: number) => Math.min(100, Math.max(0, Math.round(val)));
 
-  // Position-specific thresholds for attacking stats (2× position avg → 100, avg → 50)
-  // Data: FWD goals≈1.55, MID goals≈0.90, DEF goals≈0.05 | FWD assists≈0.75, MID≈0.90, DEF≈0.175
-  //       FWD shots≈3.5, MID≈2.65, DEF≈0.35 | FWD SoT≈2.5, MID≈1.7, DEF≈0.25
-  const goalsThresh   = role === "FWD" ? 3.1  : role === "MID" ? 1.8  : 0.10;
-  const assistsThresh = role === "FWD" ? 1.5  : role === "MID" ? 1.8  : 0.35;
-  const shotsThresh   = role === "FWD" ? 7.0  : role === "MID" ? 5.3  : 0.70;
-  const sotThresh     = role === "FWD" ? 5.0  : role === "MID" ? 3.4  : 0.50;
+  // Display bars mirror the exact thresholds used in ratings.ts — 100% = formula cap point.
+  // Goals/Assists/SoT: attackingScore thresholds (≈1.6× position avg → 100%)
+  // Passes/Key Passes: passingScore position-aware caps (2× avg → 100%; DEF/GK use 80/20 weight split)
+  // Tackles: combined (t+kt)/6.0 — same as formula bucket; 100% at 6.0
+  // Key Tackles: bonus kt/1.75 — shown separately; 100% at 1.75
+  // Interceptions: combined (i+ki)/4.5 — same as formula bucket; 100% at 4.5
+  // Poss Lost: inverted 1−pl/14; 100% at 0 lost, 0% at 14+
+  // GK: saves/8.40, catches/4.00, GC inverted at 8.6
+  // Shots: display-only (not in formula) — scaled relative to SoT threshold
+  const gT  = role === "FWD" ? 2.24 : role === "MID" ? 1.5  : 0.08;
+  const aT  = role === "FWD" ? 0.96 : role === "MID" ? 1.5  : 0.30;
+  const sT  = role === "FWD" ? 4.0  : role === "MID" ? 2.7  : 0.40;
+  const shT = role === "FWD" ? 6.0  : role === "MID" ? 4.0  : 0.60;
 
-  // Individual stat ratings (0–100) — calibrated so position-average ≈ 50
-  // Defensive/passing reference averages/player/match: tackles≈8.6, kTackles≈0.87, int≈4.3, kInt≈0.49, possLost≈15, passes≈12.6, kPasses≈1.2
-  const rGoals    = sr(avgGoals / goalsThresh * 100);
-  const rAssists  = sr(avgAssists / assistsThresh * 100);
-  const rShots    = sr(avgShots / shotsThresh * 100);
-  const rSOT      = sr(avgSOT / sotThresh * 100);
-  const rPasses   = sr(avgPasses / 25 * 100);       // avg≈12.6 → 50; 25/match → 100
-  const rKP       = sr(avgKP / 2.4 * 100);          // avg≈1.2 → 50; 2.4/match → 100
-  const rTackles  = sr(avgTackles / 17 * 100);      // avg≈8.6 → 50; 17/match → 100
-  const rKTackles = sr(avgKTackles / 1.75 * 100);   // avg≈0.87 → 50; 1.75/match → 100
-  const rInt      = sr(avgInt / 8.5 * 100);         // avg≈4.3 → 50; 8.5/match → 100
-  const rKInt     = sr(avgKInt * 100);              // avg≈0.49 → 49; 1.0/match → 100
-  const rPL       = sr((1 - avgPL / 30) * 100);    // avg≈15 → 50 (inverted); 0 poss_lost → 100
-  const rSaves    = sr(avgSaves / 8.40 * 100);      // avg≈4.2 → 50; 8.40/match → 100
-  const rCatches  = sr(avgCatches / 4.00 * 100);   // avg≈2.0 → 50; 4.00/match → 100
-  const rGC       = sr(Math.max(0, (1 - avgGC / 8.6) * 100)); // avg≈4.3 → 50; 0 GC → 100 (inverted)
+  const rGoals    = sr(avgGoals / gT * 100);
+  const rAssists  = sr(avgAssists / aT * 100);
+  const rShots    = sr(avgShots / shT * 100);
+  const rSOT      = sr(avgSOT / sT * 100);
+  const pCap  = role === "MID" ? 33.4 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
+  const kpCap = role === "MID" ? 2.4  : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
+  const rPasses   = sr(avgPasses / pCap * 100);
+  const rKP       = sr(avgKP / kpCap * 100);
+  const rTackles  = sr((avgTackles + avgKTackles) / 6.0 * 100);
+  const rKTackles = sr(avgKTackles / 1.75 * 100);
+  const rInt      = sr((avgInt + avgKInt) / 4.5 * 100);
+  const rPL       = sr(Math.max(0, 1 - avgPL / 28.0) * 100);
+  const rSaves    = sr(avgSaves / 8.40 * 100);
+  const rCatches  = sr(avgCatches / 4.00 * 100);
+  const rGC       = sr(Math.max(0, 1 - avgGC / 8.6) * 100);
 
   const tierLabel = leagueTier === 1 ? "Tier 1 – Elite (+5 pts)" : leagueTier === 3 ? "Tier 3 – Amateur (−5 pts)" : "Tier 2 – Standard";
 
@@ -406,11 +429,10 @@ export default function PlayerRatingPage() {
                 <SubRatingBar label="Key Passes" value={rKP}     detail={`${avgKP.toFixed(1)}/match`} />
 
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Defending</div>
-                <SubRatingBar label="Tackles"          value={rTackles}  detail={`${avgTackles.toFixed(1)}/match`} />
-                <SubRatingBar label="Key Tackles"      value={rKTackles} detail={`${avgKTackles.toFixed(1)}/match`} />
-                <SubRatingBar label="Interceptions"    value={rInt}      detail={`${avgInt.toFixed(1)}/match`} />
-                <SubRatingBar label="Key Interceptions"value={rKInt}     detail={`${avgKInt.toFixed(1)}/match`} />
-                <SubRatingBar label="Lost Possession"  value={rPL}       detail={`${avgPL.toFixed(1)}/match (lower is better)`} />
+                <SubRatingBar label="Tackles"         value={rTackles}  detail={`${avgTackles.toFixed(1)} + ${avgKTackles.toFixed(1)} key = ${(avgTackles + avgKTackles).toFixed(1)}/match`} />
+                <SubRatingBar label="Key Tackles"     value={rKTackles} detail={`${avgKTackles.toFixed(1)}/match (bonus)`} />
+                <SubRatingBar label="Interceptions"   value={rInt}      detail={`${avgInt.toFixed(1)} + ${avgKInt.toFixed(1)} key = ${(avgInt + avgKInt).toFixed(1)}/match`} />
+                <SubRatingBar label="Lost Possession" value={rPL}       detail={`${avgPL.toFixed(1)}/match (lower is better)`} />
 
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Consistency</div>
                 <SubRatingBar label="Game Score" value={subRatings.consistency} detail={avgScore > 0 ? `Avg game score: ${subRatings.consistency.toFixed(0)} / 100` : `Based on W/D/L record`} />

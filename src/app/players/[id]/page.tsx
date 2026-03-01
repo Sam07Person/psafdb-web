@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
   handle: string | null;
   name: string | null;
   game_user_id: string | null;
+  discord_id: string | null;
   created_at: string | null;
 };
 
@@ -235,6 +236,20 @@ export default function PlayerDetailPage() {
   const [totwAppearances, setTotwAppearances] = useState<TOTWAppearance[]>([]);
   const [totwLoading, setTotwLoading] = useState(false);
   const [showAwards, setShowAwards] = useState(true);
+  const [tierBonuses, setTierBonuses] = useState<Record<number, number>>(DEFAULT_TIER_BONUSES);
+
+  useEffect(() => {
+    fetch("/api/admin/settings")
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.tierSettings)) {
+          const map: Record<number, number> = {};
+          for (const row of d.tierSettings) map[row.tier] = row.bonus;
+          setTierBonuses(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!supabase || !playerId) return;
@@ -244,7 +259,7 @@ export default function PlayerDetailPage() {
 
       const { data: playerData, error: playerError } = await supabase
         .from("players")
-        .select("id,handle,name,game_user_id,created_at")
+        .select("id,handle,name,game_user_id,discord_id,created_at")
         .eq("id", playerId)
         .single();
 
@@ -290,7 +305,7 @@ export default function PlayerDetailPage() {
 
           const combined = (statsData2 ?? []).map((s) => ({
             ...s,
-            benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
+            benched: s.benched ?? false,
             stats_incomplete: s.stats_incomplete ?? false,
             matches: matchMap.get(s.match_id) ?? null,
           }));
@@ -319,12 +334,19 @@ export default function PlayerDetailPage() {
           setMatchStats([]);
         }
       } else {
-        const normalized = (statsData ?? []).map((s: any) => ({
-          ...s,
-          benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
-          stats_incomplete: s.stats_incomplete ?? false,
-          matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
-        }));
+        const normalized = (statsData ?? []).map((s: any) => {
+          const rawMatch = Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null;
+          const normalizedMatch = rawMatch ? {
+            ...rawMatch,
+            leagues: Array.isArray(rawMatch.leagues) ? rawMatch.leagues[0] ?? null : rawMatch.leagues ?? null,
+          } : null;
+          return {
+            ...s,
+            benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
+            stats_incomplete: s.stats_incomplete ?? false,
+            matches: normalizedMatch,
+          };
+        });
 
         normalized.sort((a: any, b: any) => {
           const aDate = a.matches?.played_at ?? "";
@@ -539,10 +561,10 @@ export default function PlayerDetailPage() {
   const ratingPosition = Object.entries(ratingPosCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 
   const matchRatingValues = ratingStatRows.map((row, i) =>
-    calcMatchRating(row, ratingResults[i], row.position)
+    calcMatchRating(row, ratingResults[i], row.position ?? ratingPosition)
   );
   const hasEnoughForRating = matchRatingValues.length >= 3;
-  const overallRating = hasEnoughForRating ? calcOverallRating(matchRatingValues, dominantLeagueTier) : null;
+  const overallRating = hasEnoughForRating ? calcOverallRating(matchRatingValues, dominantLeagueTier, tierBonuses) : null;
   const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "#3a3a5a";
   const ratingLabelText = overallRating !== null ? getRatingLabel(overallRating) : null;
 
@@ -619,6 +641,16 @@ export default function PlayerDetailPage() {
               </code>
             </div>
           )}
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm text-white/40">Discord:</span>
+            {player.discord_id ? (
+              <code className="rounded bg-indigo-500/20 px-2 py-0.5 text-sm font-mono text-indigo-300">
+                {player.discord_id}
+              </code>
+            ) : (
+              <span className="text-sm italic text-white/30">Unknown</span>
+            )}
+          </div>
           {player.created_at && (
             <div className="mt-1 text-sm text-white/40">
               Registered {formatDate(player.created_at)}
