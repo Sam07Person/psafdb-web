@@ -37,6 +37,13 @@ const NAV_ITEMS = [
     accent: "#f4a261",
     icon: "★",
   },
+  {
+    href: "/elo",
+    label: "ELO Rankings",
+    sub: "Team Ratings by Result",
+    accent: "#22c55e",
+    icon: "▲",
+  },
 ];
 
 export default function HomePage() {
