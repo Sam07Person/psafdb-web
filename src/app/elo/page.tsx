@@ -35,6 +35,7 @@ function eloColor(elo: number): string {
 
 type EloEntry = {
   team: string;
+  teamId?: string;
   elo: number;
   change: number;
   gp: number;
