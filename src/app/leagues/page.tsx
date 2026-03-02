@@ -93,17 +93,17 @@ export default function LeaguesPage() {
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
       {/* Header */}
-      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "40px 24px 32px", background: "#09091a" }}>
+      <section style={{ borderBottom: "1px solid var(--border-main)", padding: "40px 24px 32px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
-            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             Leagues
           </div>
-          <h1 style={{ fontSize: 36, fontWeight: 900, letterSpacing: "-0.02em", color: "#f0f0fa", margin: 0 }}>
+          <h1 style={{ fontSize: 36, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
             Leagues
           </h1>
-          <p style={{ fontSize: 13, color: "#3a3a5a", marginTop: 6 }}>
+          <p style={{ fontSize: 13, color: "var(--text-faint)", marginTop: 6 }}>
             {leagues.length} competition{leagues.length !== 1 ? "s" : ""} in the database
           </p>
         </div>
@@ -111,18 +111,18 @@ export default function LeaguesPage() {
 
       <section style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 24px" }}>
         {!supabase ? (
-          <div style={{ background: "#0d0d1a", borderLeft: "3px solid #e63946", padding: "20px 24px", color: "#9090b0" }}>
+          <div style={{ background: "var(--bg-card)", borderLeft: "3px solid #e63946", padding: "20px 24px", color: "var(--text-sub)" }}>
             Missing Supabase environment variables.
           </div>
         ) : error ? (
-          <div style={{ background: "#0d0d1a", borderLeft: "3px solid #e63946", padding: "20px 24px" }}>
+          <div style={{ background: "var(--bg-card)", borderLeft: "3px solid #e63946", padding: "20px 24px" }}>
             <div style={{ color: "#e63946", fontWeight: 700, marginBottom: 8 }}>Error</div>
-            <pre style={{ fontSize: 11, color: "#9090b0", overflow: "auto" }}>{JSON.stringify(error, null, 2)}</pre>
+            <pre style={{ fontSize: 11, color: "var(--text-sub)", overflow: "auto" }}>{JSON.stringify(error, null, 2)}</pre>
           </div>
         ) : loading ? (
-          <div style={{ color: "#3a3a5a", fontSize: 13, letterSpacing: "0.1em" }}>LOADING...</div>
+          <div style={{ color: "var(--text-faint)", fontSize: 13, letterSpacing: "0.1em" }}>LOADING...</div>
         ) : leagues.length === 0 ? (
-          <div style={{ background: "#0d0d1a", borderLeft: "3px solid #2a2a3d", padding: "20px 24px", color: "#3a3a5a" }}>
+          <div style={{ background: "var(--bg-card)", borderLeft: "3px solid var(--border-main)", padding: "20px 24px", color: "var(--text-faint)" }}>
             No leagues found.
           </div>
         ) : (
@@ -134,22 +134,22 @@ export default function LeaguesPage() {
                 <Link
                   key={l.id}
                   href={`/leagues/${l.id}`}
-                  style={{ textDecoration: "none", display: "block", background: "#0d0d1a", borderTop: `3px solid ${accent}`, padding: "24px" }}
+                  style={{ textDecoration: "none", display: "block", background: "var(--bg-card)", borderTop: `3px solid ${accent}`, padding: "24px" }}
                   className="nav-card"
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
                     {logo ? (
-                      <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "#07070f", flexShrink: 0 }}>
+                      <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-base)", flexShrink: 0 }}>
                         <Image src={logo.img} alt={l.name} width={30} height={30} style={{ filter: logo.filter }} />
                       </div>
                     ) : (
-                      <div style={{ width: 44, height: 44, background: "#07070f", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <div style={{ width: 44, height: 44, background: "var(--bg-base)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                         <span style={{ fontSize: 18, color: accent }}>◆</span>
                       </div>
                     )}
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: "#e8e8f0", lineHeight: 1.2 }}>{l.name}</div>
-                      {l.season && <div style={{ fontSize: 11, color: "#3a3a5a", marginTop: 3, letterSpacing: "0.08em" }}>Season {l.season}</div>}
+                      <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-main)", lineHeight: 1.2 }}>{l.name}</div>
+                      {l.season && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 3, letterSpacing: "0.08em" }}>Season {l.season}</div>}
                     </div>
                   </div>
 
@@ -159,9 +159,9 @@ export default function LeaguesPage() {
                       { val: l.match_count, label: "Matches" },
                       { val: formatLabel(l.format), label: "Format" },
                     ].map(({ val, label }) => (
-                      <div key={label} style={{ background: "#07070f", padding: "10px 12px" }}>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: "#e0e0f0" }}>{val}</div>
-                        <div style={{ fontSize: 10, color: "#3a3a5a", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
+                      <div key={label} style={{ background: "var(--bg-base)", padding: "10px 12px" }}>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-body)" }}>{val}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
                       </div>
                     ))}
                   </div>

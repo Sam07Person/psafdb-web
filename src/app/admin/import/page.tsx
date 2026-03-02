@@ -1449,7 +1449,7 @@ export default function AdminDashboardPage() {
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+      <div className="admin-dark min-h-screen bg-gray-900 flex items-center justify-center p-4">
         <form onSubmit={handleLogin} className="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-md">
           <h1 className="text-2xl font-bold text-white mb-6">Admin Login</h1>
           {loginError && (
@@ -1472,7 +1472,7 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 p-4 md:p-8">
+    <div className="admin-dark min-h-screen bg-gray-900 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <div>

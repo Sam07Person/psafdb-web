@@ -475,7 +475,7 @@ export default async function TeamDetailPage({
             </div>
             <div className="text-sm font-bold" style={{ color: teamRatingColor ?? undefined }}>
               {teamRatingLabel}
-              <div className="text-xs font-normal mt-0.5" style={{ color: "#5a5a7a" }}>Avg of {ratedSquadValues.length} rated players</div>
+              <div className="text-xs font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>Avg of {ratedSquadValues.length} rated players</div>
             </div>
           </div>
         )}

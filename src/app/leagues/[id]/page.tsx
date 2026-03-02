@@ -178,9 +178,9 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr style={{ background: "#09090f" }}>
+            <tr style={{ background: "var(--bg-row)" }}>
               {["#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
-                <th key={h} style={{ padding: "8px 12px", textAlign: h === "Team" || h === "#" ? "left" : "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>{h}</th>
+                <th key={h} style={{ padding: "8px 12px", textAlign: h === "Team" || h === "#" ? "left" : "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -189,25 +189,25 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
               const gd = row.gf - row.ga;
               const advances = advanceSpots > 0 && index < advanceSpots;
               return (
-                <tr key={row.team} style={{ borderBottom: "1px solid #0f0f1a", background: advances ? "#0d1a10" : "transparent", borderLeft: advances ? "2px solid #4ade80" : "2px solid transparent" }}>
-                  <td style={{ padding: "10px 12px", color: "#3a3a5a", fontSize: 11, fontWeight: 700 }}>{index + 1}</td>
-                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "#e0e0f0" }}>
+                <tr key={row.team} style={{ borderBottom: "1px solid var(--border-row)", background: advances ? "rgba(74,222,128,0.08)" : "transparent", borderLeft: advances ? "2px solid #4ade80" : "2px solid transparent" }}>
+                  <td style={{ padding: "10px 12px", color: "var(--text-faint)", fontSize: 11, fontWeight: 700 }}>{index + 1}</td>
+                  <td style={{ padding: "10px 12px", fontWeight: 700, color: "var(--text-body)" }}>
                     {teamIdMap[row.team] ? (
-                      <Link href={`/teams/${teamIdMap[row.team]}`} style={{ color: "#e0e0f0", textDecoration: "none" }} className="nav-link">
+                      <Link href={`/teams/${teamIdMap[row.team]}`} style={{ color: "var(--text-body)", textDecoration: "none" }} className="nav-link">
                         {row.team}
                       </Link>
                     ) : row.team}
                   </td>
-                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#5a5a7a" }}>{row.played}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)" }}>{row.played}</td>
                   <td style={{ padding: "10px 12px", textAlign: "center", color: "#4ade80", fontWeight: 600 }}>{row.won}</td>
                   <td style={{ padding: "10px 12px", textAlign: "center", color: "#f4c430", fontWeight: 600 }}>{row.drawn}</td>
                   <td style={{ padding: "10px 12px", textAlign: "center", color: "#e63946", fontWeight: 600 }}>{row.lost}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#9090b0" }}>{row.gf}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "center", color: "#9090b0" }}>{row.ga}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "center", color: gd > 0 ? "#4ade80" : gd < 0 ? "#e63946" : "#5a5a7a", fontWeight: 600 }}>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-sub)" }}>{row.gf}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-sub)" }}>{row.ga}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center", color: gd > 0 ? "#4ade80" : gd < 0 ? "#e63946" : "var(--text-muted)", fontWeight: 600 }}>
                     {gd > 0 ? "+" : ""}{gd}
                   </td>
-                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "#f0f0fa" }}>{row.points}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 900, fontSize: 15, color: "var(--text-main)" }}>{row.points}</td>
                 </tr>
               );
             })}
@@ -223,16 +223,16 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
     return (
       <Link
         href={`/matches/${match.id}`}
-        style={{ display: "flex", alignItems: "center", padding: "12px 20px", borderBottom: "1px solid #0f0f1a", textDecoration: "none", background: "transparent" }}
+        style={{ display: "flex", alignItems: "center", padding: "12px 20px", borderBottom: "1px solid var(--border-row)", textDecoration: "none", background: "transparent" }}
         className="nav-card"
       >
-        <span style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: homeWin ? 700 : 400, color: homeWin ? "#e0e0f0" : "#5a5a7a" }}>{match.home_team}</span>
+        <span style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: homeWin ? 700 : 400, color: homeWin ? "var(--text-body)" : "var(--text-muted)" }}>{match.home_team}</span>
         <div style={{ margin: "0 16px", display: "flex", alignItems: "center", gap: 8, minWidth: 80, justifyContent: "center" }}>
-          <span style={{ fontWeight: 900, fontSize: 18, color: "#f0f0fa", fontVariantNumeric: "tabular-nums" }}>{match.home_score}</span>
-          <span style={{ color: "#2a2a3a", fontSize: 12 }}>—</span>
-          <span style={{ fontWeight: 900, fontSize: 18, color: "#f0f0fa", fontVariantNumeric: "tabular-nums" }}>{match.away_score}</span>
+          <span style={{ fontWeight: 900, fontSize: 18, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" }}>{match.home_score}</span>
+          <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
+          <span style={{ fontWeight: 900, fontSize: 18, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" }}>{match.away_score}</span>
         </div>
-        <span style={{ flex: 1, fontSize: 13, fontWeight: awayWin ? 700 : 400, color: awayWin ? "#e0e0f0" : "#5a5a7a" }}>{match.away_team}</span>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: awayWin ? 700 : 400, color: awayWin ? "var(--text-body)" : "var(--text-muted)" }}>{match.away_team}</span>
         {match.forfeited_by && (
           <span style={{ fontSize: 10, color: "#e63946", background: "#e6394620", padding: "2px 6px", marginLeft: 8, letterSpacing: "0.08em" }}>FORFEIT</span>
         )}
@@ -243,26 +243,26 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
       {/* Header */}
-      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "40px 24px 32px", background: "#09091a" }}>
+      <section style={{ borderBottom: "1px solid var(--border-main)", padding: "40px 24px 32px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href="/leagues" style={{ color: "#3a3a5a", textDecoration: "none" }}>Leagues</Link>
+            <Link href="/leagues" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Leagues</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             {league.name}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
             {logo ? (
-              <div style={{ width: 56, height: 56, background: "#0d0d1a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <div style={{ width: 56, height: 56, background: "var(--bg-card)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <Image src={logo.img} alt={league.name} width={38} height={38} style={{ filter: logo.filter }} />
               </div>
             ) : null}
             <div>
-              <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "#f0f0fa", margin: 0 }}>{league.name}</h1>
+              <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>{league.name}</h1>
               <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center" }}>
-                {league.season && <span style={{ fontSize: 12, color: "#3a3a5a" }}>Season {league.season}</span>}
-                {league.format && <span style={{ fontSize: 11, color: "#5a5a7a", background: "#0d0d1a", padding: "2px 8px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{league.format.replace(/_/g, " ")}</span>}
+                {league.season && <span style={{ fontSize: 12, color: "var(--text-faint)" }}>Season {league.season}</span>}
+                {league.format && <span style={{ fontSize: 11, color: "var(--text-muted)", background: "var(--bg-card)", padding: "2px 8px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{league.format.replace(/_/g, " ")}</span>}
               </div>
             </div>
           </div>
@@ -276,11 +276,11 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           {/* ── LEAGUE FORMAT: single standings table ── */}
           {isLeague && (
             <div>
-              <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
+              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
                 Standings
               </div>
               {standings.length === 0
-                ? <div style={{ background: "#0d0d1a", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>No teams yet</div>
+                ? <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>No teams yet</div>
                 : <StandingsTable rows={standings} />
               }
             </div>
@@ -290,20 +290,20 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           {isGroupKnockout && (
             <>
               {sortedGroups.length === 0 ? (
-                <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>
+                <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
                   No group stage matches yet
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 2 }}>
                   {sortedGroups.map(groupName => (
                     <div key={groupName}>
-                      <div style={{ background: "#0d0d1a", borderTop: "3px solid #f4c430", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
+                      <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
                         {groupName}
                       </div>
                       <StandingsTable rows={groupStandings[groupName]} advanceSpots={2} />
-                      <div style={{ background: "#0a0a12", padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ background: "var(--bg-row)", padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ display: "inline-block", width: 8, height: 8, background: "#4ade80", flexShrink: 0 }} />
-                        <span style={{ fontSize: 10, color: "#3a4a3a", letterSpacing: "0.08em" }}>Advances</span>
+                        <span style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.08em" }}>Advances</span>
                       </div>
                     </div>
                   ))}
@@ -315,7 +315,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                 <div style={{ marginTop: 2 }}>
                   {sortedKnockoutStages.map(stage => (
                     <div key={stage} style={{ marginBottom: 2 }}>
-                      <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
+                      <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
                         {stage}
                       </div>
                       {knockoutByStage[stage].map((match: any) => (
@@ -332,13 +332,13 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           {isKnockout && (
             <>
               {sortedKnockoutStages.length === 0 ? (
-                <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>
+                <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
                   No matches played yet
                 </div>
               ) : (
                 sortedKnockoutStages.map(stage => (
                   <div key={stage} style={{ marginBottom: 2 }}>
-                    <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
+                    <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
                       {stage}
                     </div>
                     {knockoutByStage[stage].map((match: any) => (
@@ -353,11 +353,11 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           {/* Recent Results (league format only — groups/knockout handle their own results above) */}
           {isLeague && (
             <div style={{ marginTop: 2 }}>
-              <div style={{ background: "#0d0d1a", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
+              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
                 Recent Results
               </div>
               {playedMatches.length === 0
-                ? <div style={{ background: "#0d0d1a", padding: "40px 20px", textAlign: "center", color: "#3a3a5a", fontSize: 13 }}>No matches played yet</div>
+                ? <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>No matches played yet</div>
                 : playedMatches.slice(0, 10).map((match: any) => <MatchRow key={match.id} match={match} />)
               }
             </div>
@@ -366,7 +366,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           {/* For group+knockout: also show recent group results below knockout */}
           {isGroupKnockout && groupMatches.filter((m: any) => m.home_score !== null).length > 0 && (
             <div style={{ marginTop: 2 }}>
-              <div style={{ background: "#0d0d1a", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
+              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
                 Recent Group Results
               </div>
               {groupMatches.filter((m: any) => m.home_score !== null).slice(0, 10).map((match: any) => (
@@ -378,8 +378,8 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
 
         {/* Right Sidebar */}
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <div style={{ background: "#0d0d1a", borderTop: "3px solid #4ea8f7" }}>
-            <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7", borderBottom: "1px solid #1a1a2e" }}>
+          <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7" }}>
+            <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7", borderBottom: "1px solid var(--border-main)" }}>
               League Info
             </div>
             {[
@@ -389,26 +389,26 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
               { label: "Total Goals", val: totalGoals },
               { label: "Forfeits", val: matches.filter((m: any) => m.forfeited_by).length },
             ].filter(({ val }) => val !== "—").map(({ label, val }) => (
-              <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderBottom: "1px solid #0f0f1a" }}>
-                <span style={{ fontSize: 12, color: "#4a4a6a" }}>{label}</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: "#e0e0f0" }}>{val}</span>
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderBottom: "1px solid var(--border-row)" }}>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: "var(--text-body)" }}>{val}</span>
               </div>
             ))}
           </div>
 
           {upcomingMatches.length > 0 && (
-            <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa" }}>
-              <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid #1a1a2e" }}>
+            <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa" }}>
+              <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid var(--border-main)" }}>
                 Upcoming
               </div>
               {upcomingMatches.map((match: any) => (
-                <div key={match.id} style={{ padding: "12px 20px", borderBottom: "1px solid #0f0f1a" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d8" }}>
-                    {match.home_team} <span style={{ color: "#3a3a5a", margin: "0 4px" }}>vs</span> {match.away_team}
+                <div key={match.id} style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-row)" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-sub)" }}>
+                    {match.home_team} <span style={{ color: "var(--text-faint)", margin: "0 4px" }}>vs</span> {match.away_team}
                   </div>
-                  {match.group_name && <div style={{ fontSize: 10, color: "#3a3a5a", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>{match.group_name}</div>}
-                  {match.stage && !match.group_name && <div style={{ fontSize: 10, color: "#5a4a7a", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>{match.stage}</div>}
-                  <div style={{ fontSize: 11, color: "#3a3a5a", marginTop: 4 }}>
+                  {match.group_name && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>{match.group_name}</div>}
+                  {match.stage && !match.group_name && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>{match.stage}</div>}
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
                     {new Date(match.played_at).toLocaleDateString()}
                   </div>
                 </div>

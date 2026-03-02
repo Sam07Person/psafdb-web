@@ -198,13 +198,13 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
       {/* Header */}
-      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "40px 24px 32px", background: "#09091a" }}>
+      <section style={{ borderBottom: "1px solid var(--border-main)", padding: "40px 24px 32px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           {/* Breadcrumb */}
-          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 20 }}>
-            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 20 }}>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href="/matches" style={{ color: "#3a3a5a", textDecoration: "none" }}>Matches</Link>
+            <Link href="/matches" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Matches</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             {match.home_team} vs {match.away_team}
           </div>
@@ -220,7 +220,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           {/* Score */}
           <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
             <div style={{ flex: 1, textAlign: "right" }}>
-              <div style={{ fontSize: "clamp(18px, 3vw, 30px)", fontWeight: 900, letterSpacing: "-0.02em", color: homeWin ? "#f0f0fa" : "#4a4a6a" }}>
+              <div style={{ fontSize: "clamp(18px, 3vw, 30px)", fontWeight: 900, letterSpacing: "-0.02em", color: homeWin ? "var(--text-main)" : "var(--text-muted)" }}>
                 {teamIds.get(match.home_team) ? (
                   <Link href={`/teams/${teamIds.get(match.home_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.home_team}</Link>
                 ) : match.home_team}
@@ -230,17 +230,17 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
 
             <div style={{ textAlign: "center", flexShrink: 0 }}>
               {played ? (
-                <div style={{ fontSize: "clamp(40px, 7vw, 72px)", fontWeight: 900, letterSpacing: "-0.04em", color: "#f0f0fa", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-                  {match.home_score}<span style={{ color: "#1a1a2e", margin: "0 6px" }}>—</span>{match.away_score}
+                <div style={{ fontSize: "clamp(40px, 7vw, 72px)", fontWeight: 900, letterSpacing: "-0.04em", color: "var(--text-main)", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+                  {match.home_score}<span style={{ color: "var(--border-main)", margin: "0 6px" }}>—</span>{match.away_score}
                 </div>
               ) : (
-                <div style={{ fontSize: 28, color: "#3a3a5a", letterSpacing: "0.1em" }}>VS</div>
+                <div style={{ fontSize: 28, color: "var(--text-faint)", letterSpacing: "0.1em" }}>VS</div>
               )}
-              <div style={{ fontSize: 11, color: "#3a3a5a", marginTop: 8, letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8, letterSpacing: "0.08em" }}>
                 {new Date(match.played_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
               </div>
               {(match as any).stage && (
-                <div style={{ fontSize: 10, color: "#5a5a7a", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 4 }}>{(match as any).stage}</div>
+                <div style={{ fontSize: 10, color: "var(--text-sub)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 4 }}>{(match as any).stage}</div>
               )}
               {(match as any).forfeited_by && (
                 <div style={{ marginTop: 8, fontSize: 10, color: "#e63946", background: "#e6394620", padding: "3px 10px", letterSpacing: "0.08em", display: "inline-block" }}>
@@ -250,7 +250,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
             </div>
 
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "clamp(18px, 3vw, 30px)", fontWeight: 900, letterSpacing: "-0.02em", color: awayWin ? "#f0f0fa" : "#4a4a6a" }}>
+              <div style={{ fontSize: "clamp(18px, 3vw, 30px)", fontWeight: 900, letterSpacing: "-0.02em", color: awayWin ? "var(--text-main)" : "var(--text-muted)" }}>
                 {teamIds.get(match.away_team) ? (
                   <Link href={`/teams/${teamIds.get(match.away_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.away_team}</Link>
                 ) : match.away_team}
@@ -266,18 +266,18 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         {/* Team Stats */}
         {(homeStats || awayStats) && (
           <div>
-            <div style={{ background: "#0d0d1a", borderTop: "3px solid #4ea8f7", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7" }}>
+            <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7" }}>
               Team Stats
             </div>
-            <div style={{ background: "#0d0d1a", overflowX: "auto" }}>
+            <div style={{ background: "var(--bg-card)", overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
-                  <tr style={{ background: "#09090f" }}>
-                    <th style={{ padding: "10px 24px", textAlign: "right", fontSize: 13, fontWeight: 800, color: "#e0e0f0", borderBottom: "1px solid #1a1a2e", width: "38%" }}>
+                  <tr style={{ background: "var(--bg-row)" }}>
+                    <th style={{ padding: "10px 24px", textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--text-body)", borderBottom: "1px solid var(--border-main)", width: "38%" }}>
                       {teamIds.get(match.home_team) ? <Link href={`/teams/${teamIds.get(match.home_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.home_team}</Link> : match.home_team}
                     </th>
-                    <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e", width: "24%" }}>Stat</th>
-                    <th style={{ padding: "10px 24px", textAlign: "left", fontSize: 13, fontWeight: 800, color: "#e0e0f0", borderBottom: "1px solid #1a1a2e", width: "38%" }}>
+                    <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", width: "24%" }}>Stat</th>
+                    <th style={{ padding: "10px 24px", textAlign: "left", fontSize: 13, fontWeight: 800, color: "var(--text-body)", borderBottom: "1px solid var(--border-main)", width: "38%" }}>
                       {teamIds.get(match.away_team) ? <Link href={`/teams/${teamIds.get(match.away_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.away_team}</Link> : match.away_team}
                     </th>
                   </tr>
@@ -290,10 +290,10 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                     const hWin = hv > av;
                     const aWin = av > hv;
                     return (
-                      <tr key={key} style={{ borderBottom: "1px solid #0a0a14" }}>
-                        <td style={{ padding: "9px 24px", textAlign: "right", fontWeight: hWin ? 800 : 400, color: hWin ? "#f0f0fa" : "#4a4a6a", fontSize: 15 }}>{fmt(hv)}</td>
-                        <td style={{ padding: "9px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>{label}</td>
-                        <td style={{ padding: "9px 24px", textAlign: "left", fontWeight: aWin ? 800 : 400, color: aWin ? "#f0f0fa" : "#4a4a6a", fontSize: 15 }}>{fmt(av)}</td>
+                      <tr key={key} style={{ borderBottom: "1px solid var(--border-row)" }}>
+                        <td style={{ padding: "9px 24px", textAlign: "right", fontWeight: hWin ? 800 : 400, color: hWin ? "var(--text-body)" : "var(--text-muted)", fontSize: 15 }}>{fmt(hv)}</td>
+                        <td style={{ padding: "9px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>{label}</td>
+                        <td style={{ padding: "9px 24px", textAlign: "left", fontWeight: aWin ? 800 : 400, color: aWin ? "var(--text-body)" : "var(--text-muted)", fontSize: 15 }}>{fmt(av)}</td>
                       </tr>
                     );
                   })}

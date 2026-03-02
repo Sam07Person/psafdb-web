@@ -98,7 +98,7 @@ function TeamTable({
   return (
     <div>
       <div style={{
-        background: "#0d0d1a",
+        background: "var(--bg-card)",
         borderTop: `3px solid ${accentColor}`,
         padding: "12px 20px",
         fontSize: 12,
@@ -108,16 +108,16 @@ function TeamTable({
         color: accentColor,
       }}>
         {teamName}
-        <span style={{ marginLeft: 10, fontSize: 10, fontWeight: 400, color: "#3a3a5a" }}>
+        <span style={{ marginLeft: 10, fontSize: 10, fontWeight: 400, color: "var(--text-faint)" }}>
           {rows.length} player{rows.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div style={{ background: "#0d0d1a", overflowX: "auto" }}>
+      <div style={{ background: "var(--bg-card)", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 860 }}>
           <thead>
-            <tr style={{ background: "#09090f" }}>
-              <th style={{ padding: "8px 20px", textAlign: "left", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e", whiteSpace: "nowrap" }}>Player</th>
-              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>Pos</th>
+            <tr style={{ background: "var(--bg-row)" }}>
+              <th style={{ padding: "8px 20px", textAlign: "left", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>Player</th>
+              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>Pos</th>
               {COLUMNS.map(([label, key]) => (
                 <th
                   key={key}
@@ -126,11 +126,11 @@ function TeamTable({
                     padding: "8px 10px",
                     textAlign: "center",
                     fontSize: 10,
-                    color: sortKey !== "position" && sortKey === key ? accentColor : "#3a3a5a",
+                    color: sortKey !== "position" && sortKey === key ? accentColor : "var(--text-faint)",
                     fontWeight: 700,
                     letterSpacing: "0.1em",
                     textTransform: "uppercase",
-                    borderBottom: "1px solid #1a1a2e",
+                    borderBottom: "1px solid var(--border-main)",
                     cursor: "pointer",
                     userSelect: "none",
                     whiteSpace: "nowrap",
@@ -144,7 +144,7 @@ function TeamTable({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={2 + COLUMNS.length} style={{ padding: "24px 20px", textAlign: "center", color: "#2a2a3a", fontSize: 12 }}>
+                <td colSpan={2 + COLUMNS.length} style={{ padding: "24px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 12 }}>
                   No players found
                 </td>
               </tr>
@@ -152,10 +152,10 @@ function TeamTable({
               const label = r.players?.name || r.players?.handle || r.player_id.slice(0, 8) + "…";
               const posSty = r.position ? POSITION_STYLE[r.position] : null;
               return (
-                <tr key={r.player_id} style={{ borderBottom: "1px solid #0a0a14" }}>
+                <tr key={r.player_id} style={{ borderBottom: "1px solid var(--border-row)" }}>
                   <td style={{ padding: "9px 20px", whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <Link href={`/players/${r.player_id}`} style={{ fontWeight: 600, color: "#d0d0e8", textDecoration: "none" }} className="nav-link">
+                      <Link href={`/players/${r.player_id}`} style={{ fontWeight: 600, color: "var(--text-body)", textDecoration: "none" }} className="nav-link">
                         {label}
                       </Link>
                       {r.overallRating != null && (
@@ -172,26 +172,26 @@ function TeamTable({
                   </td>
                   <td style={{ padding: "9px 10px", textAlign: "center" }}>
                     {r.position ? (
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", color: posSty?.color ?? "#9090b0", background: posSty?.background ?? "rgba(255,255,255,0.06)" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", color: posSty?.color ?? "var(--text-sub)", background: posSty?.background ?? "rgba(128,128,128,0.1)" }}>
                         {r.position}
                       </span>
-                    ) : <span style={{ color: "#2a2a3a" }}>—</span>}
+                    ) : <span style={{ color: "var(--text-faint)" }}>—</span>}
                   </td>
                   {COLUMNS.map(([, key]) => {
                     const isSorted = sortKey !== "position" && sortKey === key;
                     if (key === "matchRating") {
                       const rtg = r.matchRating;
                       return (
-                        <td key={key} style={{ padding: "9px 10px", textAlign: "center", background: isSorted ? "rgba(255,255,255,0.03)" : undefined }}>
+                        <td key={key} style={{ padding: "9px 10px", textAlign: "center", background: isSorted ? "rgba(128,128,128,0.04)" : undefined }}>
                           {rtg != null
                             ? <span style={{ fontWeight: 900, fontSize: 13, color: getRatingColor(rtg) }}>{rtg}</span>
-                            : <span style={{ color: "#2a2a3a" }}>—</span>}
+                            : <span style={{ color: "var(--text-faint)" }}>—</span>}
                         </td>
                       );
                     }
                     const val = (r[key as keyof PlayerStat] as number) ?? 0;
                     return (
-                      <td key={key} style={{ padding: "9px 10px", textAlign: "center", color: isSorted ? "#e0e0f0" : val > 0 ? "#9090b0" : "#2a2a3a", fontWeight: isSorted && val > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>
+                      <td key={key} style={{ padding: "9px 10px", textAlign: "center", color: isSorted ? "var(--text-body)" : val > 0 ? "var(--text-sub)" : "var(--text-faint)", fontWeight: isSorted && val > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>
                         {val}
                       </td>
                     );
@@ -263,9 +263,9 @@ export default function PlayerStatsTable({
   }
 
   const inputStyle: React.CSSProperties = {
-    background: "#09090f",
-    border: "1px solid #1a1a2e",
-    color: "#e0e0f0",
+    background: "var(--bg-row)",
+    border: "1px solid var(--border-main)",
+    color: "var(--text-body)",
     padding: "7px 12px",
     fontSize: 12,
     outline: "none",
@@ -276,12 +276,12 @@ export default function PlayerStatsTable({
   return (
     <div>
       {/* Section header */}
-      <div style={{ background: "#0d0d1a", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
+      <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
         Player Stats
       </div>
 
       {/* Filters */}
-      <div style={{ background: "#0a0a13", borderBottom: "1px solid #1a1a2e", padding: "12px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ background: "var(--bg-base)", borderBottom: "1px solid var(--border-main)", padding: "12px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <input
           value={playerFilter}
           onChange={(e) => setPlayerFilter(e.target.value)}

@@ -1,10 +1,45 @@
 @import "tailwindcss";
 
+/* ── Theme variables ─────────────────────────────────────────────────────── */
+:root {
+  --bg-base:     #07070f;
+  --bg-nav:      #09091a;
+  --bg-card:     #0d0d1a;
+  --bg-row:      #09090f;
+  --bg-input:    #111128;
+  --border-main: #1a1a2e;
+  --border-row:  #0a0a14;
+  --text-main:   #e8e8f0;
+  --text-body:   #e0e0f0;
+  --text-sub:    #9090b0;
+  --text-muted:  #4a4a6a;
+  --text-faint:  #3a3a5a;
+  --scrollbar-track: #0d0d1a;
+  --scrollbar-thumb: #2a2a3d;
+}
+
+html.light {
+  --bg-base:     #f2f2fb;
+  --bg-nav:      #ffffff;
+  --bg-card:     #ffffff;
+  --bg-row:      #f6f6fd;
+  --bg-input:    #eeeef8;
+  --border-main: #dde0ee;
+  --border-row:  #eaeaf5;
+  --text-main:   #0d0d20;
+  --text-body:   #1a1a30;
+  --text-sub:    #4a4a7a;
+  --text-muted:  #7070a0;
+  --text-faint:  #9090b8;
+  --scrollbar-track: #e8e8f5;
+  --scrollbar-thumb: #c0c0d8;
+}
+
 html, body {
   padding: 0;
   margin: 0;
-  background: #07070f;
-  color: #e8e8f0;
+  background: var(--bg-base);
+  color: var(--text-main);
 }
 
 * {
@@ -13,8 +48,8 @@ html, body {
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: #0d0d1a; }
-::-webkit-scrollbar-thumb { background: #2a2a3d; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
 ::-webkit-scrollbar-thumb:hover { background: #e63946; }
 
 /* Noise texture overlay for panels */
@@ -44,3 +79,63 @@ html, body {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
+
+/* Always-dark wrapper — used by admin page */
+.admin-dark {
+  --bg-base:     #07070f;
+  --bg-nav:      #09091a;
+  --bg-card:     #0d0d1a;
+  --bg-row:      #09090f;
+  --bg-input:    #111128;
+  --border-main: #1a1a2e;
+  --border-row:  #0a0a14;
+  --text-main:   #e8e8f0;
+  --text-body:   #e0e0f0;
+  --text-sub:    #9090b0;
+  --text-muted:  #4a4a6a;
+  --text-faint:  #3a3a5a;
+  color: #e0e0f0;
+  background: #07070f;
+}
+
+/* nav-card hover */
+.nav-card:hover { background: var(--bg-card) !important; filter: brightness(1.08); }
+
+/* nav link hover */
+.nav-link:hover { color: var(--text-main) !important; }
+
+/* ── Light mode overrides for Tailwind-based pages ───────────────────────── */
+html.light .from-gray-900,
+html.light .to-gray-950,
+html.light .bg-gradient-to-b {
+  background: var(--bg-base) !important;
+  background-image: none !important;
+}
+
+html.light .text-white  { color: var(--text-main)  !important; }
+html.light .text-white\/80 { color: var(--text-body)  !important; }
+html.light .text-white\/70 { color: var(--text-sub)   !important; }
+html.light .text-white\/60 { color: var(--text-sub)   !important; }
+html.light .text-white\/50 { color: var(--text-muted) !important; }
+html.light .text-white\/40 { color: var(--text-muted) !important; }
+html.light .text-white\/30 { color: var(--text-faint) !important; }
+html.light .text-white\/20 { color: var(--text-faint) !important; }
+
+html.light .bg-white\/5  { background-color: var(--bg-card)  !important; }
+html.light .bg-white\/10 { background-color: var(--bg-row)   !important; }
+html.light .bg-black\/20 { background-color: var(--bg-input) !important; }
+html.light .bg-black\/30 { background-color: var(--bg-input) !important; }
+
+html.light .border-white\/10 { border-color: var(--border-main) !important; }
+html.light .border-white\/5  { border-color: var(--border-row)  !important; }
+
+html.light .divide-white\/5 > * + * { border-color: var(--border-row) !important; }
+
+html.light .hover\:bg-white\/5:hover  { background-color: var(--bg-card)  !important; }
+html.light .hover\:bg-white\/10:hover { background-color: var(--bg-row)   !important; }
+html.light .hover\:bg-white\/20:hover { background-color: var(--border-main) !important; }
+
+html.light .placeholder\:text-white\/30::placeholder { color: var(--text-faint) !important; }
+
+html.light .focus\:border-white\/20:focus { border-color: var(--border-main) !important; }
+html.light .focus\:border-white\/30:focus { border-color: var(--border-main) !important; }

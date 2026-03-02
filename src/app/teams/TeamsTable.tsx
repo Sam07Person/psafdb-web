@@ -90,7 +90,7 @@ export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
   }
 
   const inputCls = "rounded border border-white/10 text-white/80 text-sm px-3 py-2 outline-none focus:border-white/30 placeholder:text-white/30";
-  const selectStyle: React.CSSProperties = { background: "#1a1a2e", color: "#cccce8" };
+  const selectStyle: React.CSSProperties = { background: "var(--border-main)", color: "var(--text-body)" };
 
   return (
     <>

@@ -565,7 +565,7 @@ export default function PlayerDetailPage() {
   );
   const hasEnoughForRating = matchRatingValues.length >= 3;
   const overallRating = hasEnoughForRating ? calcOverallRating(matchRatingValues, dominantLeagueTier, tierBonuses) : null;
-  const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "#3a3a5a";
+  const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "var(--text-faint)";
   const ratingLabelText = overallRating !== null ? getRatingLabel(overallRating) : null;
 
   const teamsPlayedFor = Array.from(new Set(
@@ -675,16 +675,16 @@ export default function PlayerDetailPage() {
           )}
           {matchRatingValues.length > 0 && (
             <Link href={`/players/${playerId}/rating`} style={{ textDecoration: "none" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#0d0d1a", border: `1.5px solid ${ratingColor}`, padding: "8px 14px", cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg-card)", border: `1.5px solid ${ratingColor}`, padding: "8px 14px", cursor: "pointer" }}>
                 <div>
                   <div style={{ fontSize: 28, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                     {overallRating !== null ? overallRating : "N/A"}
                   </div>
-                  <div style={{ fontSize: 9, color: "#5a5a7a", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>Rating</div>
+                  <div style={{ fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>Rating</div>
                 </div>
                 <div style={{ fontSize: 11, color: ratingColor, fontWeight: 700, letterSpacing: "0.06em" }}>
                   {ratingLabelText ?? `${matchRatingValues.length}/3 matches`}
-                  <div style={{ fontSize: 10, color: "#3a3a5a", fontWeight: 400, marginTop: 2 }}>Full breakdown →</div>
+                  <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginTop: 2 }}>Full breakdown →</div>
                 </div>
               </div>
             </Link>
@@ -835,10 +835,10 @@ export default function PlayerDetailPage() {
                   <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-white/20 hover:bg-white/[0.08]">
                     <div style={{ fontSize: 22, color: "#f4a261", flexShrink: 0 }}>★</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#e0e0f0" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-body)" }}>
                         Team of the Week — Matchday {a.day}
                       </div>
-                      <div style={{ fontSize: 11, color: "#5a5a7a", marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                         {a.leagueName} • {a.slot}
                       </div>
                     </div>

@@ -70,8 +70,12 @@ async function computeElo(): Promise<EloEntry[]> {
   // Also get all teams in season 11 leagues (includes teams with 0 games)
   const { data: allTeams } = await supabase
     .from("teams")
-    .select("name,league_id")
+    .select("id,name,league_id")
     .in("league_id", leagueIds);
+
+  const teamIdMap = new Map<string, string>(
+    (allTeams ?? []).map((t) => [t.name, t.id])
+  );
 
   const elos = new Map<string, number>();
   const records = new Map<string, { w: number; d: number; l: number; gp: number }>();
@@ -132,6 +136,7 @@ async function computeElo(): Promise<EloEntry[]> {
   return Array.from(teamSet)
     .map((team) => ({
       team,
+      teamId: teamIdMap.get(team) ?? null,
       elo:    Math.round(elos.get(team) ?? DEFAULT_ELO),
       change: Math.round((elos.get(team) ?? DEFAULT_ELO) - DEFAULT_ELO),
       ...(records.get(team) ?? { w: 0, d: 0, l: 0, gp: 0 }),
@@ -148,17 +153,17 @@ export default async function EloPage() {
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
       {/* Header */}
-      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "32px 24px 24px", background: "#09091a" }}>
+      <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             ELO Rankings
           </div>
-          <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "#f0f0fa", margin: 0 }}>
+          <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
             Team ELO Rankings
           </h1>
-          <p style={{ marginTop: 8, color: "#4a4a6a", fontSize: 13 }}>
+          <p style={{ marginTop: 8, color: "var(--text-muted)", fontSize: 13 }}>
             Season 11 · Starting ELO: 1000 · Updated after every result
           </p>
         </div>
@@ -166,20 +171,20 @@ export default async function EloPage() {
 
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "32px 24px 64px" }}>
         {entries.length === 0 ? (
-          <p style={{ color: "#4a4a6a" }}>No season 11 results found.</p>
+          <p style={{ color: "var(--text-muted)" }}>No season 11 results found.</p>
         ) : (
-          <div style={{ background: "#0d0d1a", borderTop: "3px solid #4ea8f7", overflow: "hidden" }}>
+          <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7", overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ background: "#09090f" }}>
-                  <th style={{ padding: "10px 16px", textAlign: "left",   fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e", width: 40 }}>#</th>
-                  <th style={{ padding: "10px 16px", textAlign: "left",   fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>Team</th>
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>ELO</th>
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>+/−</th>
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>GP</th>
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>W</th>
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>D</th>
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e" }}>L</th>
+                <tr style={{ background: "var(--bg-row)" }}>
+                  <th style={{ padding: "10px 16px", textAlign: "left",   fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", width: 40 }}>#</th>
+                  <th style={{ padding: "10px 16px", textAlign: "left",   fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>Team</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>ELO</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>+/−</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>GP</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>W</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>D</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>L</th>
                 </tr>
               </thead>
               <tbody>
@@ -187,14 +192,18 @@ export default async function EloPage() {
                   const color  = eloColor(e.elo);
                   const noGames = e.gp === 0;
                   return (
-                    <tr key={e.team} style={{ borderBottom: "1px solid #0a0a14", opacity: noGames ? 0.45 : 1 }}>
+                    <tr key={e.team} style={{ borderBottom: "1px solid var(--border-row)", opacity: noGames ? 0.45 : 1 }}>
                       {/* Rank */}
-                      <td style={{ padding: "11px 16px", color: "#3a3a5a", fontWeight: 700, fontSize: 12 }}>
+                      <td style={{ padding: "11px 16px", color: "var(--text-faint)", fontWeight: 700, fontSize: 12 }}>
                         {i + 1}
                       </td>
                       {/* Team */}
-                      <td style={{ padding: "11px 16px", fontWeight: 700, color: "#e0e0f0", fontSize: 14 }}>
-                        {e.team}
+                      <td style={{ padding: "11px 16px", fontWeight: 700, fontSize: 14 }}>
+                        {e.teamId ? (
+                          <Link href={`/teams/${e.teamId}`} style={{ color: "var(--text-body)", textDecoration: "none" }} className="hover:underline">
+                            {e.team}
+                          </Link>
+                        ) : e.team}
                       </td>
                       {/* ELO */}
                       <td style={{ padding: "11px 16px", textAlign: "center" }}>
@@ -215,17 +224,17 @@ export default async function EloPage() {
                       </td>
                       {/* Change */}
                       <td style={{ padding: "11px 16px", textAlign: "center", fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums",
-                        color: e.change > 0 ? "#4ade80" : e.change < 0 ? "#f87171" : "#4a4a6a" }}>
+                        color: e.change > 0 ? "#4ade80" : e.change < 0 ? "#f87171" : "var(--text-muted)" }}>
                         {e.change > 0 ? `+${e.change}` : e.change === 0 ? "—" : e.change}
                       </td>
                       {/* GP */}
-                      <td style={{ padding: "11px 16px", textAlign: "center", color: "#6060a0", fontVariantNumeric: "tabular-nums" }}>{e.gp}</td>
+                      <td style={{ padding: "11px 16px", textAlign: "center", color: "var(--text-sub)", fontVariantNumeric: "tabular-nums" }}>{e.gp}</td>
                       {/* W */}
-                      <td style={{ padding: "11px 16px", textAlign: "center", color: e.w > 0 ? "#4ade80" : "#3a3a5a", fontWeight: e.w > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{e.w}</td>
+                      <td style={{ padding: "11px 16px", textAlign: "center", color: e.w > 0 ? "#4ade80" : "var(--text-faint)", fontWeight: e.w > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{e.w}</td>
                       {/* D */}
-                      <td style={{ padding: "11px 16px", textAlign: "center", color: e.d > 0 ? "#eab308" : "#3a3a5a", fontWeight: e.d > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{e.d}</td>
+                      <td style={{ padding: "11px 16px", textAlign: "center", color: e.d > 0 ? "#eab308" : "var(--text-faint)", fontWeight: e.d > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{e.d}</td>
                       {/* L */}
-                      <td style={{ padding: "11px 16px", textAlign: "center", color: e.l > 0 ? "#f87171" : "#3a3a5a", fontWeight: e.l > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{e.l}</td>
+                      <td style={{ padding: "11px 16px", textAlign: "center", color: e.l > 0 ? "#f87171" : "var(--text-faint)", fontWeight: e.l > 0 ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{e.l}</td>
                     </tr>
                   );
                 })}
@@ -245,10 +254,10 @@ export default async function EloPage() {
           ].map(({ label, color }) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
-              <span style={{ fontSize: 11, color: "#4a4a6a" }}>{label}</span>
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{label}</span>
             </div>
           ))}
-          <div style={{ marginLeft: "auto", fontSize: 11, color: "#3a3a5a" }}>
+          <div style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-faint)" }}>
             K=32 · Tier 1 ×1.2 · Tier 3 ×0.8 · Goal diff weighted
           </div>
         </div>

@@ -70,13 +70,13 @@ function SubRatingBar({ label, value, detail }: { label: string; value: number; 
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#c0c0d8", letterSpacing: "0.04em" }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-sub)", letterSpacing: "0.04em" }}>{label}</span>
         <span style={{ fontSize: 18, fontWeight: 900, color, minWidth: 36, textAlign: "right" }}>{Math.round(value)}</span>
       </div>
-      <div style={{ height: 6, background: "#1a1a2e", borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ height: 6, background: "var(--border-main)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${value}%`, background: color, borderRadius: 3, transition: "width 0.6s ease" }} />
       </div>
-      {detail && <div style={{ fontSize: 11, color: "#4a4a6a", marginTop: 4 }}>{detail}</div>}
+      {detail && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{detail}</div>}
     </div>
   );
 }
@@ -166,12 +166,12 @@ export default function PlayerRatingPage() {
     })();
   }, [playerId]);
 
-  if (!supabase) return <main style={{ padding: 40, color: "#888" }}>Supabase not configured.</main>;
+  if (!supabase) return <main style={{ padding: 40, color: "var(--text-sub)" }}>Supabase not configured.</main>;
 
   if (loading) {
     return (
       <main style={{ minHeight: "calc(100vh - 56px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: "#5a5a7a", fontSize: 14 }}>Loading rating...</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>Loading rating...</div>
       </main>
     );
   }
@@ -180,7 +180,7 @@ export default function PlayerRatingPage() {
     return (
       <main style={{ padding: 40 }}>
         <p style={{ color: "#e63946" }}>{error ?? "Player not found"}</p>
-        <Link href="/players" style={{ color: "#5a5a7a", fontSize: 13 }}>← Back to players</Link>
+        <Link href="/players" style={{ color: "var(--text-muted)", fontSize: 13 }}>← Back to players</Link>
       </main>
     );
   }
@@ -263,7 +263,7 @@ export default function PlayerRatingPage() {
 
   const hasEnoughForRating = playedStats.length >= 3;
   const overall = hasEnoughForRating ? calcOverallRating(allMatchRatingValues, leagueTier, tierBonuses) : null;
-  const ratingColor = overall !== null ? getRatingColor(overall) : "#3a3a5a";
+  const ratingColor = overall !== null ? getRatingColor(overall) : "var(--text-faint)";
   const ratingLabel = overall !== null ? getRatingLabel(overall) : null;
 
   // Per-match display sorted newest first, max 20
@@ -351,44 +351,44 @@ export default function PlayerRatingPage() {
   const tierLabel = leagueTier === 1 ? "Tier 1 – Elite (+5 pts)" : leagueTier === 3 ? "Tier 3 – Amateur (−5 pts)" : "Tier 2 – Standard";
 
   return (
-    <main style={{ minHeight: "calc(100vh - 56px)", background: "#07070f" }}>
+    <main style={{ minHeight: "calc(100vh - 56px)" }}>
       {/* Header bar */}
-      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "32px 24px 24px", background: "#09091a" }}>
+      <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href="/players" style={{ color: "#3a3a5a", textDecoration: "none" }}>Players</Link>
+            <Link href="/players" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Players</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href={`/players/${playerId}`} style={{ color: "#3a3a5a", textDecoration: "none" }}>{displayName}</Link>
+            <Link href={`/players/${playerId}`} style={{ color: "var(--text-faint)", textDecoration: "none" }}>{displayName}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             Rating
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 20 }}>
             <div>
-              <h1 style={{ fontSize: 28, fontWeight: 900, color: "#f0f0fa", margin: 0, letterSpacing: "-0.02em" }}>{displayName}</h1>
+              <h1 style={{ fontSize: 28, fontWeight: 900, color: "var(--text-main)", margin: 0, letterSpacing: "-0.02em" }}>{displayName}</h1>
               <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
                 {dominantPosition && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#9090b0", background: "#1a1a2e", padding: "3px 10px", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", background: "var(--border-main)", padding: "3px 10px", letterSpacing: "0.12em", textTransform: "uppercase" }}>
                     {dominantPosition} · {role}
                   </span>
                 )}
-                <span style={{ fontSize: 11, color: "#4a4a6a", letterSpacing: "0.08em" }}>{tierLabel}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.08em" }}>{tierLabel}</span>
               </div>
             </div>
 
             {/* Overall rating badge */}
-            <div style={{ textAlign: "center", background: "#0d0d1a", border: `2px solid ${ratingColor}`, padding: "16px 28px", minWidth: 110 }}>
+            <div style={{ textAlign: "center", background: "var(--bg-card)", border: `2px solid ${ratingColor}`, padding: "16px 28px", minWidth: 110 }}>
               <div style={{ fontSize: 52, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                 {overall !== null ? overall : playedStats.length > 0 ? "N/A" : "—"}
               </div>
-              <div style={{ fontSize: 10, color: "#5a5a7a", letterSpacing: "0.2em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Overall</div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.2em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Overall</div>
               {overall !== null && (
                 <div style={{ fontSize: 12, color: ratingColor, fontWeight: 700, marginTop: 2 }}>{ratingLabel}</div>
               )}
               {!hasEnoughForRating && playedStats.length > 0 && (
-                <div style={{ fontSize: 10, color: "#5a5a7a", marginTop: 4 }}>{playedStats.length}/3 matches</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{playedStats.length}/3 matches</div>
               )}
             </div>
           </div>
@@ -397,13 +397,13 @@ export default function PlayerRatingPage() {
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 24px" }}>
         {playedStats.length === 0 ? (
-          <div style={{ background: "#0d0d1a", padding: "48px 24px", textAlign: "center", color: "#3a3a5a", fontSize: 14 }}>
+          <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
             No complete match statistics available to calculate a rating.
           </div>
         ) : !hasEnoughForRating ? (
-          <div style={{ background: "#0d0d1a", padding: "48px 24px", textAlign: "center", color: "#3a3a5a", fontSize: 14 }}>
-            <div style={{ fontSize: 16, color: "#5a5a7a", marginBottom: 8 }}>Rating not yet available</div>
-            <div>A minimum of <strong style={{ color: "#7070a0" }}>3 played matches</strong> is required for an official rating.</div>
+          <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
+            <div style={{ fontSize: 16, color: "var(--text-muted)", marginBottom: 8 }}>Rating not yet available</div>
+            <div>A minimum of <strong style={{ color: "var(--text-sub)" }}>3 played matches</strong> is required for an official rating.</div>
             <div style={{ marginTop: 8 }}>{playedStats.length} of 3 matches recorded.</div>
           </div>
         ) : (
@@ -411,12 +411,12 @@ export default function PlayerRatingPage() {
             {/* Left: sub-ratings + match history */}
             <div>
               {/* Stat breakdown */}
-              <div style={{ background: "#0d0d1a", padding: "24px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase", marginBottom: 20 }}>Rating Breakdown</div>
+              <div style={{ background: "var(--bg-card)", padding: "24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 20 }}>Rating Breakdown</div>
 
                 {role !== "GK" && (
                   <>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10 }}>Attacking</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>Attacking</div>
                     <SubRatingBar label="Goals"           value={rGoals}   detail={`${avgGoals.toFixed(2)}/match`} />
                     <SubRatingBar label="Assists"         value={rAssists} detail={`${avgAssists.toFixed(2)}/match`} />
                     <SubRatingBar label="Shots"           value={rShots}   detail={`${avgShots.toFixed(1)}/match`} />
@@ -424,22 +424,22 @@ export default function PlayerRatingPage() {
                   </>
                 )}
 
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: role !== "GK" ? 18 : 0 }}>Passing</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: role !== "GK" ? 18 : 0 }}>Passing</div>
                 <SubRatingBar label="Passes"     value={rPasses} detail={`${avgPasses.toFixed(0)}/match`} />
                 <SubRatingBar label="Key Passes" value={rKP}     detail={`${avgKP.toFixed(1)}/match`} />
 
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Defending</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Defending</div>
                 <SubRatingBar label="Tackles"         value={rTackles}  detail={`${avgTackles.toFixed(1)} + ${avgKTackles.toFixed(1)} key = ${(avgTackles + avgKTackles).toFixed(1)}/match`} />
                 <SubRatingBar label="Key Tackles"     value={rKTackles} detail={`${avgKTackles.toFixed(1)}/match (bonus)`} />
                 <SubRatingBar label="Interceptions"   value={rInt}      detail={`${avgInt.toFixed(1)} + ${avgKInt.toFixed(1)} key = ${(avgInt + avgKInt).toFixed(1)}/match`} />
                 <SubRatingBar label="Lost Possession" value={rPL}       detail={`${avgPL.toFixed(1)}/match (lower is better)`} />
 
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Consistency</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Consistency</div>
                 <SubRatingBar label="Game Score" value={subRatings.consistency} detail={avgScore > 0 ? `Avg game score: ${subRatings.consistency.toFixed(0)} / 100` : `Based on W/D/L record`} />
 
                 {role === "GK" && (
                   <>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "#3a3a5a", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Goalkeeping</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Goalkeeping</div>
                     <SubRatingBar label="Goals Conceded" value={rGC}      detail={`${avgGC.toFixed(1)}/match (lower is better)`} />
                     <SubRatingBar label="Saves"          value={rSaves}   detail={`${avgSaves.toFixed(1)}/match`} />
                     <SubRatingBar label="Catches"        value={rCatches} detail={`${avgCatches.toFixed(1)}/match`} />
@@ -449,17 +449,17 @@ export default function PlayerRatingPage() {
 
               {/* Match rating history */}
               {matchRatings.length > 0 && (
-                <div style={{ background: "#0d0d1a" }}>
-                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a2e", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase" }}>Match Ratings (last {matchRatings.length})</span>
-                    <span style={{ fontSize: 10, color: "#3a3a5a" }}>click row to expand</span>
+                <div style={{ background: "var(--bg-card)" }}>
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase" }}>Match Ratings (last {matchRatings.length})</span>
+                    <span style={{ fontSize: 10, color: "var(--text-faint)" }}>click row to expand</span>
                   </div>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
-                        <tr style={{ background: "#09090f" }}>
+                        <tr style={{ background: "var(--bg-row)" }}>
                           {["Date", "Match", "Result", "Pos", "Rating"].map(h => (
-                            <th key={h} style={{ padding: "8px 12px", textAlign: h === "Rating" ? "center" : "left", fontSize: 10, color: "#3a3a5a", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", borderBottom: "1px solid #1a1a2e", whiteSpace: "nowrap" }}>{h}</th>
+                            <th key={h} style={{ padding: "8px 12px", textAlign: h === "Rating" ? "center" : "left", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -480,29 +480,29 @@ export default function PlayerRatingPage() {
                           <tbody key={mr.matchId}>
                             <tr
                               onClick={() => setExpandedMatchId(isExpanded ? null : mr.matchId)}
-                              style={{ borderBottom: isExpanded ? "none" : "1px solid #0f0f1a", cursor: "pointer" }}
+                              style={{ borderBottom: isExpanded ? "none" : "1px solid var(--border-row)", cursor: "pointer" }}
                             >
-                              <td style={{ padding: "10px 12px", color: "#5a5a7a", whiteSpace: "nowrap" }}>{formatDate(mr.date)}</td>
+                              <td style={{ padding: "10px 12px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{formatDate(mr.date)}</td>
                               <td style={{ padding: "10px 12px" }}>
-                                <Link href={`/matches/${mr.matchId}`} style={{ color: "#c0c0d8", textDecoration: "none" }} className="nav-link" onClick={e => e.stopPropagation()}>
-                                  <span style={{ fontWeight: mr.mySide === "home" ? 700 : 400, color: mr.mySide === "home" ? "#e0e0f0" : "#7070a0" }}>{mr.homeTeam}</span>
-                                  <span style={{ color: "#3a3a5a", margin: "0 6px" }}>{mr.homeScore}–{mr.awayScore}</span>
-                                  <span style={{ fontWeight: mr.mySide === "away" ? 700 : 400, color: mr.mySide === "away" ? "#e0e0f0" : "#7070a0" }}>{mr.awayTeam}</span>
+                                <Link href={`/matches/${mr.matchId}`} style={{ color: "var(--text-sub)", textDecoration: "none" }} className="nav-link" onClick={e => e.stopPropagation()}>
+                                  <span style={{ fontWeight: mr.mySide === "home" ? 700 : 400, color: mr.mySide === "home" ? "var(--text-body)" : "var(--text-sub)" }}>{mr.homeTeam}</span>
+                                  <span style={{ color: "var(--text-faint)", margin: "0 6px" }}>{mr.homeScore}–{mr.awayScore}</span>
+                                  <span style={{ fontWeight: mr.mySide === "away" ? 700 : 400, color: mr.mySide === "away" ? "var(--text-body)" : "var(--text-sub)" }}>{mr.awayTeam}</span>
                                 </Link>
-                                {mr.leagueName && <div style={{ fontSize: 10, color: "#3a3a5a", marginTop: 2 }}>{mr.leagueName}</div>}
+                                {mr.leagueName && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{mr.leagueName}</div>}
                               </td>
                               <td style={{ padding: "10px 12px", fontWeight: 700, color: resultColor }}>{mr.result}</td>
-                              <td style={{ padding: "10px 12px", color: "#5a5a7a", fontSize: 11 }}>{mr.position ?? "—"}</td>
+                              <td style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 11 }}>{mr.position ?? "—"}</td>
                               <td style={{ padding: "10px 12px", textAlign: "center" }}>
                                 <span style={{ fontWeight: 900, fontSize: 15, color: rColor }}>{mr.rating}</span>
-                                <span style={{ fontSize: 9, color: "#3a3a5a", marginLeft: 5 }}>{isExpanded ? "▲" : "▼"}</span>
+                                <span style={{ fontSize: 9, color: "var(--text-faint)", marginLeft: 5 }}>{isExpanded ? "▲" : "▼"}</span>
                               </td>
                             </tr>
                             {isExpanded && (
-                              <tr style={{ borderBottom: "1px solid #0f0f1a", background: "#06060e" }}>
+                              <tr style={{ borderBottom: "1px solid var(--border-row)", background: "var(--bg-row)" }}>
                                 <td colSpan={5} style={{ padding: "4px 16px 16px" }}>
                                   {/* Stats used */}
-                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", padding: "10px 0 12px", borderBottom: "1px solid #0f0f1a", fontSize: 11 }}>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", padding: "10px 0 12px", borderBottom: "1px solid var(--border-row)", fontSize: 11 }}>
                                     {[
                                       { label: "Goals", v: sr.goals },
                                       { label: "Assists", v: sr.assists },
@@ -519,8 +519,8 @@ export default function PlayerRatingPage() {
                                       ...(sr.gk_catches > 0 ? [{ label: "GK Catches", v: sr.gk_catches }] : []),
                                       ...(sr.score > 0 ? [{ label: "Game Score", v: sr.score }] : []),
                                     ].map(({ label, v }) => (
-                                      <span key={label} style={{ color: "#4a4a6a" }}>
-                                        {label}: <strong style={{ color: "#8080a0", fontWeight: 600 }}>{v}</strong>
+                                      <span key={label} style={{ color: "var(--text-muted)" }}>
+                                        {label}: <strong style={{ color: "var(--text-sub)", fontWeight: 600 }}>{v}</strong>
                                       </span>
                                     ))}
                                   </div>
@@ -540,19 +540,19 @@ export default function PlayerRatingPage() {
                                       return [{ key: c.key, label: c.label, score: bd.scores[c.key], weight: bd.weights[c.key] }];
                                     }).map(({ key, label, score, weight }) => (
                                       <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}>
-                                        <span style={{ fontSize: 12, color: "#7070a0", width: 130 }}>{label}</span>
+                                        <span style={{ fontSize: 12, color: "var(--text-sub)", width: 130 }}>{label}</span>
                                         <span style={{ fontSize: 13, fontWeight: 700, color: getRatingColor(score), width: 32, textAlign: "right" }}>{Math.round(score)}</span>
-                                        <span style={{ fontSize: 10, color: "#3a3a5a", width: 34, textAlign: "right" }}>×{Math.round(weight * 100)}%</span>
-                                        <span style={{ fontSize: 11, color: "#5a5a7a" }}>= {(score * weight).toFixed(1)}</span>
+                                        <span style={{ fontSize: 10, color: "var(--text-faint)", width: 34, textAlign: "right" }}>×{Math.round(weight * 100)}%</span>
+                                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>= {(score * weight).toFixed(1)}</span>
                                       </div>
                                     ))}
                                   </div>
 
                                   {/* Formula summary */}
-                                  <div style={{ marginTop: 6, paddingTop: 8, borderTop: "1px solid #0f0f1a", display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: "#5a5a7a", flexWrap: "wrap" }}>
-                                    <span>Base: <strong style={{ color: "#9090b0" }}>{bd.base.toFixed(1)}</strong></span>
+                                  <div style={{ marginTop: 6, paddingTop: 8, borderTop: "1px solid var(--border-row)", display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
+                                    <span>Base: <strong style={{ color: "var(--text-sub)" }}>{bd.base.toFixed(1)}</strong></span>
                                     {bd.resultBonus > 0 && (
-                                      <span>+ {mr.result === "W" ? "Win" : "Draw"} bonus: <strong style={{ color: "#9090b0" }}>+{bd.resultBonus}</strong></span>
+                                      <span>+ {mr.result === "W" ? "Win" : "Draw"} bonus: <strong style={{ color: "var(--text-sub)" }}>+{bd.resultBonus}</strong></span>
                                     )}
                                     <span>= <strong style={{ color: rColor, fontSize: 15 }}>{bd.final}</strong></span>
                                   </div>
@@ -571,8 +571,8 @@ export default function PlayerRatingPage() {
             {/* Right: info sidebar */}
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Quick stats */}
-              <div style={{ background: "#0d0d1a", padding: "20px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase", marginBottom: 14 }}>Based On</div>
+              <div style={{ background: "var(--bg-card)", padding: "20px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>Based On</div>
                 {[
                   { label: "Matches rated", value: playedStats.length },
                   { label: "Wins", value: results.filter(r => r === "W").length },
@@ -580,28 +580,28 @@ export default function PlayerRatingPage() {
                   { label: "Losses", value: results.filter(r => r === "L").length },
                   { label: "Win rate", value: n > 0 ? `${Math.round(results.filter(r => r === "W").length / n * 100)}%` : "—" },
                 ].map(({ label, value }) => (
-                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #0f0f1a" }}>
-                    <span style={{ fontSize: 12, color: "#4a4a6a" }}>{label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#c0c0d8" }}>{value}</span>
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border-row)" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-sub)" }}>{value}</span>
                   </div>
                 ))}
               </div>
 
               {/* How it's calculated */}
-              <div style={{ background: "#0d0d1a", padding: "20px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase", marginBottom: 12 }}>How It's Calculated</div>
-                <p style={{ fontSize: 12, color: "#4a4a6a", lineHeight: 1.6, margin: 0 }}>
-                  Each match is rated <strong style={{ color: "#7070a0" }}>0–100</strong> based on goals, assists, passes, tackles, interceptions, and other stats weighted by position.
+              <div style={{ background: "var(--bg-card)", padding: "20px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 12 }}>How It's Calculated</div>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+                  Each match is rated <strong style={{ color: "var(--text-sub)" }}>0–100</strong> based on goals, assists, passes, tackles, interceptions, and other stats weighted by position.
                 </p>
-                <p style={{ fontSize: 12, color: "#4a4a6a", lineHeight: 1.6, margin: "10px 0 0" }}>
-                  The overall rating is the <strong style={{ color: "#7070a0" }}>average of all match ratings</strong>. Forwards are weighted more on attacking, defenders on defensive output, etc.
+                <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, margin: "10px 0 0" }}>
+                  The overall rating is the <strong style={{ color: "var(--text-sub)" }}>average of all match ratings</strong>. Forwards are weighted more on attacking, defenders on defensive output, etc.
                 </p>
-                <p style={{ fontSize: 12, color: "#4a4a6a", lineHeight: 1.6, margin: "10px 0 0" }}>
-                  League tier applies a <strong style={{ color: "#7070a0" }}>±5 point</strong> adjustment (Elite leagues award more, Amateur leagues slightly less).
+                <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, margin: "10px 0 0" }}>
+                  League tier applies a <strong style={{ color: "var(--text-sub)" }}>±5 point</strong> adjustment (Elite leagues award more, Amateur leagues slightly less).
                 </p>
               </div>
 
-              <Link href={`/players/${playerId}`} style={{ display: "block", textAlign: "center", background: "#1a1a2e", color: "#7070a0", padding: "12px", fontSize: 12, textDecoration: "none", fontWeight: 600, letterSpacing: "0.08em" }}>
+              <Link href={`/players/${playerId}`} style={{ display: "block", textAlign: "center", background: "var(--border-main)", color: "var(--text-sub)", padding: "12px", fontSize: 12, textDecoration: "none", fontWeight: 600, letterSpacing: "0.08em" }}>
                 ← Back to Player Profile
               </Link>
             </div>

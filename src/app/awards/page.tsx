@@ -135,7 +135,7 @@ function calcTOTW(stats: RawStat[]): Partial<Record<SlotKey, TOTWEntry>> {
 }
 
 function PlayerBadge({ entry, slot }: { entry: TOTWEntry | undefined; slot: SlotKey }) {
-  const color = entry ? getRatingColor(entry.rating) : "#2a2a4a";
+  const color = entry ? getRatingColor(entry.rating) : "var(--text-faint)";
   const pos = SLOT_FIELD_POS[slot];
 
   return (
@@ -159,10 +159,10 @@ function PlayerBadge({ entry, slot }: { entry: TOTWEntry | undefined; slot: Slot
             backdropFilter: "blur(4px)",
           }}>
             <div style={{ fontSize: 16, fontWeight: 900, color, lineHeight: 1 }}>{entry.rating}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#e0e0f0", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#e8e8f0", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {entry.playerName}
             </div>
-            <div style={{ fontSize: 9, color: "#7070a0", marginTop: 1, letterSpacing: "0.08em" }}>
+            <div style={{ fontSize: 9, color: "#9090b0", marginTop: 1, letterSpacing: "0.08em" }}>
               {entry.position.toUpperCase()}
             </div>
           </div>
@@ -170,12 +170,12 @@ function PlayerBadge({ entry, slot }: { entry: TOTWEntry | undefined; slot: Slot
       ) : (
         <div style={{
           background: "rgba(7,7,15,0.55)",
-          border: "1px dashed #2a2a4a",
+          border: "1px dashed var(--text-faint)",
           padding: "5px 9px",
           minWidth: 74,
         }}>
-          <div style={{ fontSize: 10, color: "#2a2a4a", letterSpacing: "0.1em" }}>{slot}</div>
-          <div style={{ fontSize: 9, color: "#2a2a4a" }}>—</div>
+          <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.1em" }}>{slot}</div>
+          <div style={{ fontSize: 9, color: "var(--text-faint)" }}>—</div>
         </div>
       )}
     </div>
@@ -321,7 +321,7 @@ export default function AwardsPage() {
   if (loading) {
     return (
       <main style={{ minHeight: "calc(100vh - 56px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: "#5a5a7a", fontSize: 14 }}>Loading awards...</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>Loading awards...</div>
       </main>
     );
   }
@@ -333,24 +333,24 @@ export default function AwardsPage() {
   const totalMatchdays = matchdays.length;
 
   return (
-    <main style={{ minHeight: "calc(100vh - 56px)", background: "#07070f" }}>
+    <main style={{ minHeight: "calc(100vh - 56px)", background: "var(--bg-base)" }}>
       {/* Header */}
-      <section style={{ borderBottom: "1px solid #1a1a2e", padding: "28px 24px 20px", background: "#09091a" }}>
+      <section style={{ borderBottom: "1px solid var(--border-main)", padding: "28px 24px 20px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#3a3a5a", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
-            <Link href="/" style={{ color: "#3a3a5a", textDecoration: "none" }}>Home</Link>
+          <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             Awards
           </div>
-          <h1 style={{ fontSize: 26, fontWeight: 900, color: "#f0f0fa", margin: 0, letterSpacing: "-0.02em" }}>Awards</h1>
-          <p style={{ fontSize: 12, color: "#4a4a6a", margin: "6px 0 0" }}>Team of the Week — highest-rated players per matchday</p>
+          <h1 style={{ fontSize: 26, fontWeight: 900, color: "var(--text-main)", margin: 0, letterSpacing: "-0.02em" }}>Awards</h1>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>Team of the Week — highest-rated players per matchday</p>
         </div>
       </section>
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px" }}>
         {/* League tabs */}
         {leagues.length > 0 && (
-          <div className="hide-scrollbar" style={{ display: "flex", gap: 0, flexWrap: "nowrap", marginBottom: 28, borderBottom: "1px solid #1a1a2e", overflowX: "auto" }}>
+          <div className="hide-scrollbar" style={{ display: "flex", gap: 0, flexWrap: "nowrap", marginBottom: 28, borderBottom: "1px solid var(--border-main)", overflowX: "auto" }}>
             {leagues.map(l => (
               <button
                 key={l.id}
@@ -364,7 +364,7 @@ export default function AwardsPage() {
                   background: "transparent",
                   border: "none",
                   borderTop: selectedLeagueId === l.id ? "2px solid #7070f0" : "2px solid transparent",
-                  color: selectedLeagueId === l.id ? "#e0e0f0" : "#5a5a7a",
+                  color: selectedLeagueId === l.id ? "var(--text-body)" : "var(--text-muted)",
                   cursor: "pointer",
                   marginBottom: -1,
                   transition: "color 0.15s",
@@ -379,7 +379,7 @@ export default function AwardsPage() {
         )}
 
         {matchdays.length === 0 ? (
-          <div style={{ background: "#0d0d1a", padding: "48px 24px", textAlign: "center", color: "#3a3a5a", fontSize: 14 }}>
+          <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
             No match data found for this league.
           </div>
         ) : (
@@ -390,8 +390,8 @@ export default function AwardsPage() {
                 onClick={() => setSelectedDayIdx(i => Math.min(i + 1, totalMatchdays - 1))}
                 disabled={selectedDayIdx >= totalMatchdays - 1}
                 style={{
-                  background: "#0d0d1a", border: "1px solid #1a1a2e",
-                  color: selectedDayIdx >= totalMatchdays - 1 ? "#2a2a4a" : "#9090b0",
+                  background: "var(--bg-card)", border: "1px solid var(--border-main)",
+                  color: selectedDayIdx >= totalMatchdays - 1 ? "var(--text-faint)" : "var(--text-sub)",
                   padding: "7px 16px", fontSize: 12, cursor: selectedDayIdx >= totalMatchdays - 1 ? "default" : "pointer",
                   fontWeight: 600, letterSpacing: "0.06em",
                 }}
@@ -400,18 +400,18 @@ export default function AwardsPage() {
               </button>
 
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", color: "#5a5a7a", textTransform: "uppercase" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", color: "var(--text-muted)", textTransform: "uppercase" }}>
                   Team of the Week
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 900, color: "#c0c0d8", marginTop: 4, letterSpacing: "-0.01em" }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "var(--text-body)", marginTop: 4, letterSpacing: "-0.01em" }}>
                   Matchday {selectedDay ?? "—"}
                 </div>
                 {selectedDayDate && (
-                  <div style={{ fontSize: 11, color: "#4a4a6a", marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                     {formatDate(selectedDayDate)}
                   </div>
                 )}
-                <div style={{ fontSize: 10, color: "#3a3a5a", marginTop: 2 }}>
+                <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>
                   {filledSlots}/6 positions filled
                 </div>
               </div>
@@ -420,8 +420,8 @@ export default function AwardsPage() {
                 onClick={() => setSelectedDayIdx(i => Math.max(i - 1, 0))}
                 disabled={selectedDayIdx <= 0}
                 style={{
-                  background: "#0d0d1a", border: "1px solid #1a1a2e",
-                  color: selectedDayIdx <= 0 ? "#2a2a4a" : "#9090b0",
+                  background: "var(--bg-card)", border: "1px solid var(--border-main)",
+                  color: selectedDayIdx <= 0 ? "var(--text-faint)" : "var(--text-sub)",
                   padding: "7px 16px", fontSize: 12, cursor: selectedDayIdx <= 0 ? "default" : "pointer",
                   fontWeight: 600, letterSpacing: "0.06em",
                 }}
@@ -436,26 +436,26 @@ export default function AwardsPage() {
 
               {/* Player list sidebar */}
               <div>
-                <div style={{ background: "#0d0d1a", padding: "16px 20px" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.2em", color: "#5a5a7a", textTransform: "uppercase", marginBottom: 14 }}>
+                <div style={{ background: "var(--bg-card)", padding: "16px 20px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>
                     Team of the Week
                   </div>
                   {DISPLAY_ORDER.map(slot => {
                     const entry = totw[slot];
-                    const color = entry ? getRatingColor(entry.rating) : "#3a3a5a";
+                    const color = entry ? getRatingColor(entry.rating) : "var(--text-faint)";
                     return (
-                      <div key={slot} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid #0f0f1a" }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#4a4a6a", width: 26, letterSpacing: "0.06em", flexShrink: 0 }}>
+                      <div key={slot} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--border-row)" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", width: 26, letterSpacing: "0.06em", flexShrink: 0 }}>
                           {slot}
                         </span>
                         {entry ? (
                           <>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <Link href={`/players/${entry.playerId}`} style={{ textDecoration: "none" }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: "#c0c0d8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                   {entry.playerName}
                                 </div>
-                                <div style={{ fontSize: 10, color: "#4a4a6a", marginTop: 1 }}>
+                                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
                                   {entry.position.toUpperCase()}
                                 </div>
                               </Link>
@@ -465,14 +465,14 @@ export default function AwardsPage() {
                             </Link>
                           </>
                         ) : (
-                          <span style={{ fontSize: 11, color: "#2a2a4a" }}>—</span>
+                          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>—</span>
                         )}
                       </div>
                     );
                   })}
                 </div>
 
-                <div style={{ background: "#0d0d1a", padding: "12px 20px", marginTop: 2, fontSize: 11, color: "#3a3a5a", lineHeight: 1.6 }}>
+                <div style={{ background: "var(--bg-card)", padding: "12px 20px", marginTop: 2, fontSize: 11, color: "var(--text-faint)", lineHeight: 1.6 }}>
                   Rating links to the match. Player name links to profile.
                 </div>
               </div>
