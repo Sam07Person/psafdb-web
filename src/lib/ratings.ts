@@ -99,7 +99,7 @@ function defendingScore(s: MatchStatRow, role: PositionRole): number {
 function passingScore(s: MatchStatRow, role: PositionRole): number {
   // Position-aware caps: 2× real-world avg → 100, position avg → ~50
   // Calibrated: FWD passes≈11.0/kp≈1.4 | MID≈16.7/kp≈1.2 | DEF≈11.75/kp≈0.5 | GK≈11.5/kp≈0.24
-  const pCap  = role === "MID" ? 32.0 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
+  const pCap  = role === "MID" ? 29.0 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
   const kpCap = role === "MID" ? 1.56 : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
   // DEF/GK: passing is mostly about volume, not creativity — reduce key passes weight
   const pW = role === "FWD" ? 65 : 80;
@@ -191,7 +191,7 @@ export function calcSubRatings(
     gcAdj
   ));
 
-  const pCap  = role === "MID" ? 32.0 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
+  const pCap  = role === "MID" ? 29.0 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
   const kpCap = role === "MID" ? 1.56 : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
   const pW = role === "FWD" ? 65 : 80;
   const kW = role === "FWD" ? 35 : role === "MID" ? 28 : 20;

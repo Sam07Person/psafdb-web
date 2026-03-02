@@ -250,71 +250,82 @@ function FootballField({ totw }: { totw: Partial<Record<SlotKey, TOTWEntry>> }) 
 }
 
 export default function AwardsPage() {
-  const [allStats, setAllStats] = useState<RawStat[]>([]);
   const [leagues, setLeagues] = useState<{ id: string; name: string }[]>([]);
+  const [matchdays, setMatchdays] = useState<number[]>([]);
+  const [matchdayDates, setMatchdayDates] = useState<Record<number, string>>({});
   const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [dayStats, setDayStats] = useState<RawStat[]>([]);
 
+  // 1. Fetch leagues on mount
   useEffect(() => {
     if (!supabase) return;
-    (async () => {
-      setLoading(true);
-      const [{ data: leagueData }, { data: statsData }] = await Promise.all([
-        supabase.from("leagues").select("id,name").order("name"),
-        supabase.from("match_player_stats").select(
-          "player_id,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,team_side,benched,stats_incomplete,is_starter,sub_number,players(id,handle,name),matches(id,played_at,day,home_score,away_score,league_id,leagues(id,name,tier))"
-        ),
-      ]);
+    supabase.from("leagues").select("id,name").order("name").then(({ data }) => {
+      const list = data ?? [];
+      setLeagues(list);
+      if (list.length > 0) setSelectedLeagueId(list[0].id);
+      setLoading(false);
+    });
+  }, []);
 
+  // 2. Fetch matchdays when league changes
+  useEffect(() => {
+    if (!supabase || !selectedLeagueId) return;
+    setMatchdays([]);
+    setMatchdayDates({});
+    setSelectedDayIdx(0);
+    setDayStats([]);
+    supabase
+      .from("matches")
+      .select("day,played_at")
+      .eq("league_id", selectedLeagueId)
+      .not("day", "is", null)
+      .then(({ data }) => {
+        const seen = new Set<number>();
+        const dates: Record<number, string> = {};
+        for (const m of (data ?? []).sort((a: any, b: any) => b.day - a.day)) {
+          if (m.day != null && !seen.has(m.day)) {
+            seen.add(m.day);
+            if (m.played_at) dates[m.day] = m.played_at.slice(0, 10);
+          }
+        }
+        setMatchdays(Array.from(seen));
+        setMatchdayDates(dates);
+      });
+  }, [selectedLeagueId]);
+
+  const selectedDay = matchdays[selectedDayIdx] ?? null;
+
+  // 3. Fetch stats for the selected league+day on demand (avoids global row-limit truncation)
+  useEffect(() => {
+    if (!supabase || !selectedLeagueId || selectedDay == null) { setDayStats([]); return; }
+    (async () => {
+      const { data: matchRows } = await supabase
+        .from("matches")
+        .select("id")
+        .eq("league_id", selectedLeagueId)
+        .eq("day", selectedDay);
+      const matchIds = (matchRows ?? []).map((m: any) => m.id);
+      if (!matchIds.length) { setDayStats([]); return; }
+      const { data: statsData } = await supabase
+        .from("match_player_stats")
+        .select("player_id,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,team_side,benched,stats_incomplete,players(id,handle,name),matches(id,played_at,day,home_score,away_score,league_id)")
+        .in("match_id", matchIds);
       const normalized = (statsData ?? []).map((s: any) => ({
         ...s,
-        benched: s.benched ?? (!s.is_starter && s.sub_number !== null && s.score === 0),
+        benched: s.benched ?? false,
         stats_incomplete: s.stats_incomplete ?? false,
         players: Array.isArray(s.players) ? s.players[0] ?? null : s.players ?? null,
         matches: Array.isArray(s.matches) ? s.matches[0] ?? null : s.matches ?? null,
       })) as RawStat[];
-
-      const leagueList = leagueData ?? [];
-      setLeagues(leagueList);
-      setAllStats(normalized);
-      if (leagueList.length > 0) setSelectedLeagueId(leagueList[0].id);
-      setSelectedDayIdx(0);
-      setLoading(false);
+      setDayStats(normalized);
     })();
-  }, []);
+  }, [selectedLeagueId, selectedDay]);
 
-  // Sorted unique matchday numbers for selected league (highest first = most recent)
-  const matchdays = useMemo(() => {
-    if (!selectedLeagueId) return [];
-    const daySet = new Set<number>();
-    for (const s of allStats) {
-      if (s.matches?.league_id === selectedLeagueId && s.matches?.day != null) {
-        daySet.add(s.matches.day);
-      }
-    }
-    return Array.from(daySet).sort((a, b) => b - a);
-  }, [allStats, selectedLeagueId]);
+  const selectedDayDate = selectedDay != null ? (matchdayDates[selectedDay] ?? null) : null;
 
-  const selectedDay = matchdays[selectedDayIdx] ?? null;
-
-  // Representative date for the selected matchday (for display)
-  const selectedDayDate = useMemo(() => {
-    if (!selectedLeagueId || selectedDay == null) return null;
-    const dates = allStats
-      .filter(s => s.matches?.league_id === selectedLeagueId && s.matches?.day === selectedDay && s.matches?.played_at)
-      .map(s => s.matches!.played_at.slice(0, 10));
-    return dates.sort()[0] ?? null;
-  }, [allStats, selectedLeagueId, selectedDay]);
-
-  const totw = useMemo(() => {
-    if (!selectedLeagueId || selectedDay == null) return {};
-    const dayStats = allStats.filter(s =>
-      s.matches?.league_id === selectedLeagueId &&
-      s.matches?.day === selectedDay
-    );
-    return calcTOTW(dayStats);
-  }, [allStats, selectedLeagueId, selectedDay]);
+  const totw = useMemo(() => calcTOTW(dayStats), [dayStats]);
 
   if (!supabase) return <main style={{ padding: 40, color: "#888" }}>Supabase not configured.</main>;
 
