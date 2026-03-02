@@ -70,10 +70,12 @@ function attackingScore(s: MatchStatRow, role: PositionRole): number {
   const gThresh   = role === "FWD" ? 2.24 : role === "MID" ? 1.5  : 0.08;
   const aThresh   = role === "FWD" ? 0.96 : role === "MID" ? 1.5  : 0.30;
   const sotThresh = role === "FWD" ? 4.0  : role === "MID" ? 2.7  : 0.40;
+  const aMax      = role === "MID" ? 42 : 25;
+  const kpMax     = role === "MID" ? 15 : 20;
   return (
     Math.min(40, (s.goals / gThresh) * 40) +
-    Math.min(25, (s.assists / aThresh) * 25) +
-    Math.min(20, (s.key_passes / 3.0) * 20) +
+    Math.min(aMax, (s.assists / aThresh) * aMax) +
+    Math.min(kpMax, (s.key_passes / 3.0) * kpMax) +
     Math.min(15, (s.shots_on_target / sotThresh) * 15)
   );
 }
@@ -81,16 +83,15 @@ function attackingScore(s: MatchStatRow, role: PositionRole): number {
 function defendingScore(s: MatchStatRow, role: PositionRole): number {
   // Key tackles get a separate bonus so they count even when the combined bucket is capped.
   // Calibrated: avg key_tackles≈0.87 → ~2 bonus pts; 4 key_tackles → capped at +4.
-  const base = Math.min(100,
+  const base =
     Math.min(50, ((s.tackles + s.key_tackles) / 6.0) * 50) +
     Math.min(28, ((s.interceptions + s.key_interceptions) / 4.5) * 28) +
     Math.min(15, Math.max(0, 1 - s.possessions_lost / 28.0) * 15) +
-    Math.min(10, (s.key_tackles / 1.75) * 10)
-  );
+    Math.min(10, (s.key_tackles / 1.75) * 10);
   // Small GC adjustment for DEF: avg GC≈4.3 → neutral; clean sheet → +8; high GC → -5
   if (role === "DEF" && s.goals_conceded != null) {
     const gcAdj = Math.max(-5, Math.min(8, (1 - s.goals_conceded / 4.3) * 8));
-    return Math.min(100, Math.max(0, base + gcAdj));
+    return Math.max(0, base + gcAdj);
   }
   return base;
 }
@@ -98,11 +99,11 @@ function defendingScore(s: MatchStatRow, role: PositionRole): number {
 function passingScore(s: MatchStatRow, role: PositionRole): number {
   // Position-aware caps: 2× real-world avg → 100, position avg → ~50
   // Calibrated: FWD passes≈11.0/kp≈1.4 | MID≈16.7/kp≈1.2 | DEF≈11.75/kp≈0.5 | GK≈11.5/kp≈0.24
-  const pCap  = role === "MID" ? 33.4 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
-  const kpCap = role === "MID" ? 2.4  : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
+  const pCap  = role === "MID" ? 32.0 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
+  const kpCap = role === "MID" ? 1.56 : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
   // DEF/GK: passing is mostly about volume, not creativity — reduce key passes weight
-  const pW = (role === "DEF" || role === "GK") ? 80 : 65;
-  const kW = (role === "DEF" || role === "GK") ? 20 : 35;
+  const pW = role === "FWD" ? 65 : 80;
+  const kW = role === "FWD" ? 35 : role === "MID" ? 28 : 20;
   return Math.min(pW, (s.passes / pCap) * pW) + Math.min(kW, (s.key_passes / kpCap) * kW);
 }
 
@@ -129,10 +130,10 @@ function normalizeGameScore(rawScore: number, role: PositionRole): number {
   if (rawScore > 100) {
     // Scores are on the game's 0–700 scale — use position-specific divisor
     const divisor = role === "FWD" ? 9.0 : role === "MID" ? 8.2 : role === "GK" ? 11.0 : 6.8;
-    return Math.min(100, rawScore / divisor);
+    return rawScore / divisor;
   }
   // Legacy: 0–100 (direct) or 0–10 (×10)
-  return Math.min(100, rawScore > 10 ? rawScore : rawScore * 10);
+  return rawScore > 10 ? rawScore : rawScore * 10;
 }
 
 // ── Career sub-ratings from all matches ──────────────────────────────────────
@@ -171,11 +172,13 @@ export function calcSubRatings(
   const gThresh   = role === "FWD" ? 2.24 : role === "MID" ? 1.5  : 0.08;
   const aThresh   = role === "FWD" ? 0.96 : role === "MID" ? 1.5  : 0.30;
   const sotThresh = role === "FWD" ? 4.0  : role === "MID" ? 2.7  : 0.40;
+  const aMax      = role === "MID" ? 42 : 25;
+  const kpMax     = role === "MID" ? 15 : 20;
 
   const attacking = Math.min(100,
     Math.min(40, (avgGoals / gThresh) * 40) +
-    Math.min(25, (avgAssists / aThresh) * 25) +
-    Math.min(20, (avgKP / 3.0) * 20) +
+    Math.min(aMax, (avgAssists / aThresh) * aMax) +
+    Math.min(kpMax, (avgKP / 3.0) * kpMax) +
     Math.min(15, (avgSOT / sotThresh) * 15)
   );
 
@@ -188,10 +191,10 @@ export function calcSubRatings(
     gcAdj
   ));
 
-  const pCap  = role === "MID" ? 33.4 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
-  const kpCap = role === "MID" ? 2.4  : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
-  const pW = (role === "DEF" || role === "GK") ? 80 : 65;
-  const kW = (role === "DEF" || role === "GK") ? 20 : 35;
+  const pCap  = role === "MID" ? 32.0 : role === "GK" ? 23.0 : role === "DEF" ? 23.5 : 22.1;
+  const kpCap = role === "MID" ? 1.56 : role === "GK" ? 0.48 : role === "DEF" ? 1.0  : 2.84;
+  const pW = role === "FWD" ? 65 : 80;
+  const kW = role === "FWD" ? 35 : role === "MID" ? 28 : 20;
   const passing = Math.min(pW, (avgPasses / pCap) * pW) + Math.min(kW, (avgKP / kpCap) * kW);
 
   const wins = results.filter(r => r === "W").length;
