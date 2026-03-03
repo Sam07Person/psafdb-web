@@ -9,10 +9,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+type Zone = { name: string; color: string; spots: number; type: "top" | "bottom" };
+
 async function getLeague(id: string) {
   const { data, error } = await supabase
     .from("leagues")
-    .select("id, name, season, format, image, created_at")
+    .select("id, name, season, format, image, zones, created_at")
     .eq("id", id)
     .single();
   if (error || !data) return null;
@@ -167,13 +169,40 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
   }
   const sortedKnockoutStages = Object.keys(knockoutByStage).sort((a, b) => knockoutStageRank(a) - knockoutStageRank(b));
 
+  // Bracket data — all knockout matches (played + upcoming), sorted earliest-first for left→right display
+  const bracketByStage: Record<string, any[]> = {};
+  for (const m of matches.filter((m: any) => !m.group_name)) {
+    const stage = m.stage || "Knockout";
+    if (!bracketByStage[stage]) bracketByStage[stage] = [];
+    bracketByStage[stage].push(m);
+  }
+  // Sort stages: earliest (most matches) first → final last
+  const bracketStages = Object.keys(bracketByStage).sort((a, b) => knockoutStageRank(b) - knockoutStageRank(a));
+  const bracketThirdStage = bracketStages.find(s => s.toLowerCase().includes("third"));
+  const mainBracketStages = bracketStages.filter(s => !s.toLowerCase().includes("third"));
+
   const playedMatches = matches.filter((m: any) => m.home_score !== null);
   const upcomingMatches = matches.filter((m: any) => m.home_score === null).reverse().slice(0, 5);
   const logo = getLeagueLogo(league.image);
   const totalGoals = matches.reduce((s: number, m: any) => s + (m.home_score || 0) + (m.away_score || 0), 0);
 
+  // Resolve which zone applies to a row index
+  function getRowZone(index: number, totalRows: number, zones: Zone[]): Zone | null {
+    let topOffset = 0;
+    for (const zone of zones.filter(z => z.type === "top")) {
+      if (index >= topOffset && index < topOffset + zone.spots) return zone;
+      topOffset += zone.spots;
+    }
+    let bottomOffset = 0;
+    for (const zone of zones.filter(z => z.type === "bottom")) {
+      if (totalRows - 1 - index >= bottomOffset && totalRows - 1 - index < bottomOffset + zone.spots) return zone;
+      bottomOffset += zone.spots;
+    }
+    return null;
+  }
+
   // Shared standings table renderer
-  function StandingsTable({ rows, advanceSpots = 0 }: { rows: StandingRow[]; advanceSpots?: number }) {
+  function StandingsTable({ rows, zones = [] }: { rows: StandingRow[]; zones?: Zone[] }) {
     return (
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -187,9 +216,9 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           <tbody>
             {rows.map((row, index) => {
               const gd = row.gf - row.ga;
-              const advances = advanceSpots > 0 && index < advanceSpots;
+              const zone = getRowZone(index, rows.length, zones);
               return (
-                <tr key={row.team} style={{ borderBottom: "1px solid var(--border-row)", background: advances ? "rgba(74,222,128,0.08)" : "transparent", borderLeft: advances ? "2px solid #4ade80" : "2px solid transparent" }}>
+                <tr key={row.team} style={{ borderBottom: "1px solid var(--border-row)", background: zone ? `${zone.color}18` : "transparent", borderLeft: zone ? `2px solid ${zone.color}` : "2px solid transparent" }}>
                   <td style={{ padding: "10px 12px", color: "var(--text-faint)", fontSize: 11, fontWeight: 700 }}>{index + 1}</td>
                   <td style={{ padding: "10px 12px", fontWeight: 700, color: "var(--text-body)" }}>
                     {teamIdMap[row.team] ? (
@@ -217,6 +246,21 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
     );
   }
 
+  // Legend for zone colours below a standings table
+  function ZoneLegend({ zones }: { zones: Zone[] }) {
+    if (zones.length === 0) return null;
+    return (
+      <div style={{ background: "var(--bg-row)", padding: "6px 12px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        {zones.map((zone, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ display: "inline-block", width: 8, height: 8, background: zone.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.08em" }}>{zone.name}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function MatchRow({ match }: { match: any }) {
     const homeWin = match.home_score > match.away_score;
     const awayWin = match.away_score > match.home_score;
@@ -237,6 +281,122 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           <span style={{ fontSize: 10, color: "#e63946", background: "#e6394620", padding: "2px 6px", marginLeft: 8, letterSpacing: "0.08em" }}>FORFEIT</span>
         )}
       </Link>
+    );
+  }
+
+  function KnockoutBracket({ stages, byStage }: { stages: string[]; byStage: Record<string, any[]> }) {
+    if (stages.length === 0) return null;
+
+    const BASE = 96;        // base slot height (px) for the earliest round
+    const CW   = 28;        // connector column width (px)
+    const MW   = 164;       // match card width (px)
+    const AC   = "#a78bfa"; // accent colour
+
+    // Third place is displayed separately below the main bracket
+    const thirdStage = stages.find(s => s.toLowerCase().includes("third"));
+    const main = stages.filter(s => !s.toLowerCase().includes("third"));
+
+    function BracketCard({ match }: { match: any }) {
+      const played = match.home_score !== null;
+      const homeWin = played && match.home_score > match.away_score;
+      const awayWin = played && match.away_score > match.home_score;
+      return (
+        <Link href={`/matches/${match.id}`} style={{ display: "block", textDecoration: "none" }} className="nav-card">
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-main)", width: MW, overflow: "hidden" }}>
+            {[{ team: match.home_team, score: match.home_score, win: homeWin }, { team: match.away_team, score: match.away_score, win: awayWin }].map((row, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 9px", background: played && row.win ? "rgba(74,222,128,0.08)" : "transparent", borderBottom: i === 0 ? "1px solid var(--border-row)" : "none" }}>
+                <span style={{ fontSize: 12, fontWeight: played && row.win ? 700 : 400, color: played && row.win ? "var(--text-body)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: MW - 34 }}>
+                  {row.team || "TBD"}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 900, color: played && row.win ? AC : "var(--text-faint)", flexShrink: 0, minWidth: 16, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>
+                  {played ? row.score : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Link>
+      );
+    }
+
+    return (
+      <div>
+        {/* Bracket header */}
+        <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
+          Bracket
+        </div>
+
+        {/* Scrollable bracket */}
+        <div style={{ overflowX: "auto", background: "var(--bg-row)", padding: "24px 20px 28px" }}>
+          <div style={{ display: "inline-flex", alignItems: "flex-start" }}>
+            {main.map((stage, colIdx) => {
+              const slotH = BASE * Math.pow(2, colIdx);
+              const colMatches: any[] = byStage[stage] || [];
+              const isLast = colIdx === main.length - 1;
+
+              return (
+                <div key={stage} style={{ display: "flex", alignItems: "flex-start" }}>
+                  {/* Incoming arm (horizontal line to card) for rounds after the first */}
+                  {colIdx > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      {colMatches.map((_: any, mi: number) => (
+                        <div key={mi} style={{ height: slotH, display: "flex", alignItems: "center" }}>
+                          <div style={{ width: CW, height: 0, borderTop: `2px solid ${AC}` }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Match cards column */}
+                  <div>
+                    {/* Stage label */}
+                    <div style={{ textAlign: "center", fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8, width: MW }}>
+                      {stage}
+                    </div>
+                    {colMatches.map((match: any) => (
+                      <div key={match.id} style={{ height: slotH, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <BracketCard match={match} />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Outgoing connector to next round */}
+                  {!isLast && (
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      {Array.from({ length: Math.ceil(colMatches.length / 2) }).map((_, pairIdx) => {
+                        const hasBottom = pairIdx * 2 + 1 < colMatches.length;
+                        return (
+                          <div key={pairIdx}>
+                            {/* Top match of pair: ┐ connector in bottom half of slot */}
+                            <div style={{ height: slotH, position: "relative" }}>
+                              <div style={{ position: "absolute", top: "50%", left: 0, right: 0, bottom: 0, borderTop: `2px solid ${AC}`, borderRight: `2px solid ${AC}` }} />
+                            </div>
+                            {/* Bottom match of pair: ┘ connector in top half of slot */}
+                            {hasBottom && (
+                              <div style={{ height: slotH, position: "relative" }}>
+                                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: "50%", borderRight: `2px solid ${AC}`, borderBottom: `2px solid ${AC}` }} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Third place play-off shown below the bracket */}
+        {thirdStage && (byStage[thirdStage] || []).length > 0 && (
+          <div style={{ marginTop: 2 }}>
+            <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
+              Third Place Play-off
+            </div>
+            {byStage[thirdStage].map((match: any) => <MatchRow key={match.id} match={match} />)}
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -281,7 +441,10 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
               </div>
               {standings.length === 0
                 ? <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>No teams yet</div>
-                : <StandingsTable rows={standings} />
+                : <>
+                    <StandingsTable rows={standings} zones={league.zones || []} />
+                    <ZoneLegend zones={league.zones || []} />
+                  </>
               }
             </div>
           )}
@@ -300,54 +463,31 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
                       <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
                         {groupName}
                       </div>
-                      <StandingsTable rows={groupStandings[groupName]} advanceSpots={2} />
-                      <div style={{ background: "var(--bg-row)", padding: "6px 12px", display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ display: "inline-block", width: 8, height: 8, background: "#4ade80", flexShrink: 0 }} />
-                        <span style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.08em" }}>Advances</span>
-                      </div>
+                      <StandingsTable rows={groupStandings[groupName]} zones={league.zones || []} />
+                      <ZoneLegend zones={league.zones || []} />
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Knockout rounds */}
-              {sortedKnockoutStages.length > 0 && (
+              {/* Knockout bracket */}
+              {mainBracketStages.length > 0 && (
                 <div style={{ marginTop: 2 }}>
-                  {sortedKnockoutStages.map(stage => (
-                    <div key={stage} style={{ marginBottom: 2 }}>
-                      <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
-                        {stage}
-                      </div>
-                      {knockoutByStage[stage].map((match: any) => (
-                        <MatchRow key={match.id} match={match} />
-                      ))}
-                    </div>
-                  ))}
+                  <KnockoutBracket stages={bracketStages} byStage={bracketByStage} />
                 </div>
               )}
             </>
           )}
 
-          {/* ── KNOCKOUT FORMAT: results by stage only ── */}
+          {/* ── KNOCKOUT FORMAT: visual bracket ── */}
           {isKnockout && (
-            <>
-              {sortedKnockoutStages.length === 0 ? (
-                <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
-                  No matches played yet
-                </div>
-              ) : (
-                sortedKnockoutStages.map(stage => (
-                  <div key={stage} style={{ marginBottom: 2 }}>
-                    <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
-                      {stage}
-                    </div>
-                    {knockoutByStage[stage].map((match: any) => (
-                      <MatchRow key={match.id} match={match} />
-                    ))}
-                  </div>
-                ))
-              )}
-            </>
+            mainBracketStages.length === 0 && !bracketThirdStage ? (
+              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
+                No matches yet
+              </div>
+            ) : (
+              <KnockoutBracket stages={bracketStages} byStage={bracketByStage} />
+            )
           )}
 
           {/* Recent Results (league format only — groups/knockout handle their own results above) */}

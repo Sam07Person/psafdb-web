@@ -476,6 +476,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 1b) Block import if league has ended
+  if (league_id) {
+    const { data: leagueCheck } = await supabaseAdmin
+      .from("leagues")
+      .select("ended")
+      .eq("id", league_id)
+      .single();
+    if (leagueCheck?.ended) {
+      return json(403, { error: "This league has ended — no new results can be imported." });
+    }
+  }
+
   // 2) Upsert match (uses your UNIQUE(league_id, played_at, home_team, away_team))
   // IMPORTANT: if league_id is null, Postgres UNIQUE allows multiple nulls -> dedupe may not work.
   // So we strongly recommend including league in the payload.

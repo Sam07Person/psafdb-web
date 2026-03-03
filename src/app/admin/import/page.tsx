@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
+type Zone = { name: string; color: string; spots: number; type: "top" | "bottom" };
+
 type League = {
   id: string;
   name: string;
@@ -10,6 +12,8 @@ type League = {
   format: string | null;
   image: string | null;
   tier: number | null;
+  ended?: boolean;
+  zones?: Zone[];
 };
 
 type Team = {
@@ -214,7 +218,9 @@ export default function AdminDashboardPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [jsonData, setJsonData] = useState("");
 
-  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
+  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league", image: "", tier: 2, ended: false, zones: [] as Zone[] });
+  const [newZone, setNewZone] = useState<Zone>({ name: "", color: "#4ade80", spots: 1, type: "top" });
+  const [editingZoneIdx, setEditingZoneIdx] = useState<number | null>(null);
   const [editingLeague, setEditingLeague] = useState<string | null>(null);
 
   const [teamForm, setTeamForm] = useState({ id: "", name: "", league_ids: [] as string[] });
@@ -365,19 +371,121 @@ export default function AdminDashboardPage() {
     setMessage(null);
     try {
       const parsed = JSON.parse(jsonData);
-      const res = await fetch("/api/admin/import", {
+
+      // Convert a player from either format to extractedData format
+      const convertPlayer = (p: any, subIdx: { n: number }) => {
+        const rawPos: string = p.postion || p.position || "";
+        const isSubPos = /^sub\s*\d*/i.test(rawPos.trim());
+        const isStarter = !isSubPos;
+        let subNumber: number | null = null;
+        if (isSubPos) {
+          const m = rawPos.match(/\d+/);
+          subNumber = m ? parseInt(m[0]) : subIdx.n++;
+        }
+        const allZero = !p.score && !p.goals && !p.assists && !p.passes && !p.tackles && !p.interceptions && !p.gKSaves && !p.gk_saves;
+        const benched = isSubPos && allZero;
+        return {
+          name: p.playerName || p.name || p.handle || "",
+          user_id: p.playerId || p.game_user_id || null,
+          position: isSubPos ? "" : rawPos,
+          score: p.score ?? 0,
+          goals: p.goals ?? 0,
+          assists: p.assists ?? 0,
+          passes: p.passes ?? 0,
+          key_passes: p.keyPasses ?? p.key_passes ?? 0,
+          shots: p.shots ?? 0,
+          shots_on_target: p.shotsOnTarget ?? p.shots_on_target ?? 0,
+          tackles: p.tackles ?? 0,
+          key_tackles: p.keyTackles ?? p.key_tackles ?? 0,
+          interceptions: p.interceptions ?? 0,
+          key_interceptions: p.keyInterceptions ?? p.key_interceptions ?? 0,
+          possessions_lost: p.possessionsLost ?? p.possessions_lost ?? 0,
+          gk_saves: p.gKSaves ?? p.gk_saves ?? 0,
+          gk_catches: p.gKCatches ?? p.gk_catches ?? 0,
+          is_starter: isStarter,
+          sub_number: subNumber,
+          benched,
+          stats_incomplete: p.stats_incomplete ?? false,
+        };
+      };
+
+      let extractedData: any;
+
+      if ("team1Stats" in parsed) {
+        // Custom format: { team1Stats, team2Stats, team1PlayerStats, team2PlayerStats }
+        const t1 = parsed.team1Stats;
+        const t2 = parsed.team2Stats;
+        extractedData = {
+          home_team: {
+            team_name: t1.teamName || "",
+            goals: t1.goals ?? 0,
+            players: (parsed.team1PlayerStats || []).map((p: any) => convertPlayer(p, { n: 1 })),
+          },
+          away_team: {
+            team_name: t2.teamName || "",
+            goals: t2.goals ?? 0,
+            players: (parsed.team2PlayerStats || []).map((p: any) => convertPlayer(p, { n: 1 })),
+          },
+          league: null,
+          team_stats: { home: t1, away: t2 },
+        };
+      } else {
+        // Generic format: { league, match, players, team_stats }
+        const match = parsed.match || {};
+        const players: any[] = Array.isArray(parsed.players) ? parsed.players : [];
+        extractedData = {
+          home_team: {
+            team_name: match.home_team || "",
+            goals: match.home_score ?? 0,
+            players: players.filter((p: any) => p.team_side === "home").map((p: any) => convertPlayer(p, { n: 1 })),
+          },
+          away_team: {
+            team_name: match.away_team || "",
+            goals: match.away_score ?? 0,
+            players: players.filter((p: any) => p.team_side === "away").map((p: any) => convertPlayer(p, { n: 1 })),
+          },
+          league: parsed.league || null,
+          team_stats: parsed.team_stats || null,
+        };
+      }
+
+      // Run through player validation
+      const validateRes = await fetch("/api/admin/validate-players", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify(parsed),
+        body: JSON.stringify({ extractedData }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ type: "success", text: "Import successful!" });
-        setJsonData("");
-        loadAllData();
-      } else {
-        setMessage({ type: "error", text: data.error || "Import failed" });
-      }
+      const validateData = await validateRes.json();
+      if (!validateRes.ok) throw new Error(validateData.error || "Validation failed");
+
+      // Create a new match group with the validated data and open the review UI
+      const newGroupId = generateGroupId();
+      const newGroup: MatchGroup = {
+        id: newGroupId,
+        images: [],
+        previews: [],
+        leagueId: "auto",
+        extractedData,
+        editedData: JSON.parse(JSON.stringify(validateData.validatedData)),
+        status: "validated",
+        importResult: null,
+        error: null,
+        teamRosters: validateData.teamRosters,
+        validationStats: validateData.stats,
+      };
+
+      setMatchGroups(prev => [...prev, newGroup]);
+      setEditingGroupId(newGroupId);
+      setActiveTab("import");
+      setJsonData("");
+
+      const reviewCount = validateData.stats?.playersNeedingReview || 0;
+      setMessage({
+        type: "success",
+        text: reviewCount > 0
+          ? `JSON parsed! ${reviewCount} player(s) need review — check the Import tab.`
+          : "JSON parsed! All players matched. Review & confirm in the Import tab.",
+      });
     } catch (err: any) {
       setMessage({ type: "error", text: err.message });
     } finally {
@@ -400,12 +508,14 @@ export default function AdminDashboardPage() {
           format: leagueForm.format,
           image: leagueForm.image || null,
           tier: leagueForm.tier,
+          ended: leagueForm.ended,
+          zones: leagueForm.zones,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingLeague ? "League updated!" : "League created!" });
-        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
+        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, ended: false, zones: [] });
         setEditingLeague(null);
         loadLeagues();
       } else {
@@ -419,7 +529,7 @@ export default function AdminDashboardPage() {
   };
 
   const handleEditLeague = (league: League) => {
-    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "", tier: league.tier ?? 2 });
+    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "", tier: league.tier ?? 2, ended: league.ended ?? false, zones: league.zones || [] });
     setEditingLeague(league.id);
   };
 
@@ -437,6 +547,36 @@ export default function AdminDashboardPage() {
       } else {
         const data = await res.json();
         setMessage({ type: "error", text: data.error || "Failed to delete league" });
+      }
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const handleToggleLeagueEnded = async (league: League) => {
+    const newEnded = !league.ended;
+    if (newEnded && !confirm(`Mark "${league.name}" as ended? No new results can be imported once ended.`)) return;
+    try {
+      const res = await fetch("/api/admin/leagues", {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({
+          id: league.id,
+          name: league.name,
+          season: league.season || null,
+          format: league.format || "league",
+          image: league.image || null,
+          tier: league.tier ?? 2,
+          ended: newEnded,
+          zones: league.zones || [],
+        }),
+      });
+      if (res.ok) {
+        setMessage({ type: "success", text: newEnded ? `"${league.name}" marked as ended.` : `"${league.name}" reopened.` });
+        loadLeagues();
+      } else {
+        const d = await res.json();
+        setMessage({ type: "error", text: d.error || "Failed to update league." });
       }
     } catch (err: any) {
       setMessage({ type: "error", text: err.message });
@@ -824,7 +964,7 @@ export default function AdminDashboardPage() {
     setEditingTeam(null);
     setEditingPlayer(null);
     setEditingFixture(null);
-    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2 });
+    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, ended: false, zones: [] });
     setTeamForm({ id: "", name: "", league_ids: [] });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
@@ -2147,9 +2287,10 @@ export default function AdminDashboardPage() {
             {/* JSON Import */}
             <div className="bg-gray-800 p-6 rounded-lg">
               <h2 className="text-lg font-semibold text-white mb-4">📝 Import Match Data (JSON)</h2>
+              <p className="text-gray-400 text-sm mb-3">Paste match JSON. Players will be matched automatically — you can review & confirm before importing.</p>
               <textarea value={jsonData} onChange={(e) => setJsonData(e.target.value)} className="w-full h-64 p-4 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none font-mono text-sm" placeholder="Paste match JSON here..." />
               <button onClick={handleImport} disabled={loading || !jsonData.trim()} className="mt-4 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-3 px-4 rounded transition">
-                {loading ? "Importing..." : "Import (JSON)"}
+                {loading ? "Matching players..." : "Parse & Match Players"}
               </button>
             </div>
           </div>
@@ -2202,6 +2343,45 @@ export default function AdminDashboardPage() {
                   {!leagueForm.image && <span className="text-xs text-gray-500">No logo selected</span>}
                 </div>
               </div>
+              {/* Zone Configuration */}
+              <div className="mt-4">
+                <label className="block text-gray-300 mb-2 text-sm">Zone Configuration <span className="text-gray-500 font-normal">(highlights standings rows — e.g. Promotion, Playoff, Relegation)</span></label>
+                {leagueForm.zones.length > 0 && (
+                  <div className="space-y-1 mb-3">
+                    {leagueForm.zones.map((zone, i) => (
+                      <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded text-sm ${editingZoneIdx === i ? "bg-blue-900/40 border border-blue-500/40" : "bg-gray-700/60"}`}>
+                        <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: zone.color }} />
+                        <span className="text-white flex-1">{zone.type === "top" ? "▲" : "▼"} {zone.name} · {zone.spots} spot{zone.spots !== 1 ? "s" : ""}</span>
+                        <button type="button" onClick={() => { setEditingZoneIdx(i); setNewZone({ ...zone }); }} className="text-blue-400 hover:text-blue-300 text-xs">Edit</button>
+                        <button type="button" onClick={() => { setLeagueForm({ ...leagueForm, zones: leagueForm.zones.filter((_, j) => j !== i) }); if (editingZoneIdx === i) { setEditingZoneIdx(null); setNewZone({ name: "", color: "#4ade80", spots: 1, type: "top" }); } }} className="text-red-400 hover:text-red-300 text-xs font-bold">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <select value={newZone.type} onChange={(e) => setNewZone({ ...newZone, type: e.target.value as "top" | "bottom" })} className="p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm">
+                    <option value="top">▲ From top</option>
+                    <option value="bottom">▼ From bottom</option>
+                  </select>
+                  <input type="text" value={newZone.name} onChange={(e) => setNewZone({ ...newZone, name: e.target.value })} placeholder="Zone name (e.g. Promotion)" className="p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm w-48" />
+                  <input type="number" min={1} max={20} value={newZone.spots} onChange={(e) => setNewZone({ ...newZone, spots: Math.max(1, parseInt(e.target.value) || 1) })} className="p-2 rounded bg-gray-700 text-white border border-gray-600 text-sm w-20" title="Number of spots" />
+                  <input type="color" value={newZone.color} onChange={(e) => setNewZone({ ...newZone, color: e.target.value })} className="w-10 h-9 rounded cursor-pointer border border-gray-600 bg-gray-700" title="Zone color" />
+                  {editingZoneIdx !== null ? (
+                    <>
+                      <button type="button" onClick={() => { if (!newZone.name.trim()) return; const updated = [...leagueForm.zones]; updated[editingZoneIdx] = { ...newZone, name: newZone.name.trim() }; setLeagueForm({ ...leagueForm, zones: updated }); setEditingZoneIdx(null); setNewZone({ name: "", color: "#4ade80", spots: 1, type: "top" }); }} disabled={!newZone.name.trim()} className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm py-2 px-3 rounded">Update Zone</button>
+                      <button type="button" onClick={() => { setEditingZoneIdx(null); setNewZone({ name: "", color: "#4ade80", spots: 1, type: "top" }); }} className="bg-gray-600 hover:bg-gray-500 text-white text-sm py-2 px-3 rounded">Cancel</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => { if (!newZone.name.trim()) return; setLeagueForm({ ...leagueForm, zones: [...leagueForm.zones, { ...newZone, name: newZone.name.trim() }] }); setNewZone({ name: "", color: "#4ade80", spots: 1, type: "top" }); }} disabled={!newZone.name.trim()} className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm py-2 px-3 rounded">+ Add Zone</button>
+                  )}
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="flex items-center gap-3 cursor-pointer select-none w-fit">
+                  <input type="checkbox" checked={leagueForm.ended} onChange={(e) => setLeagueForm({ ...leagueForm, ended: e.target.checked })} className="w-4 h-4 rounded accent-orange-500" />
+                  <span className="text-gray-300 text-sm">Season ended <span className="text-gray-500 font-normal">(blocks new results, awards champion)</span></span>
+                </label>
+              </div>
               <div className="mt-4 flex gap-2">
                 <button onClick={handleSaveLeague} disabled={loading || !leagueForm.name} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded">{editingLeague ? "Update" : "Create"} League</button>
                 {editingLeague && <button onClick={cancelEdit} className="bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded">Cancel</button>}
@@ -2217,8 +2397,13 @@ export default function AdminDashboardPage() {
                         {l.image && <img src={`/${l.image}.png`} alt={l.image} style={{ width: 24, height: 24, opacity: 0.8, filter: ["cl","ml"].includes(l.image) ? "invert(1) hue-rotate(180deg) brightness(1.1)" : "invert(1)" }} />}
                         <span className="text-white font-medium">{l.name}</span>
                         {l.season && <span className="text-gray-400 ml-1">({l.season})</span>}
+                        {l.ended && <span className="text-xs font-bold bg-orange-500/20 text-orange-400 border border-orange-500/40 px-2 py-0.5 rounded">ENDED</span>}
                       </div>
-                      <div className="flex gap-2"><button onClick={() => handleEditLeague(l)} className="text-blue-400 hover:text-blue-300 text-sm">Edit</button><button onClick={() => handleDeleteLeague(l.id)} className="text-red-400 hover:text-red-300 text-sm">Delete</button></div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleToggleLeagueEnded(l)} className={`text-sm ${l.ended ? "text-green-400 hover:text-green-300" : "text-orange-400 hover:text-orange-300"}`}>{l.ended ? "Reopen" : "End Season"}</button>
+                        <button onClick={() => handleEditLeague(l)} className="text-blue-400 hover:text-blue-300 text-sm">Edit</button>
+                        <button onClick={() => handleDeleteLeague(l.id)} className="text-red-400 hover:text-red-300 text-sm">Delete</button>
+                      </div>
                     </div>
                   ))}
                 </div>

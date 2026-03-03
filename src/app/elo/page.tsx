@@ -46,33 +46,29 @@ type EloEntry = {
 };
 
 async function computeElo(): Promise<EloEntry[]> {
-  // Fetch all season 11 leagues
+  // Fetch all leagues (all seasons)
   const { data: leagues } = await supabase
     .from("leagues")
-    .select("id,tier")
-    .eq("season", "11");
+    .select("id,tier");
 
-  if (!leagues?.length) return [];
+  const tierMap = new Map<string, number | null>(
+    (leagues ?? []).map((l) => [l.id, l.tier])
+  );
 
-  const leagueIds = leagues.map((l) => l.id);
-  const tierMap = new Map<string, number | null>(leagues.map((l) => [l.id, l.tier]));
-
-  // Fetch all played season-11 matches in chronological order
+  // Fetch all played matches in chronological order
   const { data: matches } = await supabase
     .from("matches")
     .select("id,home_team,away_team,home_score,away_score,played_at,league_id")
-    .in("league_id", leagueIds)
     .not("home_score", "is", null)
     .not("away_score", "is", null)
     .order("played_at", { ascending: true });
 
-  if (!matches) return [];
+  if (!matches?.length) return [];
 
-  // Also get all teams in season 11 leagues (includes teams with 0 games)
+  // Build team ID map from all teams
   const { data: allTeams } = await supabase
     .from("teams")
-    .select("id,name,league_id")
-    .in("league_id", leagueIds);
+    .select("id,name");
 
   const teamIdMap = new Map<string, string>(
     (allTeams ?? []).map((t) => [t.name, t.id])
@@ -129,10 +125,9 @@ async function computeElo(): Promise<EloEntry[]> {
     history.get(m.away_team)!.push(Math.round(newA));
   }
 
-  // Collect all teams (played + unplayed)
+  // Collect all teams that have played at least one match
   const teamSet = new Set<string>();
   for (const m of matches) { teamSet.add(m.home_team); teamSet.add(m.away_team); }
-  for (const t of allTeams ?? []) teamSet.add(t.name);
 
   return Array.from(teamSet)
     .map((team) => ({
@@ -165,14 +160,14 @@ export default async function EloPage() {
             Team ELO Rankings
           </h1>
           <p style={{ marginTop: 8, color: "var(--text-muted)", fontSize: 13 }}>
-            Season 11 · Starting ELO: 1000 · Updated after every result
+            All seasons · Starting ELO: 1000 · Updated after every result
           </p>
         </div>
       </section>
 
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "32px 24px 64px" }}>
         {entries.length === 0 ? (
-          <p style={{ color: "var(--text-muted)" }}>No season 11 results found.</p>
+          <p style={{ color: "var(--text-muted)" }}>No results found.</p>
         ) : (
           <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7", overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>

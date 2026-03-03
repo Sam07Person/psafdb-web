@@ -299,6 +299,81 @@ async function getTeamAllTimePlayers(teamName: string): Promise<PlayerWithStats[
   }).sort((a, b) => b.matches_for_team - a.matches_for_team);
 }
 
+type Championship = {
+  leagueId: string;
+  leagueName: string;
+  season: string | null;
+};
+
+async function getChampionships(teamName: string): Promise<Championship[]> {
+  // Get all ended leagues that have matches involving this team
+  const { data: teamMatches } = await supabase
+    .from("matches")
+    .select("league_id")
+    .or(`home_team.eq.${teamName},away_team.eq.${teamName}`)
+    .not("league_id", "is", null);
+
+  if (!teamMatches?.length) return [];
+
+  const leagueIds = [...new Set(teamMatches.map((m: any) => m.league_id as string))];
+
+  const { data: endedLeagues } = await supabase
+    .from("leagues")
+    .select("id,name,season")
+    .in("id", leagueIds)
+    .eq("ended", true)
+    .eq("format", "league"); // only regular league format
+
+  if (!endedLeagues?.length) return [];
+
+  const championships: Championship[] = [];
+
+  for (const league of endedLeagues) {
+    // Get all played matches in this league
+    const { data: leagueMatches } = await supabase
+      .from("matches")
+      .select("home_team,away_team,home_score,away_score")
+      .eq("league_id", league.id)
+      .not("home_score", "is", null)
+      .not("away_score", "is", null);
+
+    if (!leagueMatches?.length) continue;
+
+    // Calculate standings
+    const pts: Record<string, number> = {};
+    const gd: Record<string, number> = {};
+    const gf: Record<string, number> = {};
+
+    for (const m of leagueMatches) {
+      const hs = m.home_score as number;
+      const as_ = m.away_score as number;
+
+      pts[m.home_team] = (pts[m.home_team] ?? 0);
+      pts[m.away_team] = (pts[m.away_team] ?? 0);
+      gd[m.home_team]  = (gd[m.home_team]  ?? 0) + (hs - as_);
+      gd[m.away_team]  = (gd[m.away_team]  ?? 0) + (as_ - hs);
+      gf[m.home_team]  = (gf[m.home_team]  ?? 0) + hs;
+      gf[m.away_team]  = (gf[m.away_team]  ?? 0) + as_;
+
+      if (hs > as_)      { pts[m.home_team] += 3; }
+      else if (hs < as_) { pts[m.away_team] += 3; }
+      else               { pts[m.home_team] += 1; pts[m.away_team] += 1; }
+    }
+
+    const sorted = Object.keys(pts).sort((a, b) => {
+      if ((pts[b] ?? 0) !== (pts[a] ?? 0)) return (pts[b] ?? 0) - (pts[a] ?? 0);
+      if ((gd[b]  ?? 0) !== (gd[a]  ?? 0)) return (gd[b]  ?? 0) - (gd[a]  ?? 0);
+      return (gf[b] ?? 0) - (gf[a] ?? 0);
+    });
+
+    if (sorted[0] === teamName) {
+      championships.push({ leagueId: league.id, leagueName: league.name, season: league.season });
+    }
+  }
+
+  return championships;
+}
+
 // Fetch full stats for given player IDs and compute individual ratings.
 async function getSquadRatings(playerIds: string[]): Promise<Map<string, number | null>> {
   if (playerIds.length === 0) return new Map();
@@ -408,11 +483,12 @@ export default async function TeamDetailPage({
 
   if (!team) notFound();
 
-  const [matches, stats, currentSquad, allTimePlayers] = await Promise.all([
+  const [matches, stats, currentSquad, allTimePlayers, championships] = await Promise.all([
     getTeamMatches(team.name),
     getTeamStats(team.name),
     getTeamSquad(team.name),
     getTeamAllTimePlayers(team.name),
+    getChampionships(team.name),
   ]);
 
   // Fetch individual ratings for current squad
@@ -477,6 +553,28 @@ export default async function TeamDetailPage({
               {teamRatingLabel}
               <div className="text-xs font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>Avg of {ratedSquadValues.length} rated players</div>
             </div>
+          </div>
+        )}
+
+        {/* Championship Badges */}
+        {championships.length > 0 && (
+          <div className="mb-6 flex flex-wrap gap-3">
+            {championships.map((c) => (
+              <Link
+                key={c.leagueId}
+                href={`/leagues/${c.leagueId}`}
+                className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 transition hover:opacity-90"
+                style={{ borderColor: "#f59e0b55", background: "linear-gradient(135deg, #f59e0b18, #fbbf2408)" }}
+              >
+                <span style={{ fontSize: 22 }}>🏆</span>
+                <div>
+                  <div className="text-sm font-bold text-yellow-300">League Champions</div>
+                  <div className="text-xs text-yellow-200/70">
+                    {c.leagueName}{c.season ? ` · Season ${c.season}` : ""}
+                  </div>
+                </div>
+              </Link>
+            ))}
           </div>
         )}
 
