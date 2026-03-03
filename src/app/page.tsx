@@ -44,6 +44,13 @@ const NAV_ITEMS = [
     accent: "#22c55e",
     icon: "▲",
   },
+  {
+    href: "/compare",
+    label: "Compare",
+    sub: "Head-to-Head Stats",
+    accent: "#f472b6",
+    icon: "⇄",
+  },
 ];
 
 export default function HomePage() {

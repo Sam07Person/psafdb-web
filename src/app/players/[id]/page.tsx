@@ -231,6 +231,7 @@ export default function PlayerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<any>(null);
 
+  const [teamIdMap, setTeamIdMap] = useState<Record<string, string>>({});
   const [showAllMatches, setShowAllMatches] = useState(false);
   const [showBenchedMatches, setShowBenchedMatches] = useState(false);
   const [totwAppearances, setTotwAppearances] = useState<TOTWAppearance[]>([]);
@@ -422,6 +423,20 @@ export default function PlayerDetailPage() {
       setTotwLoading(false);
     })();
   }, [matchStats, playerId]);
+
+  // Fetch team IDs for all teams this player has played for so we can link to team pages
+  useEffect(() => {
+    if (!supabase || matchStats.length === 0) return;
+    const names = Array.from(new Set(
+      matchStats.map(s => s.matches ? (s.team_side === "home" ? s.matches.home_team : s.matches.away_team) : null).filter(Boolean) as string[]
+    ));
+    if (names.length === 0) return;
+    supabase.from("teams").select("id,name").in("name", names).then(({ data }) => {
+      const map: Record<string, string> = {};
+      for (const t of data ?? []) map[t.name] = t.id;
+      setTeamIdMap(map);
+    });
+  }, [matchStats]);
 
   const playedMatches = matchStats.filter(s => !s.benched);
   const benchedMatches = matchStats.filter(s => s.benched);
@@ -668,9 +683,17 @@ export default function PlayerDetailPage() {
           {lastClub && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-white/50">Last club:</span>
-              <span className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-sm font-medium text-emerald-200">
-                {lastClub.teamName}
-              </span>
+              {teamIdMap[lastClub.teamName] ? (
+                <Link href={`/teams/${teamIdMap[lastClub.teamName]}`} style={{ textDecoration: "none" }}>
+                  <span className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-sm font-medium text-emerald-200 hover:bg-emerald-400/20 transition-colors cursor-pointer">
+                    {lastClub.teamName}
+                  </span>
+                </Link>
+              ) : (
+                <span className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-sm font-medium text-emerald-200">
+                  {lastClub.teamName}
+                </span>
+              )}
             </div>
           )}
           {matchRatingValues.length > 0 && (
@@ -697,19 +720,29 @@ export default function PlayerDetailPage() {
         <div className="mt-6">
           <div className="text-sm text-white/50 mb-2">Teams played for:</div>
           <div className="flex flex-wrap gap-2">
-            {teamsPlayedFor.map((team) => (
-              <span
-                key={team}
-                className={cx(
-                  "rounded-lg border px-3 py-1 text-sm",
-                  team === lastClub?.teamName
-                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
-                    : "border-white/10 bg-white/5 text-white/70"
-                )}
-              >
-                {team}
-              </span>
-            ))}
+            {teamsPlayedFor.map((team) => {
+              const teamId = teamIdMap[team];
+              const badge = (
+                <span
+                  className={cx(
+                    "rounded-lg border px-3 py-1 text-sm transition-colors",
+                    team === lastClub?.teamName
+                      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                      : "border-white/10 bg-white/5 text-white/70",
+                    teamId && "hover:bg-white/10 cursor-pointer"
+                  )}
+                >
+                  {team}
+                </span>
+              );
+              return teamId ? (
+                <Link key={team} href={`/teams/${teamId}`} style={{ textDecoration: "none" }}>
+                  {badge}
+                </Link>
+              ) : (
+                <span key={team}>{badge}</span>
+              );
+            })}
           </div>
         </div>
       )}

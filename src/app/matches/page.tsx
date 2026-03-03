@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
+import { expectedScore } from "@/lib/elo";
 
 type MatchRow = {
   id: string;
@@ -20,15 +21,20 @@ export default function MatchesPage() {
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [eloMap, setEloMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      const { data } = await supabase
-        .from("matches")
-        .select("id,league_id,played_at,home_team,away_team,home_score,away_score,forfeited_by,league:leagues(name,season)")
-        .order("played_at", { ascending: false });
+      const [{ data }, eloRes] = await Promise.all([
+        supabase
+          .from("matches")
+          .select("id,league_id,played_at,home_team,away_team,home_score,away_score,forfeited_by,league:leagues(name,season)")
+          .order("played_at", { ascending: false }),
+        fetch("/api/elo").then((r) => r.json()).catch(() => ({})),
+      ]);
       setMatches((data ?? []) as unknown as MatchRow[]);
+      setEloMap(eloRes ?? {});
       setLoading(false);
     })();
   }, []);
@@ -98,9 +104,27 @@ export default function MatchesPage() {
                         <span style={{ fontWeight: 900, fontSize: 20, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" }}>
                           {m.home_score} <span style={{ color: "#2a2a3a", fontSize: 14 }}>—</span> {m.away_score}
                         </span>
-                      ) : (
-                        <span style={{ fontSize: 12, color: "var(--text-faint)", letterSpacing: "0.1em" }}>vs</span>
-                      )}
+                      ) : (() => {
+                        const hElo = eloMap[m.home_team];
+                        const aElo = eloMap[m.away_team];
+                        if (hElo == null || aElo == null) {
+                          return <span style={{ fontSize: 12, color: "var(--text-faint)", letterSpacing: "0.1em" }}>vs</span>;
+                        }
+                        const homeP = Math.round(expectedScore(hElo, aElo) * 100);
+                        const awayP = 100 - homeP;
+                        const homeFav = homeP >= 55;
+                        const awayFav = awayP >= 55;
+                        return (
+                          <div>
+                            <span style={{ fontSize: 12, color: "var(--text-faint)", letterSpacing: "0.1em" }}>vs</span>
+                            <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 4 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: homeFav ? "#4ea8f7" : "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>{homeP}%</span>
+                              <span style={{ fontSize: 10, color: "var(--border-main)" }}>·</span>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: awayFav ? "#a78bfa" : "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>{awayP}%</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                     <span style={{ fontSize: 14, fontWeight: awayWin ? 800 : 500, color: awayWin ? "var(--text-body)" : "var(--text-muted)", flex: 1 }}>{m.away_team}</span>
                   </div>

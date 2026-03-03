@@ -9,6 +9,7 @@ import {
   type MatchStatRow,
   type MatchResult,
 } from "@/lib/ratings";
+import { computeCurrentElos, expectedScore, eloColor, DEFAULT_ELO } from "@/lib/elo";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,6 +57,20 @@ async function getPlayerStats(matchId: string) {
     return data2.map((r: any) => ({ ...r, players: map.get(r.player_id) ?? null }));
   }
   return data2;
+}
+
+async function getPreviousEncounters(homeTeam: string, awayTeam: string, excludeMatchId: string) {
+  const { data } = await supabase
+    .from("matches")
+    .select("id,played_at,home_team,away_team,home_score,away_score,forfeited_by,league:leagues(id,name,season)")
+    .or(
+      `and(home_team.eq.${homeTeam},away_team.eq.${awayTeam}),and(home_team.eq.${awayTeam},away_team.eq.${homeTeam})`
+    )
+    .not("home_score", "is", null)
+    .neq("id", excludeMatchId)
+    .order("played_at", { ascending: false })
+    .limit(10);
+  return data ?? [];
 }
 
 async function getTeamIds(homeTeam: string, awayTeam: string): Promise<Map<string, string>> {
@@ -154,7 +169,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const match = await getMatch(id);
   if (!match) notFound();
 
-  const [teamStats, playerStats, teamIds] = await Promise.all([getTeamStats(id), getPlayerStats(id), getTeamIds(match.home_team, match.away_team)]);
+  const [teamStats, playerStats, teamIds, prevEncounters, eloMap] = await Promise.all([
+    getTeamStats(id),
+    getPlayerStats(id),
+    getTeamIds(match.home_team, match.away_team),
+    getPreviousEncounters(match.home_team, match.away_team, id),
+    // Use ELO up to (not including) this match so we get the pre-match ratings
+    computeCurrentElos(supabase, { beforeDate: match.played_at }),
+  ]);
 
   const homeStats = teamStats.find((s: any) => s.team_side === "home") ?? null;
   const awayStats = teamStats.find((s: any) => s.team_side === "away") ?? null;
@@ -262,6 +284,171 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
       </section>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px 48px", display: "flex", flexDirection: "column", gap: 2 }}>
+
+        {/* ELO Prediction */}
+        {(() => {
+          const homeElo = eloMap[match.home_team] ?? DEFAULT_ELO;
+          const awayElo = eloMap[match.away_team] ?? DEFAULT_ELO;
+          const homeProb = expectedScore(homeElo, awayElo);
+          const homeP = Math.round(homeProb * 100);
+          const awayP = 100 - homeP;
+          const homeFav = homeP >= 55;
+          const awayFav = awayP >= 55;
+          const favLabel = homeFav
+            ? `${match.home_team} favored`
+            : awayFav
+            ? `${match.away_team} favored`
+            : "Evenly matched";
+          const hColor = eloColor(homeElo);
+          const aColor = eloColor(awayElo);
+          // For played matches, show whether prediction was correct
+          let predNote: string | null = null;
+          if (played) {
+            const predictedHome = homeP > awayP;
+            const predictedAway = awayP > homeP;
+            const actualHomeWin = match.home_score! > match.away_score!;
+            const actualAwayWin = match.away_score! > match.home_score!;
+            const draw = match.home_score === match.away_score;
+            if (draw) predNote = "Match ended in a draw";
+            else if ((predictedHome && actualHomeWin) || (predictedAway && actualAwayWin))
+              predNote = "Prediction correct ✓";
+            else if (!homeFav && !awayFav)
+              predNote = draw ? "Match ended in a draw" : "Close match — any result was possible";
+            else
+              predNote = "Upset — underdog won";
+          }
+          return (
+            <div>
+              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #22c55e", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#22c55e", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>ELO Prediction</span>
+                {played && predNote && (
+                  <span style={{ fontSize: 10, color: predNote.includes("correct") ? "#4ade80" : predNote.includes("Upset") ? "#f87171" : "var(--text-faint)", letterSpacing: "0.1em" }}>
+                    {predNote}
+                  </span>
+                )}
+              </div>
+              <div style={{ background: "var(--bg-card)", padding: "20px 24px" }}>
+                {/* ELO ratings row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+                  <div style={{ flex: 1, textAlign: "right" }}>
+                    <span style={{ display: "inline-block", padding: "3px 10px", background: `${hColor}18`, color: hColor, fontWeight: 800, fontSize: 15, borderRadius: 4, fontVariantNumeric: "tabular-nums" }}>
+                      {homeElo}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", flexShrink: 0 }}>ELO</div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ display: "inline-block", padding: "3px 10px", background: `${aColor}18`, color: aColor, fontWeight: 800, fontSize: 15, borderRadius: 4, fontVariantNumeric: "tabular-nums" }}>
+                      {awayElo}
+                    </span>
+                  </div>
+                </div>
+                {/* Probability bar */}
+                <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 10 }}>
+                  <div style={{ width: `${homeP}%`, background: "#4ea8f7", transition: "width 0.3s" }} />
+                  <div style={{ flex: 1, background: "#a78bfa" }} />
+                </div>
+                {/* Percentages */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: homeFav ? "#4ea8f7" : "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                    {homeP}%
+                    <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginLeft: 6, letterSpacing: "0.08em" }}>HOME WIN</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                    {played ? "Pre-match" : favLabel}
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: awayFav ? "#a78bfa" : "var(--text-muted)", fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
+                    <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginRight: 6, letterSpacing: "0.08em" }}>AWAY WIN</span>
+                    {awayP}%
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Head-to-Head — only shown for unplayed matches */}
+        {!played && (() => {
+          // Calculate H2H record from home/away perspective
+          let homeW = 0, draws = 0, awayW = 0, homeGF = 0, awayGF = 0;
+          for (const e of prevEncounters) {
+            const eHome = (e as any).home_team === match.home_team;
+            const hs = (e as any).home_score as number;
+            const as_ = (e as any).away_score as number;
+            const myScore = eHome ? hs : as_;
+            const oppScore = eHome ? as_ : hs;
+            homeGF += myScore; awayGF += oppScore;
+            if (myScore > oppScore) homeW++;
+            else if (myScore < oppScore) awayW++;
+            else draws++;
+          }
+          return (
+            <div>
+              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f472b6", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f472b6" }}>
+                Previous Encounters
+              </div>
+              <div style={{ background: "var(--bg-card)", padding: "20px 24px" }}>
+                {prevEncounters.length === 0 ? (
+                  <div style={{ fontSize: 13, color: "var(--text-faint)", textAlign: "center", padding: "16px 0" }}>
+                    No previous matches between these teams.
+                  </div>
+                ) : (
+                  <>
+                    {/* H2H Summary */}
+                    <div style={{ display: "flex", justifyContent: "center", gap: 0, marginBottom: 20 }}>
+                      <div style={{ flex: 1, textAlign: "center", padding: "12px 16px", background: "var(--bg-row)", borderLeft: "3px solid #4ea8f7" }}>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: "#4ea8f7" }}>{homeW}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 4 }}>{match.home_team}</div>
+                      </div>
+                      <div style={{ flex: 1, textAlign: "center", padding: "12px 16px", background: "var(--bg-row)", borderLeft: "1px solid var(--border-main)" }}>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: "var(--text-muted)" }}>{draws}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 4 }}>Draws</div>
+                      </div>
+                      <div style={{ flex: 1, textAlign: "center", padding: "12px 16px", background: "var(--bg-row)", borderLeft: "1px solid var(--border-main)", borderRight: "3px solid #a78bfa" }}>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: "#a78bfa" }}>{awayW}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 4 }}>{match.away_team}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginBottom: 16, letterSpacing: "0.08em" }}>
+                      Goals: {homeGF} – {awayGF} &nbsp;·&nbsp; {prevEncounters.length} match{prevEncounters.length !== 1 ? "es" : ""}
+                    </div>
+                    {/* Match list */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      {prevEncounters.map((e: any) => {
+                        const eIsHome = e.home_team === match.home_team;
+                        const myScore = eIsHome ? e.home_score : e.away_score;
+                        const oppScore = eIsHome ? e.away_score : e.home_score;
+                        const result = myScore > oppScore ? "W" : myScore < oppScore ? "L" : "D";
+                        const resultColor = result === "W" ? "#4ade80" : result === "L" ? "#e63946" : "#f4c430";
+                        const league = e.league;
+                        return (
+                          <Link key={e.id} href={`/matches/${e.id}`} style={{ textDecoration: "none" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "var(--bg-row)", borderLeft: `3px solid ${resultColor}`, transition: "background 0.1s" }} className="nav-card">
+                              <div style={{ width: 20, height: 20, borderRadius: 4, background: resultColor + "22", color: resultColor, fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{result}</div>
+                              <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-body)", flexShrink: 0 }}>
+                                {e.home_score} – {e.away_score}
+                              </div>
+                              <div style={{ fontSize: 13, color: "var(--text-muted)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {e.home_team} vs {e.away_team}
+                              </div>
+                              {league && (
+                                <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.08em", flexShrink: 0 }}>
+                                  {league.name}{league.season ? ` S${league.season}` : ""}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 11, color: "var(--text-faint)", letterSpacing: "0.05em", flexShrink: 0 }}>
+                                {new Date(e.played_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                              </div>
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Team Stats */}
         {(homeStats || awayStats) && (

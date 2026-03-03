@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import Image from "next/image";
 import { notFound } from "next/navigation";
+import StandingsTableWithForm from "./StandingsTableWithForm";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -436,16 +437,12 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
           {/* ── LEAGUE FORMAT: single standings table ── */}
           {isLeague && (
             <div>
-              <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430" }}>
-                Standings
-              </div>
-              {standings.length === 0
-                ? <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>No teams yet</div>
-                : <>
-                    <StandingsTable rows={standings} zones={league.zones || []} />
-                    <ZoneLegend zones={league.zones || []} />
-                  </>
-              }
+              <StandingsTableWithForm
+                rows={standings}
+                zones={league.zones || []}
+                teamIdMap={teamIdMap}
+                matches={matches}
+              />
             </div>
           )}
 

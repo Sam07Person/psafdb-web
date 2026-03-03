@@ -312,7 +312,15 @@ export default function PlayersPage() {
               ← Home
             </Link>
           </div>
-          <div className="text-3xl font-bold tracking-tight">Players</div>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="text-3xl font-bold tracking-tight">Players</div>
+            <Link
+              href="/compare"
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-widest text-white/60 hover:border-white/20 hover:text-white/80 transition"
+            >
+              ⚡ Compare Players
+            </Link>
+          </div>
           <div className="mt-1 text-sm text-white/70">
             {players.length} registered player{players.length !== 1 ? "s" : ""}. Click to view full stats.
           </div>
