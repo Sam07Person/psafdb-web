@@ -222,7 +222,7 @@ function PlayerPanel({
   const [results, setResults] = useState<PlayerRow[]>([]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
-  const debounce = useRef<ReturnType<typeof setTimeout>>();
+  const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const search = useCallback(async (q: string) => {
     if (!supabase || q.length < 2) { setResults([]); setOpen(false); return; }
