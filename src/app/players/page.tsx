@@ -48,7 +48,7 @@ type RawStatRow = {
   position: string | null;
   benched: boolean | null;
   stats_incomplete: boolean | null;
-  matches: { home_score: number | null; away_score: number | null; leagues: { tier: number | null } | null } | null;
+  matches: { home_score: number | null; away_score: number | null; leagues: { tier: number | null; use_tier_bonus: boolean | null } | null } | null;
 };
 
 function cx(...s: Array<string | false | null | undefined>) {
