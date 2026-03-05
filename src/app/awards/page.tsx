@@ -250,7 +250,7 @@ function FootballField({ totw }: { totw: Partial<Record<SlotKey, TOTWEntry>> }) 
 }
 
 export default function AwardsPage() {
-  const [leagues, setLeagues] = useState<{ id: string; name: string }[]>([]);
+  const [leagues, setLeagues] = useState<{ id: string; name: string; ended: boolean | null }[]>([]);
   const [matchdays, setMatchdays] = useState<number[]>([]);
   const [matchdayDates, setMatchdayDates] = useState<Record<number, string>>({});
   const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
@@ -261,8 +261,12 @@ export default function AwardsPage() {
   // 1. Fetch leagues on mount
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("leagues").select("id,name").order("name").then(({ data }) => {
-      const list = data ?? [];
+    supabase.from("leagues").select("id,name,ended").order("name").then(({ data }) => {
+      const list = (data ?? []).sort((a: any, b: any) => {
+        const aEnded = a.ended ? 1 : 0;
+        const bEnded = b.ended ? 1 : 0;
+        return aEnded - bEnded;
+      });
       setLeagues(list);
       if (list.length > 0) setSelectedLeagueId(list[0].id);
       setLoading(false);
@@ -375,12 +379,13 @@ export default function AwardsPage() {
                   background: "transparent",
                   border: "none",
                   borderTop: selectedLeagueId === l.id ? "2px solid #7070f0" : "2px solid transparent",
-                  color: selectedLeagueId === l.id ? "var(--text-body)" : "var(--text-muted)",
+                  color: selectedLeagueId === l.id ? "var(--text-body)" : l.ended ? "var(--text-faint)" : "var(--text-muted)",
                   cursor: "pointer",
                   marginBottom: -1,
                   transition: "color 0.15s",
                   whiteSpace: "nowrap",
                   flexShrink: 0,
+                  opacity: l.ended ? 0.6 : 1,
                 }}
               >
                 {l.name}

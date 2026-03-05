@@ -105,7 +105,7 @@ export default function PlayersPage() {
         const { data: chunk, error: chunkErr } = await supabase
           .from("match_player_stats")
           .select(
-            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier))"
+            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier,use_tier_bonus))"
           )
           .range(from, from + CHUNK - 1);
         if (chunkErr) { fetchError = chunkErr; break; }
@@ -171,9 +171,10 @@ export default function PlayersPage() {
               if (count > maxCount) { maxCount = count; dominantPos = pos; }
             }
 
-            // Determine dominant league tier
+            // Determine dominant league tier (skip leagues with use_tier_bonus disabled)
             const tierCounts = new Map<number, number>();
             for (const s of playedStats) {
+              if (s.matches?.leagues?.use_tier_bonus === false) continue;
               const tier = s.matches?.leagues?.tier ?? 2;
               tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
             }

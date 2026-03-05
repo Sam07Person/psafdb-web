@@ -3,6 +3,16 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
+function levenshtein(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+  return dp[a.length][b.length];
+}
+
 type Zone = { name: string; color: string; spots: number; type: "top" | "bottom" };
 
 type League = {
@@ -12,6 +22,8 @@ type League = {
   format: string | null;
   image: string | null;
   tier: number | null;
+  use_tier_bonus?: boolean;
+  award_champion?: boolean;
   ended?: boolean;
   zones?: Zone[];
 };
@@ -20,6 +32,7 @@ type Team = {
   id: string;
   name: string;
   league_id: string | null;
+  no_elo?: boolean;
   league?: { name: string } | null;
   leagues?: { id: string; name: string; season: string | null }[];
   league_ids?: string[];
@@ -215,15 +228,16 @@ export default function AdminDashboardPage() {
   const [playerSearch, setPlayerSearch] = useState("");
   const [fixtureSearch, setFixtureSearch] = useState("");
 
+  const [keepFixtureDate, setKeepFixtureDate] = useState(true);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [jsonData, setJsonData] = useState("");
 
-  const [leagueForm, setLeagueForm] = useState({ id: "", name: "", season: "", format: "league", image: "", tier: 2, ended: false, zones: [] as Zone[] });
+  const [leagueForm, setLeagueForm] = useState<{ id: string; name: string; season: string; format: string; image: string; tier: number; use_tier_bonus: boolean; award_champion: boolean; ended: boolean; zones: Zone[] }>({ id: "", name: "", season: "", format: "league", image: "", tier: 2, use_tier_bonus: true, award_champion: true, ended: false, zones: [] });
   const [newZone, setNewZone] = useState<Zone>({ name: "", color: "#4ade80", spots: 1, type: "top" });
   const [editingZoneIdx, setEditingZoneIdx] = useState<number | null>(null);
   const [editingLeague, setEditingLeague] = useState<string | null>(null);
 
-  const [teamForm, setTeamForm] = useState({ id: "", name: "", league_ids: [] as string[] });
+  const [teamForm, setTeamForm] = useState<{ id: string; name: string; league_ids: string[]; no_elo: boolean }>({ id: "", name: "", league_ids: [], no_elo: false });
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [mergingTeams, setMergingTeams] = useState<{ source: string | null; target: string | null }>({ source: null, target: null });
 
@@ -508,6 +522,8 @@ export default function AdminDashboardPage() {
           format: leagueForm.format,
           image: leagueForm.image || null,
           tier: leagueForm.tier,
+          use_tier_bonus: leagueForm.use_tier_bonus,
+          award_champion: leagueForm.award_champion,
           ended: leagueForm.ended,
           zones: leagueForm.zones,
         }),
@@ -515,7 +531,7 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingLeague ? "League updated!" : "League created!" });
-        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, ended: false, zones: [] });
+        setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, use_tier_bonus: true, award_champion: true, ended: false, zones: [] });
         setEditingLeague(null);
         loadLeagues();
       } else {
@@ -529,7 +545,7 @@ export default function AdminDashboardPage() {
   };
 
   const handleEditLeague = (league: League) => {
-    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "", tier: league.tier ?? 2, ended: league.ended ?? false, zones: league.zones || [] });
+    setLeagueForm({ id: league.id, name: league.name, season: league.season || "", format: league.format || "league", image: league.image || "", tier: league.tier ?? 2, use_tier_bonus: league.use_tier_bonus ?? true, award_champion: league.award_champion ?? true, ended: league.ended ?? false, zones: league.zones || [] });
     setEditingLeague(league.id);
   };
 
@@ -567,6 +583,8 @@ export default function AdminDashboardPage() {
           format: league.format || "league",
           image: league.image || null,
           tier: league.tier ?? 2,
+          use_tier_bonus: league.use_tier_bonus ?? true,
+          award_champion: league.award_champion ?? true,
           ended: newEnded,
           zones: league.zones || [],
         }),
@@ -595,12 +613,13 @@ export default function AdminDashboardPage() {
           id: editingTeam || undefined,
           name: teamForm.name,
           league_ids: teamForm.league_ids,
+          no_elo: teamForm.no_elo,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: editingTeam ? "Team updated!" : "Team created!" });
-        setTeamForm({ id: "", name: "", league_ids: [] });
+        setTeamForm({ id: "", name: "", league_ids: [], no_elo: false });
         setEditingTeam(null);
         loadTeams();
       } else {
@@ -618,6 +637,7 @@ export default function AdminDashboardPage() {
       id: team.id,
       name: team.name,
       league_ids: team.league_ids || (team.league_id ? [team.league_id] : []),
+      no_elo: team.no_elo ?? false,
     });
     setEditingTeam(team.id);
   };
@@ -964,8 +984,8 @@ export default function AdminDashboardPage() {
     setEditingTeam(null);
     setEditingPlayer(null);
     setEditingFixture(null);
-    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, ended: false, zones: [] });
-    setTeamForm({ id: "", name: "", league_ids: [] });
+    setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, use_tier_bonus: true, award_champion: true, ended: false, zones: [] });
+    setTeamForm({ id: "", name: "", league_ids: [], no_elo: false });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
     setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "", forfeited_by: "" });
@@ -1185,6 +1205,7 @@ export default function AdminDashboardPage() {
           images: [],
           league_id: group.leagueId || "auto",
           extractedData: group.editedData,
+          keepFixtureDate,
         }),
       });
       const data = await res.json();
@@ -1216,7 +1237,7 @@ export default function AdminDashboardPage() {
       const res = await fetch("/api/admin/import-images", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ images: group.images, league_id: group.leagueId || null }),
+        body: JSON.stringify({ images: group.images, league_id: group.leagueId || null, keepFixtureDate }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
@@ -1251,30 +1272,45 @@ export default function AdminDashboardPage() {
           const val = value.trim().toLowerCase();
           const exact = players.find(p => p.game_user_id?.toLowerCase() === val);
           if (exact) {
+            // Include in suggestions so the dropdown remains visible for confirmation
             currentPlayer.matchResult = {
               playerId: exact.id,
               confidence: 100,
               matchMethod: "user_id_exact",
               needsUserReview: false,
-              suggestions: [],
+              suggestions: [{ id: exact.id, name: exact.name, game_user_id: exact.game_user_id, confidence: 100, matchReasons: ["Exact ID match"] }],
             };
           } else {
-            const partials = players.filter(p =>
-              p.game_user_id?.toLowerCase().includes(val) ||
-              p.name?.toLowerCase().includes(val) ||
-              p.handle?.toLowerCase().includes(val)
-            ).slice(0, 5);
+            const scored = players
+              .map(p => {
+                const gid = p.game_user_id?.toLowerCase() || "";
+                const nm = p.name?.toLowerCase() || "";
+                const hdl = p.handle?.toLowerCase() || "";
+                if (gid === val) return { p, score: 100, reason: "Exact ID" };
+                if (gid && gid.includes(val)) return { p, score: 82, reason: "ID contains search" };
+                if (gid && val.includes(gid)) return { p, score: 78, reason: "Search contains ID" };
+                const dist = gid ? levenshtein(val, gid) : 99;
+                if (dist === 1) return { p, score: 90, reason: "ID off by 1 char" };
+                if (dist === 2) return { p, score: 75, reason: "ID off by 2 chars" };
+                if (nm.includes(val) || val.includes(nm)) return { p, score: 55, reason: "Name match" };
+                if (hdl.includes(val)) return { p, score: 50, reason: "Handle match" };
+                return null;
+              })
+              .filter((x): x is NonNullable<typeof x> => x !== null)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 8);
+
             currentPlayer.matchResult = {
               playerId: null,
               confidence: 0,
               matchMethod: "user_id_search",
               needsUserReview: true,
-              suggestions: partials.map(p => ({
+              suggestions: scored.map(({ p, score, reason }) => ({
                 id: p.id,
                 name: p.name,
                 game_user_id: p.game_user_id,
-                confidence: p.game_user_id?.toLowerCase().includes(val) ? 80 : 50,
-                matchReasons: [p.game_user_id?.toLowerCase().includes(val) ? "ID partial match" : "Name/handle match"],
+                confidence: score,
+                matchReasons: [reason],
               })),
             };
           }
@@ -1286,6 +1322,50 @@ export default function AdminDashboardPage() {
             needsUserReview: true,
             suggestions: [],
           };
+        }
+
+        // Auto-match when name changes
+        if (field === "name" && typeof value === "string" && value.length >= 2) {
+          const val = value.trim().toLowerCase();
+          const exactByName = players.find(p => p.name?.toLowerCase() === val);
+          if (exactByName) {
+            currentPlayer.matchResult = {
+              playerId: exactByName.id,
+              confidence: 100,
+              matchMethod: "name_exact",
+              needsUserReview: false,
+              suggestions: [{ id: exactByName.id, name: exactByName.name, game_user_id: exactByName.game_user_id, confidence: 100, matchReasons: ["Exact name match"] }],
+            };
+          } else {
+            const scored = players
+              .map(p => {
+                const nm = p.name?.toLowerCase() || "";
+                if (!nm) return null;
+                if (nm === val) return { p, score: 100, reason: "Exact name" };
+                if (nm.includes(val) || val.includes(nm)) return { p, score: 75, reason: "Name contains search" };
+                const dist = levenshtein(val, nm);
+                if (dist === 1) return { p, score: 85, reason: "Name off by 1 char" };
+                if (dist === 2) return { p, score: 65, reason: "Name off by 2 chars" };
+                return null;
+              })
+              .filter((x): x is NonNullable<typeof x> => x !== null)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 8);
+
+            if (scored.length > 0) {
+              currentPlayer.matchResult = {
+                ...(currentPlayer.matchResult || {}),
+                needsUserReview: true,
+                suggestions: scored.map(({ p, score, reason }) => ({
+                  id: p.id,
+                  name: p.name,
+                  game_user_id: p.game_user_id,
+                  confidence: score,
+                  matchReasons: [reason],
+                })),
+              };
+            }
+          }
         }
 
         updated[team].players[playerIndex] = currentPlayer;
@@ -1340,6 +1420,33 @@ export default function AdminDashboardPage() {
       }
       return g;
     }));
+    // When team name changes, refresh the roster for that side
+    if (field === "team_name" && typeof value === "string" && value.length >= 2) {
+      refreshTeamRoster(groupId, teamSide, value);
+    }
+  };
+
+  const refreshTeamRoster = async (groupId: string, side: "home" | "away", teamName: string) => {
+    try {
+      const res = await fetch(`/api/admin/team-roster?team=${encodeURIComponent(teamName)}`, {
+        headers: authHeaders,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setMatchGroups(prev => prev.map(g => {
+        if (g.id === groupId) {
+          return {
+            ...g,
+            teamRosters: {
+              home: g.teamRosters?.home || [],
+              away: g.teamRosters?.away || [],
+              [side]: data.players || [],
+            },
+          };
+        }
+        return g;
+      }));
+    } catch {}
   };
 
   // Remove player
@@ -1854,6 +1961,16 @@ export default function AdminDashboardPage() {
                           )}
                           {group.status === "validated" && (
                             <>
+                              <label className="w-full flex items-center gap-2 cursor-pointer select-none text-sm text-gray-300">
+                                <input
+                                  type="checkbox"
+                                  checked={keepFixtureDate}
+                                  onChange={e => setKeepFixtureDate(e.target.checked)}
+                                  className="w-4 h-4 rounded accent-blue-500"
+                                />
+                                Keep original fixture date
+                                <span className="text-gray-500 font-normal">(uncheck to set date to now)</span>
+                              </label>
                               <button
                                 onClick={() => setEditingGroupId(group.id)}
                                 className="flex-1 min-w-[150px] bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-4 rounded transition flex items-center justify-center gap-2"
@@ -2115,12 +2232,15 @@ export default function AdminDashboardPage() {
                                             </optgroup>
                                           )}
                                           {roster && roster.length > 0 && (
-                                            <optgroup label="Team Roster">
-                                              {roster.filter((p: Player) => !suggestions.some((s: any) => s.id === p.id)).map((p: Player) => (
-                                                <option key={p.id} value={p.id}>
-                                                  {p.name || 'Unknown'} ({p.game_user_id})
-                                                </option>
-                                              ))}
+                                            <optgroup label="Team Roster (recent)">
+                                              {roster
+                                                .filter((p: Player) => !suggestions.some((s: any) => s.id === p.id))
+                                                .slice(0, 15)
+                                                .map((p: Player) => (
+                                                  <option key={p.id} value={p.id}>
+                                                    {p.name || 'Unknown'} ({p.game_user_id || '—'})
+                                                  </option>
+                                                ))}
                                             </optgroup>
                                           )}
                                           <optgroup label="Other">
@@ -2378,8 +2498,16 @@ export default function AdminDashboardPage() {
               </div>
               <div className="mt-4">
                 <label className="flex items-center gap-3 cursor-pointer select-none w-fit">
+                  <input type="checkbox" checked={leagueForm.use_tier_bonus} onChange={(e) => setLeagueForm({ ...leagueForm, use_tier_bonus: e.target.checked })} className="w-4 h-4 rounded accent-blue-500" />
+                  <span className="text-gray-300 text-sm">Apply tier bonus <span className="text-gray-500 font-normal">(uncheck for cups/champions leagues — only domestic leagues should affect tier rating)</span></span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer select-none w-fit mt-3">
+                  <input type="checkbox" checked={leagueForm.award_champion} onChange={(e) => setLeagueForm({ ...leagueForm, award_champion: e.target.checked })} className="w-4 h-4 rounded accent-yellow-500" />
+                  <span className="text-gray-300 text-sm">Award champion <span className="text-gray-500 font-normal">(uncheck to prevent the top team from receiving a championship badge)</span></span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer select-none w-fit mt-3">
                   <input type="checkbox" checked={leagueForm.ended} onChange={(e) => setLeagueForm({ ...leagueForm, ended: e.target.checked })} className="w-4 h-4 rounded accent-orange-500" />
-                  <span className="text-gray-300 text-sm">Season ended <span className="text-gray-500 font-normal">(blocks new results, awards champion)</span></span>
+                  <span className="text-gray-300 text-sm">Season ended <span className="text-gray-500 font-normal">(blocks new results)</span></span>
                 </label>
               </div>
               <div className="mt-4 flex gap-2">
@@ -2429,6 +2557,12 @@ export default function AdminDashboardPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+              <div className="mt-4">
+                <label className="flex items-center gap-3 cursor-pointer select-none w-fit">
+                  <input type="checkbox" checked={teamForm.no_elo} onChange={(e) => setTeamForm({ ...teamForm, no_elo: e.target.checked })} className="w-4 h-4 rounded accent-red-500" />
+                  <span className="text-gray-300 text-sm">Disable ELO <span className="text-gray-500 font-normal">(exclude this team from ELO calculations — matches involving them won't affect any team's rating)</span></span>
+                </label>
               </div>
               <div className="mt-4 flex gap-2">
                 <button onClick={handleSaveTeam} disabled={loading || !teamForm.name} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded">{editingTeam ? "Update" : "Create"} Team</button>

@@ -4,6 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import StandingsTableWithForm from "./StandingsTableWithForm";
+import { LeagueTabBar } from "./LeagueTabBar";
+import { LeagueStatsClient, type PlayerStat, type TeamStat } from "./LeagueStatsClient";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -138,10 +140,77 @@ function knockoutStageRank(stage: string) {
   return idx === -1 ? 999 : idx;
 }
 
+async function getLeagueStats(playedMatchIds: string[], playedMatches: any[], teamIdMap: Record<string, string>) {
+  if (!playedMatchIds.length) return { players: [] as PlayerStat[], teams: [] as TeamStat[] };
+
+  const { data: statsData } = await supabase
+    .from("match_player_stats")
+    .select("player_id,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
+    .in("match_id", playedMatchIds)
+    .limit(5000);
+
+  const byPlayer: Record<string, PlayerStat> = {};
+  for (const s of statsData ?? []) {
+    if (s.benched) continue;
+    if (!byPlayer[s.player_id]) {
+      const p = Array.isArray(s.players) ? s.players[0] : s.players;
+      byPlayer[s.player_id] = {
+        playerId: s.player_id,
+        name: p?.name || p?.handle || s.player_id.slice(0, 8),
+        games: 0, goals: 0, assists: 0, key_passes: 0, passes: 0,
+        shots_on_target: 0, tackles: 0, key_tackles: 0,
+        interceptions: 0, key_interceptions: 0, possessions_lost: 0,
+        gk_saves: 0, gk_catches: 0,
+      };
+    }
+    const r = byPlayer[s.player_id];
+    r.games++;
+    r.goals += s.goals || 0;
+    r.assists += s.assists || 0;
+    r.key_passes += s.key_passes || 0;
+    r.passes += s.passes || 0;
+    r.shots_on_target += s.shots_on_target || 0;
+    r.tackles += s.tackles || 0;
+    r.key_tackles += s.key_tackles || 0;
+    r.interceptions += s.interceptions || 0;
+    r.key_interceptions += s.key_interceptions || 0;
+    r.possessions_lost += s.possessions_lost || 0;
+    r.gk_saves += s.gk_saves || 0;
+    r.gk_catches += s.gk_catches || 0;
+  }
+
+  const teamMap: Record<string, TeamStat> = {};
+  for (const m of playedMatches) {
+    for (const [side, opp] of [["home", "away"], ["away", "home"]] as const) {
+      const name = m[`${side}_team`];
+      const scored = m[`${side}_score`];
+      const conceded = m[`${opp}_score`];
+      if (!teamMap[name]) teamMap[name] = { name, teamId: teamIdMap[name] ?? null, games: 0, gf: 0, ga: 0, cs: 0 };
+      teamMap[name].games++;
+      teamMap[name].gf += scored;
+      teamMap[name].ga += conceded;
+      if (conceded === 0) teamMap[name].cs++;
+    }
+  }
+
+  return {
+    players: Object.values(byPlayer),
+    teams: Object.values(teamMap).sort((a, b) => b.gf - a.gf),
+  };
+}
+
 export const revalidate = 60;
 
-export default async function LeagueDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LeagueDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ tab?: string }>;
+}) {
   const { id } = await params;
+  const sp = await searchParams;
+  const activeTab = sp?.tab === "stats" ? "stats" : "overview";
   const league = await getLeague(id);
   if (!league) notFound();
 
@@ -185,6 +254,10 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
   const playedMatches = matches.filter((m: any) => m.home_score !== null);
   const upcomingMatches = matches.filter((m: any) => m.home_score === null).reverse().slice(0, 5);
   const logo = getLeagueLogo(league.image);
+
+  const leagueStats = activeTab === "stats"
+    ? await getLeagueStats(playedMatches.map((m: any) => m.id), playedMatches, teamIdMap)
+    : null;
   const totalGoals = matches.reduce((s: number, m: any) => s + (m.home_score || 0) + (m.away_score || 0), 0);
 
   // Resolve which zone applies to a row index
@@ -430,7 +503,17 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
         </div>
       </section>
 
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px", display: "grid", gridTemplateColumns: "1fr 300px", gap: 2 }}>
+      <LeagueTabBar activeTab={activeTab} />
+
+      {activeTab === "stats" && leagueStats && (
+        <LeagueStatsClient
+          playerStats={leagueStats.players}
+          teamStats={leagueStats.teams}
+          teamIdMap={teamIdMap}
+        />
+      )}
+
+      {activeTab === "overview" && <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px", display: "grid", gridTemplateColumns: "1fr 300px", gap: 2 }}>
         {/* Left: main content */}
         <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
 
@@ -553,7 +636,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
             </div>
           )}
         </div>
-      </div>
+      </div>}
     </main>
   );
 }

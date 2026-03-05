@@ -128,7 +128,7 @@ export default function PlayerRatingPage() {
       const { data: statsData, error: statsErr } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(id,name,tier))"
+          "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(id,name,tier,use_tier_bonus))"
         )
         .eq("player_id", playerId);
 
@@ -231,9 +231,10 @@ export default function PlayerRatingPage() {
   const dominantPosition = Object.entries(posCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
   const role = getPositionRole(dominantPosition);
 
-  // Dominant league tier
+  // Dominant league tier (skip leagues with use_tier_bonus disabled)
   const tierCounts: Record<number, number> = {};
   for (const s of playedStats) {
+    if ((s.matches as any)?.leagues?.use_tier_bonus === false) continue;
     const tier = (s.matches as any)?.leagues?.tier ?? 2;
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
   }
@@ -344,9 +345,9 @@ export default function PlayerRatingPage() {
   const rKTackles = sr(avgKTackles / 1.75 * 100);
   const rInt      = sr((avgInt + avgKInt) / 4.5 * 100);
   const rPL       = sr(Math.max(0, 1 - avgPL / 28.0) * 100);
-  const rSaves    = sr(avgSaves / 8.40 * 100);
+  const rSaves    = sr(avgSaves / 8.00 * 100);
   const rCatches  = sr(avgCatches / 4.00 * 100);
-  const rGC       = sr(Math.max(0, 1 - avgGC / 8.6) * 100);
+  const rGC       = sr(Math.max(0, 1 - avgGC / 9.2) * 100);
 
   const tierLabel = leagueTier === 1 ? "Tier 1 – Elite (+5 pts)" : leagueTier === 3 ? "Tier 3 – Amateur (−5 pts)" : "Tier 2 – Standard";
 
@@ -530,11 +531,11 @@ export default function PlayerRatingPage() {
                                     {cats.filter(c => bd.weights[c.key] > 0).flatMap(c => {
                                       if (c.key === "gk" && getPositionRole(mr.position) === "GK") {
                                         const gc = sr.goals_conceded ?? 0;
-                                        // Effective weights: GC 34%, saves 29%, catches 12% (uncapped — can exceed 100)
+                                        // Effective weights: GC 30%, saves 30%, catches 19% (uncapped — can exceed 100)
                                         return [
-                                          { key: "gk-gc",      label: "Goals Conceded", score: Math.max(0, (1 - gc / 8.6) * 100),   weight: 0.34 },
-                                          { key: "gk-saves",   label: "Saves",          score: (sr.gk_saves / 8.40) * 100,           weight: 0.29 },
-                                          { key: "gk-catches", label: "Catches",        score: (sr.gk_catches / 4.00) * 100,         weight: 0.12 },
+                                          { key: "gk-gc",      label: "Goals Conceded", score: Math.max(0, (1 - gc / 9.2) * 100),   weight: 0.30 },
+                                          { key: "gk-saves",   label: "Saves",          score: (sr.gk_saves / 8.00) * 100,           weight: 0.30 },
+                                          { key: "gk-catches", label: "Catches",        score: Math.min(150, (sr.gk_catches / 4.00) * 100), weight: 0.19 },
                                         ];
                                       }
                                       return [{ key: c.key, label: c.label, score: bd.scores[c.key], weight: bd.weights[c.key] }];

@@ -92,7 +92,7 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
 
   const { data } = await supabase
     .from("match_player_stats")
-    .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,is_starter,sub_number,matches(home_score,away_score,leagues(tier))")
+    .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,is_starter,sub_number,matches(home_score,away_score,leagues(tier,use_tier_bonus))")
     .in("player_id", playerIds);
   if (!data) return {};
 
@@ -132,8 +132,10 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
       const opp = isHome ? m.away_score : m.home_score;
       const res: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
       matchRatingsList.push(calcMatchBreakdown(statRow, res, s.position).final);
-      const tier = m.leagues?.tier ?? 2;
-      tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
+      if (m.leagues?.use_tier_bonus !== false) {
+        const tier = m.leagues?.tier ?? 2;
+        tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
+      }
     }
     if (matchRatingsList.length < 3) continue;
     const domTier = +Object.entries(tierCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0][0];

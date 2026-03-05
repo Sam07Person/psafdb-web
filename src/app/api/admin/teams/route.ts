@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
       id,
       name,
       league_id,
+      no_elo,
       created_at,
       league:leagues!teams_league_id_fkey(id, name, season)
     `)
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, league_id, league_ids } = body;
+    const { name, league_id, league_ids, no_elo } = body;
 
     if (!name) {
       return json(400, { error: "Team name is required" });
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     const { data: team, error } = await supabaseAdmin
       .from("teams")
-      .insert({ name, league_id: primaryLeagueId })
+      .insert({ name, league_id: primaryLeagueId, no_elo: no_elo ?? false })
       .select()
       .single();
 
@@ -146,7 +147,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, name, league_id, league_ids } = body;
+    const { id, name, league_id, league_ids, no_elo } = body;
 
     if (!id) {
       return json(400, { error: "Team ID is required" });
@@ -157,7 +158,7 @@ export async function PUT(req: NextRequest) {
 
     const { data: team, error } = await supabaseAdmin
       .from("teams")
-      .update({ name, league_id: primaryLeagueId })
+      .update({ name, league_id: primaryLeagueId, no_elo: no_elo ?? false })
       .eq("id", id)
       .select()
       .single();

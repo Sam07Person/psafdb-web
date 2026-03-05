@@ -309,10 +309,13 @@ async function getTeamRoster(
 ): Promise<TeamRosterContext | null> {
   if (!supabaseAdmin || !teamName) return null;
 
+  const normalized = normalizeTeamName(teamName);
+
   const { data: recentMatches } = await supabaseAdmin
     .from("matches")
-    .select("id")
-    .or(`home_team.ilike.%${normalizeTeamName(teamName)}%,away_team.ilike.%${normalizeTeamName(teamName)}%`)
+    .select("id, home_team, away_team")
+    .or(`home_team.ilike.%${normalized}%,away_team.ilike.%${normalized}%`)
+    .not("home_score", "is", null)
     .order("played_at", { ascending: false })
     .limit(10);
 
@@ -321,16 +324,37 @@ async function getTeamRoster(
     return null;
   }
 
-  const matchIds = recentMatches.map(m => m.id);
+  // Split by which side the team played on — only fetch that team's players
+  const homeMatchIds: string[] = [];
+  const awayMatchIds: string[] = [];
+  for (const match of recentMatches) {
+    const homeNorm = normalizeTeamName(match.home_team);
+    const isHome = homeNorm === normalized || homeNorm.includes(normalized) || normalized.includes(homeNorm);
+    if (isHome) homeMatchIds.push(match.id);
+    else awayMatchIds.push(match.id);
+  }
 
-  const { data: recentStats } = await supabaseAdmin
-    .from("match_player_stats")
-    .select("player_id")
-    .in("match_id", matchIds);
+  const playerIdSet = new Set<string>();
 
-  if (!recentStats) return null;
+  if (homeMatchIds.length > 0) {
+    const { data: homeStats } = await supabaseAdmin
+      .from("match_player_stats")
+      .select("player_id")
+      .in("match_id", homeMatchIds)
+      .eq("team_side", "home");
+    for (const s of homeStats || []) playerIdSet.add(s.player_id);
+  }
 
-  const recentPlayerIds = [...new Set(recentStats.map(s => s.player_id))];
+  if (awayMatchIds.length > 0) {
+    const { data: awayStats } = await supabaseAdmin
+      .from("match_player_stats")
+      .select("player_id")
+      .in("match_id", awayMatchIds)
+      .eq("team_side", "away");
+    for (const s of awayStats || []) playerIdSet.add(s.player_id);
+  }
+
+  const recentPlayerIds = [...playerIdSet];
   const recentPlayers = allPlayers.filter(p => recentPlayerIds.includes(p.id));
 
   logs.push(`Found ${recentPlayers.length} recent players for team: ${teamName}`);
@@ -353,7 +377,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { images, league_id, extractedData: preExtractedData } = body;
+    const { images, league_id, extractedData: preExtractedData, keepFixtureDate = true } = body;
 
     let extractedData: any;
 
@@ -412,7 +436,7 @@ export async function POST(req: NextRequest) {
         .update({
           home_score: homeTeamData.goals,
           away_score: awayTeamData.goals,
-          played_at: new Date().toISOString(),
+          ...(!keepFixtureDate ? { played_at: new Date().toISOString() } : {}),
           ...(extractedData.group_name != null ? { group_name: extractedData.group_name } : {}),
           ...(extractedData.stage != null ? { stage: extractedData.stage } : {}),
         })

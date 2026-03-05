@@ -41,6 +41,15 @@ export async function computeCurrentElos(
     (leagues ?? []).map((l: any) => [l.id, l.tier])
   );
 
+  // Build set of team names that have ELO disabled
+  const { data: noEloTeams } = await supabase
+    .from("teams")
+    .select("name")
+    .eq("no_elo", true);
+  const noEloNames = new Set<string>(
+    (noEloTeams ?? []).map((t: any) => t.name as string)
+  );
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = supabase
     .from("matches")
@@ -61,6 +70,7 @@ export async function computeCurrentElos(
   }
 
   for (const m of matches ?? []) {
+    if (noEloNames.has(m.home_team) || noEloNames.has(m.away_team)) continue;
     const hElo = getElo(m.home_team);
     const aElo = getElo(m.away_team);
     const hExp = expectedScore(hElo, aElo);

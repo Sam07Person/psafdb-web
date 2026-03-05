@@ -65,13 +65,16 @@ async function computeElo(): Promise<EloEntry[]> {
 
   if (!matches?.length) return [];
 
-  // Build team ID map from all teams
+  // Build team ID map and no-ELO exclusion set from all teams
   const { data: allTeams } = await supabase
     .from("teams")
-    .select("id,name");
+    .select("id,name,no_elo");
 
   const teamIdMap = new Map<string, string>(
     (allTeams ?? []).map((t) => [t.name, t.id])
+  );
+  const noEloNames = new Set<string>(
+    (allTeams ?? []).filter((t) => t.no_elo).map((t) => t.name as string)
   );
 
   const elos = new Map<string, number>();
@@ -85,6 +88,7 @@ async function computeElo(): Promise<EloEntry[]> {
   }
 
   for (const m of matches) {
+    if (noEloNames.has(m.home_team) || noEloNames.has(m.away_team)) continue;
     const hElo = getElo(m.home_team);
     const aElo = getElo(m.away_team);
 
@@ -125,9 +129,13 @@ async function computeElo(): Promise<EloEntry[]> {
     history.get(m.away_team)!.push(Math.round(newA));
   }
 
-  // Collect all teams that have played at least one match
+  // Collect all teams that have played at least one match, excluding no-ELO teams
   const teamSet = new Set<string>();
-  for (const m of matches) { teamSet.add(m.home_team); teamSet.add(m.away_team); }
+  for (const m of matches) {
+    if (noEloNames.has(m.home_team) || noEloNames.has(m.away_team)) continue;
+    teamSet.add(m.home_team);
+    teamSet.add(m.away_team);
+  }
 
   return Array.from(teamSet)
     .map((team) => ({

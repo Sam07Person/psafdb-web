@@ -11,6 +11,7 @@ type LeagueRow = {
   season: string | null;
   format: string | null;
   image: string | null;
+  ended: boolean | null;
   created_at: string | null;
 };
 
@@ -50,6 +51,84 @@ function getAccent(format: string | null): string {
   }
 }
 
+function LeagueCard({ l }: { l: LeagueWithStats }) {
+  const logo = getLeagueLogo(l.image);
+  const accent = getAccent(l.format);
+  return (
+    <Link
+      href={`/leagues/${l.id}`}
+      style={{ textDecoration: "none", display: "block", background: "var(--bg-card)", borderTop: `3px solid ${accent}`, padding: "24px" }}
+      className="nav-card"
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+        {logo ? (
+          <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-base)", flexShrink: 0 }}>
+            <Image src={logo.img} alt={l.name} width={30} height={30} style={{ filter: logo.filter }} />
+          </div>
+        ) : (
+          <div style={{ width: 44, height: 44, background: "var(--bg-base)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <span style={{ fontSize: 18, color: accent }}>◆</span>
+          </div>
+        )}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-main)", lineHeight: 1.2 }}>{l.name}</div>
+          {l.season && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 3, letterSpacing: "0.08em" }}>Season {l.season}</div>}
+        </div>
+        {l.ended && (
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-faint)", background: "var(--bg-base)", padding: "3px 7px", flexShrink: 0 }}>
+            Ended
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 1 }}>
+        {[
+          { val: l.team_count, label: "Teams" },
+          { val: l.match_count, label: "Matches" },
+          { val: formatLabel(l.format), label: "Format" },
+        ].map(({ val, label }) => (
+          <div key={label} style={{ background: "var(--bg-base)", padding: "10px 12px" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-body)" }}>{val}</div>
+            <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+    </Link>
+  );
+}
+
+function LeagueGrid({ leagues }: { leagues: LeagueWithStats[] }) {
+  const active = leagues.filter(l => !l.ended);
+  const finished = leagues.filter(l => l.ended);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 48 }}>
+      {active.length > 0 && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 2 }}>
+            {active.map(l => <LeagueCard key={l.id} l={l} />)}
+          </div>
+        </div>
+      )}
+
+      {finished.length > 0 && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "var(--text-faint)" }}>
+              Finished Seasons
+            </div>
+            <div style={{ flex: 1, height: 1, background: "var(--border-main)" }} />
+            <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{finished.length}</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 2, opacity: 0.75 }}>
+            {finished.map(l => <LeagueCard key={l.id} l={l} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LeaguesPage() {
   const [leagues, setLeagues] = useState<LeagueWithStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +140,7 @@ export default function LeaguesPage() {
       setLoading(true);
       const { data: leaguesData, error: leaguesError } = await supabase
         .from("leagues")
-        .select("id,name,season,format,image,created_at")
+        .select("id,name,season,format,image,ended,created_at")
         .order("created_at", { ascending: false });
       if (leaguesError) { setError(leaguesError); setLoading(false); return; }
 
@@ -126,49 +205,7 @@ export default function LeaguesPage() {
             No leagues found.
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 2 }}>
-            {leagues.map((l) => {
-              const logo = getLeagueLogo(l.image);
-              const accent = getAccent(l.format);
-              return (
-                <Link
-                  key={l.id}
-                  href={`/leagues/${l.id}`}
-                  style={{ textDecoration: "none", display: "block", background: "var(--bg-card)", borderTop: `3px solid ${accent}`, padding: "24px" }}
-                  className="nav-card"
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-                    {logo ? (
-                      <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-base)", flexShrink: 0 }}>
-                        <Image src={logo.img} alt={l.name} width={30} height={30} style={{ filter: logo.filter }} />
-                      </div>
-                    ) : (
-                      <div style={{ width: 44, height: 44, background: "var(--bg-base)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <span style={{ fontSize: 18, color: accent }}>◆</span>
-                      </div>
-                    )}
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-main)", lineHeight: 1.2 }}>{l.name}</div>
-                      {l.season && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 3, letterSpacing: "0.08em" }}>Season {l.season}</div>}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 1 }}>
-                    {[
-                      { val: l.team_count, label: "Teams" },
-                      { val: l.match_count, label: "Matches" },
-                      { val: formatLabel(l.format), label: "Format" },
-                    ].map(({ val, label }) => (
-                      <div key={label} style={{ background: "var(--bg-base)", padding: "10px 12px" }}>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-body)" }}>{val}</div>
-                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+          <LeagueGrid leagues={leagues} />
         )}
       </section>
     </main>

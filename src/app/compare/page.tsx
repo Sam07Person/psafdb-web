@@ -45,7 +45,7 @@ async function loadPlayerStats(
     supabase
       .from("match_player_stats")
       .select(
-        "team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,matches(id,home_score,away_score,leagues(tier))"
+        "team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,matches(id,home_score,away_score,leagues(tier,use_tier_bonus))"
       )
       .eq("player_id", playerId),
   ]);
@@ -96,6 +96,7 @@ async function loadPlayerStats(
   // Rating
   const tierCounts: Record<number, number> = {};
   for (const s of withStats) {
+    if (s.matches?.leagues?.use_tier_bonus === false) continue;
     const t = s.matches?.leagues?.tier ?? 2;
     tierCounts[t] = (tierCounts[t] ?? 0) + 1;
   }

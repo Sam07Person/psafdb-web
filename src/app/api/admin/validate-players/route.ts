@@ -100,11 +100,14 @@ export async function POST(req: NextRequest) {
     const getTeamRoster = async (teamName: string): Promise<TeamRosterContext | null> => {
       if (!teamName || !supabaseAdmin) return null;
 
-      // Find recent matches where this team played
+      const normalized = normalizeTeamName(teamName);
+
+      // Find recent matches where this team played, with home/away info
       const { data: recentMatches } = await supabaseAdmin
         .from("matches")
-        .select("id")
-        .or(`home_team.ilike.%${normalizeTeamName(teamName)}%,away_team.ilike.%${normalizeTeamName(teamName)}%`)
+        .select("id, home_team, away_team")
+        .or(`home_team.ilike.%${normalized}%,away_team.ilike.%${normalized}%`)
+        .not("home_score", "is", null)
         .order("played_at", { ascending: false })
         .limit(10);
 
@@ -113,19 +116,38 @@ export async function POST(req: NextRequest) {
         return null;
       }
 
-      const matchIds = recentMatches.map(m => m.id);
+      // Split matches by which side this team played on
+      const homeMatchIds: string[] = [];
+      const awayMatchIds: string[] = [];
+      for (const match of recentMatches) {
+        const homeNorm = normalizeTeamName(match.home_team);
+        const isHome = homeNorm === normalized || homeNorm.includes(normalized) || normalized.includes(homeNorm);
+        if (isHome) homeMatchIds.push(match.id);
+        else awayMatchIds.push(match.id);
+      }
 
-      // Get players who played in these matches
-      const { data: recentStats } = await supabaseAdmin
-        .from("match_player_stats")
-        .select("player_id")
-        .in("match_id", matchIds);
+      // Fetch only stats for this team's side to avoid including opponent players
+      const playerIdSet = new Set<string>();
 
-      if (!recentStats) return null;
+      if (homeMatchIds.length > 0) {
+        const { data: homeStats } = await supabaseAdmin
+          .from("match_player_stats")
+          .select("player_id")
+          .in("match_id", homeMatchIds)
+          .eq("team_side", "home");
+        for (const s of homeStats || []) playerIdSet.add(s.player_id);
+      }
 
-      const recentPlayerIds = [...new Set(recentStats.map(s => s.player_id))];
+      if (awayMatchIds.length > 0) {
+        const { data: awayStats } = await supabaseAdmin
+          .from("match_player_stats")
+          .select("player_id")
+          .in("match_id", awayMatchIds)
+          .eq("team_side", "away");
+        for (const s of awayStats || []) playerIdSet.add(s.player_id);
+      }
 
-      // Get player details
+      const recentPlayerIds = [...playerIdSet];
       const recentPlayers = allPlayers.filter(p => recentPlayerIds.includes(p.id));
 
       logs.push(`Found ${recentPlayers.length} recent players for team: ${teamName}`);

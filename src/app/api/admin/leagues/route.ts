@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("leagues")
-    .select("id,name,season,format,image,tier,ended,zones,created_at")
+    .select("id,name,season,format,image,tier,use_tier_bonus,award_champion,ended,zones,created_at")
     .order("created_at", { ascending: false });
 
   if (error) return json(500, { error: error.message });
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: "Invalid JSON body" });
 
-  const { name, season, format, image, tier, ended, zones } = body;
+  const { name, season, format, image, tier, use_tier_bonus, award_champion, ended, zones } = body;
   if (!name || typeof name !== "string") return json(400, { error: "name is required" });
 
   const { data, error } = await supabaseAdmin
@@ -62,6 +62,8 @@ export async function POST(req: NextRequest) {
       format: format || "league",
       image: image || null,
       tier: tier ? parseInt(tier) : 2,
+      use_tier_bonus: use_tier_bonus ?? true,
+      award_champion: award_champion ?? true,
       ended: ended ?? false,
       zones: zones ?? [],
     })
@@ -83,7 +85,7 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return json(400, { error: "Invalid JSON body" });
 
-  const { id, name, season, format, image, tier, ended, zones } = body;
+  const { id, name, season, format, image, tier, use_tier_bonus, award_champion, ended, zones } = body;
   if (!id) return json(400, { error: "id is required" });
   if (!name || typeof name !== "string") return json(400, { error: "name is required" });
 
@@ -95,6 +97,8 @@ export async function PUT(req: NextRequest) {
       format: format || "league",
       image: image || null,
       tier: tier ? parseInt(tier) : 2,
+      use_tier_bonus: use_tier_bonus ?? true,
+      award_champion: award_champion ?? true,
       ended: ended ?? false,
       zones: zones ?? [],
     })

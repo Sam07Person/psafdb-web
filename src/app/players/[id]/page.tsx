@@ -275,7 +275,7 @@ export default function PlayerDetailPage() {
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,day,leagues(id,name,tier))"
+          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,day,leagues(id,name,tier,use_tier_bonus))"
         )
         .eq("player_id", playerId)
         .order("match_id", { ascending: false });
@@ -298,7 +298,7 @@ export default function PlayerDetailPage() {
         if (matchIds.length > 0) {
           const { data: matchesData } = await supabase
             .from("matches")
-            .select("id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(tier)")
+            .select("id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(tier,use_tier_bonus)")
             .in("id", matchIds);
 
           const matchMap = new Map<string, MatchInfo>();
@@ -531,9 +531,10 @@ export default function PlayerDetailPage() {
   // Calculate overall rating — only use matches with complete stats AND match info (mirrors rating page logic)
   const ratingMatchSet = matchesWithStats.filter(s => s.matches);
 
-  // Dominant league tier from same match set
+  // Dominant league tier from same match set (skip leagues with use_tier_bonus disabled)
   const tierCounts: Record<number, number> = {};
   for (const s of ratingMatchSet) {
+    if ((s.matches as any)?.leagues?.use_tier_bonus === false) continue;
     const tier = (s.matches as any)?.leagues?.tier ?? 2;
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
   }

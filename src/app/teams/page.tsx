@@ -83,7 +83,7 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
     // Q1: all matches with league tier
     const { data: matchesRaw } = await supabase
         .from("matches")
-        .select("id,home_team,away_team,played_at,home_score,away_score,leagues(tier)");
+        .select("id,home_team,away_team,played_at,home_score,away_score,leagues(tier,use_tier_bonus)");
 
     if (!matchesRaw) return new Map(teamNames.map(n => [n, null]));
 
@@ -149,9 +149,10 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
             if (count > maxPosCount) { maxPosCount = count; dominantPos = pos; }
         }
 
-        // Dominant tier
+        // Dominant tier (skip leagues with use_tier_bonus disabled)
         const tierCounts = new Map<number, number>();
         for (const s of played) {
+            if (s.matchInfo.leagues?.use_tier_bonus === false) continue;
             const tier = s.matchInfo.leagues?.tier ?? 2;
             tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
         }
