@@ -528,8 +528,8 @@ export default function PlayerDetailPage() {
   const mostPlayedPosition = Object.entries(positionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
 
-  // Calculate overall rating — only use matches with complete stats AND match info (mirrors rating page logic)
-  const ratingMatchSet = matchesWithStats.filter(s => s.matches);
+  // Calculate overall rating — only use matches with complete stats AND match info AND score > 60 (or unscored)
+  const ratingMatchSet = matchesWithStats.filter(s => s.matches && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60));
 
   // Dominant league tier from same match set (skip leagues with use_tier_bonus disabled)
   const tierCounts: Record<number, number> = {};

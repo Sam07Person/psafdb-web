@@ -98,9 +98,11 @@ function defendingScore(s: MatchStatRow, role: PositionRole): number {
   // Key tackles get a separate bonus so they count even when the combined bucket is capped.
   // Calibrated: avg key_tackles≈0.87 → ~2 bonus pts; 4 key_tackles → capped at +4.
   const plDiv = role === "MID" ? 40.0 : 28.0;
+  const intMax = 28;
+  const intDiv = role === "FWD" ? 4.2 : 2.3;
   const base =
     Math.min(50, ((s.tackles + s.key_tackles) / 6.0) * 50) +
-    Math.min(28, ((s.interceptions + s.key_interceptions) / 4.5) * 28) +
+    Math.min(intMax, ((s.interceptions + s.key_interceptions) / intDiv) * intMax) +
     Math.min(15, Math.max(0, 1 - s.possessions_lost / plDiv) * 15) +
     Math.min(10, (s.key_tackles / 1.75) * 10);
   // Small GC adjustment for DEF: avg GC≈4.3 → neutral; clean sheet → +8; high GC → -5
@@ -129,10 +131,17 @@ function passingScore(s: MatchStatRow, role: PositionRole): number {
 // Final match rating is capped at 100 in calcMatchBreakdown.
 function gkScore(s: MatchStatRow): number {
   const gc = s.goals_conceded ?? 0;
+  // Save efficiency: reward saves > gc (×50), penalise saves < gc (×30).
+  // Positive cap +12 reached at ~79%. Negative cap -12 reached at ~15%.
+  const totalFaced = s.gk_saves + gc;
+  const saveEfficiency = totalFaced > 0
+    ? (() => { const d = (s.gk_saves / totalFaced) - 0.55; return Math.min(12, Math.max(-12, d * (d >= 0 ? 50 : 30))); })()
+    : 0;
   return (
     Math.max(0, (1 - gc / 9.2) * 45.50) +
     (s.gk_saves / 8.00) * 43.50 +
-    Math.min(43.50, (s.gk_catches / 4.00) * 29.00)
+    Math.min(43.50, (s.gk_catches / 4.00) * 29.00) +
+    saveEfficiency
   );
 }
 
@@ -153,16 +162,24 @@ export function calcSubRatings(
   results: MatchResult[],
   dominantPosition?: string | null
 ): SubRatings {
-  if (stats.length === 0) {
+  // Exclude matches where a score was recorded but is ≤ 60
+  const filtered = stats.reduce<{ s: MatchStatRow; r: MatchResult }[]>((acc, s, i) => {
+    if (s.score === 0 || s.score > 60) acc.push({ s, r: results[i] });
+    return acc;
+  }, []);
+  const effectiveStats = filtered.length > 0 ? filtered.map(x => x.s) : stats;
+  const effectiveResults = filtered.length > 0 ? filtered.map(x => x.r) : results;
+
+  if (effectiveStats.length === 0) {
     return { attacking: 0, defending: 0, passing: 0, consistency: 0, gk: 0 };
   }
 
-  const n = stats.length;
+  const n = effectiveStats.length;
   const role = getPositionRole(dominantPosition);
 
   // Per-match averages
   const avg = (fn: (s: MatchStatRow) => number) =>
-    stats.reduce((sum, s) => sum + fn(s), 0) / n;
+    effectiveStats.reduce((sum, s) => sum + fn(s), 0) / n;
 
   const avgGoals = avg(s => s.goals);
   const avgAssists = avg(s => s.assists);
@@ -175,7 +192,10 @@ export function calcSubRatings(
   const avgPL = avg(s => s.possessions_lost);
   const avgSaves = avg(s => s.gk_saves);
   const avgCatches = avg(s => s.gk_catches);
-  const avgGameScore = avg(s => s.score);
+  const scoredStats = effectiveStats.filter(s => s.score > 60);
+  const avgGameScore = scoredStats.length > 0
+    ? scoredStats.reduce((sum, s) => sum + s.score, 0) / scoredStats.length
+    : 0;
   const avgGC = avg(s => s.goals_conceded ?? 0);
 
   // Position-specific attacking thresholds (same as attackingScore)
@@ -204,9 +224,11 @@ export function calcSubRatings(
 
   const gcAdj = role === "DEF" ? Math.max(-5, Math.min(8, (1 - avgGC / 4.3) * 8)) : 0;
   const plDiv = role === "MID" ? 40.0 : 28.0;
+  const intMax = 28;
+  const intDiv = role === "FWD" ? 4.2 : 2.3;
   const defending = Math.min(100, Math.max(0,
     Math.min(50, (avgTackles / 6.0) * 50) +
-    Math.min(28, (avgInt / 4.5) * 28) +
+    Math.min(intMax, (avgInt / intDiv) * intMax) +
     Math.min(15, Math.max(0, 1 - avgPL / plDiv) * 15) +
     Math.min(10, (avgKeyTackles / 1.75) * 10) +
     gcAdj
@@ -218,9 +240,9 @@ export function calcSubRatings(
   const kW = role === "MID" ? 28 : role === "FWD" ? 20 : 20;
   const passing = Math.min(pW, (avgPasses / pCap) * pW) + Math.min(kW, (avgKP / kpCap) * kW);
 
-  const wins = results.filter(r => r === "W").length;
-  const draws = results.filter(r => r === "D").length;
-  const total = results.length;
+  const wins = effectiveResults.filter(r => r === "W").length;
+  const draws = effectiveResults.filter(r => r === "D").length;
+  const total = effectiveResults.length;
 
   let consistency: number;
   if (avgGameScore > 0) {
@@ -258,7 +280,7 @@ export function calcMatchBreakdown(
   const role = getPositionRole(position);
   const w = getPositionWeights(role);
 
-  const consScore = stat.score > 0
+  const consScore = stat.score > 60
     ? normalizeGameScore(stat.score, role)
     : result === "W" ? 70 : result === "D" ? 40 : 15;
 

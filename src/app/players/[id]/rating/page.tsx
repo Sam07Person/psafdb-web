@@ -223,6 +223,13 @@ export default function PlayerRatingPage() {
     };
   });
 
+  // Exclude matches with a recorded score of 1–60
+  const ratingEligible = playedStats.map((s, i) => ({ s, sr: statRows[i], r: results[i] }))
+    .filter(({ s }) => (s.score ?? 0) === 0 || (s.score ?? 0) > 60);
+  const ratingPlayedStats = ratingEligible.map(x => x.s);
+  const ratingStatRows = ratingEligible.map(x => x.sr);
+  const ratingResults = ratingEligible.map(x => x.r);
+
   // Dominant position
   const posCounts: Record<string, number> = {};
   for (const s of playedStats) {
@@ -233,7 +240,7 @@ export default function PlayerRatingPage() {
 
   // Dominant league tier (skip leagues with use_tier_bonus disabled)
   const tierCounts: Record<number, number> = {};
-  for (const s of playedStats) {
+  for (const s of ratingPlayedStats) {
     if ((s.matches as any)?.leagues?.use_tier_bonus === false) continue;
     const tier = (s.matches as any)?.leagues?.tier ?? 2;
     tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
@@ -241,11 +248,11 @@ export default function PlayerRatingPage() {
   const dominantTier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
   const leagueTier = dominantTier ? parseInt(dominantTier) : 2;
 
-  const subRatings: SubRatings = calcSubRatings(statRows, results, dominantPosition);
+  const subRatings: SubRatings = calcSubRatings(ratingStatRows, ratingResults, dominantPosition);
 
   // Map match_id → statRow for O(1) lookup
   const statRowByMatchId = new Map<string, MatchStatRow>(
-    playedStats.map((s, i) => [s.match_id, statRows[i]])
+    ratingPlayedStats.map((s, i) => [s.match_id, ratingStatRows[i]])
   );
 
   // Helper: determine result for a stat row
@@ -257,12 +264,12 @@ export default function PlayerRatingPage() {
     return my > opp ? "W" : my < opp ? "L" : "D";
   }
 
-  // Compute per-match ratings for ALL played matches (used for overall average)
-  const allMatchRatingValues = playedStats.map(s =>
-    calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? statRows[0], getResult(s), s.position ?? dominantPosition).final
+  // Compute per-match ratings for eligible matches only (used for overall average)
+  const allMatchRatingValues = ratingPlayedStats.map(s =>
+    calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? ratingStatRows[0], getResult(s), s.position ?? dominantPosition).final
   );
 
-  const hasEnoughForRating = playedStats.length >= 3;
+  const hasEnoughForRating = ratingPlayedStats.length >= 3;
   const overall = hasEnoughForRating ? calcOverallRating(allMatchRatingValues, leagueTier, tierBonuses) : null;
   const ratingColor = overall !== null ? getRatingColor(overall) : "var(--text-faint)";
   const ratingLabel = overall !== null ? getRatingLabel(overall) : null;
@@ -296,13 +303,13 @@ export default function PlayerRatingPage() {
   }).slice(0, 20);
 
   // Per-match averages for stat display
-  const n = statRows.length;
+  const n = ratingStatRows.length;
   const avg = (fn: (s: MatchStatRow) => number) =>
-    n > 0 ? (statRows.reduce((sum, s) => sum + fn(s), 0) / n) : 0;
+    n > 0 ? (ratingStatRows.reduce((sum, s) => sum + fn(s), 0) / n) : 0;
 
   const avgGoals     = avg(s => s.goals);
   const avgAssists   = avg(s => s.assists);
-  const avgShots     = n > 0 ? playedStats.reduce((sum, s) => sum + (s.shots ?? 0), 0) / n : 0;
+  const avgShots     = n > 0 ? ratingPlayedStats.reduce((sum, s) => sum + (s.shots ?? 0), 0) / n : 0;
   const avgSOT       = avg(s => s.shots_on_target);
   const avgPasses    = avg(s => s.passes);
   const avgKP        = avg(s => s.key_passes);
@@ -314,7 +321,8 @@ export default function PlayerRatingPage() {
   const avgSaves     = avg(s => s.gk_saves);
   const avgCatches   = avg(s => s.gk_catches);
   const avgGC        = avg(s => s.goals_conceded ?? 0);
-  const avgScore     = avg(s => s.score);
+  const scoredRows   = ratingPlayedStats.filter(s => s.score > 60);
+  const avgScore     = scoredRows.length > 0 ? scoredRows.reduce((sum, s) => sum + s.score, 0) / scoredRows.length : 0;
 
   // Helper: clamp a raw value to [0, 100]
   const sr = (val: number) => Math.min(100, Math.max(0, Math.round(val)));
@@ -518,7 +526,7 @@ export default function PlayerRatingPage() {
                                       ...(getPositionRole(mr.position) === "GK" ? [{ label: "Goals Conceded", v: sr.goals_conceded ?? 0 }] : []),
                                       ...(sr.gk_saves > 0 ? [{ label: "GK Saves", v: sr.gk_saves }] : []),
                                       ...(sr.gk_catches > 0 ? [{ label: "GK Catches", v: sr.gk_catches }] : []),
-                                      ...(sr.score > 0 ? [{ label: "Game Score", v: sr.score }] : []),
+                                      ...(sr.score > 60 ? [{ label: "Game Score", v: sr.score }] : []),
                                     ].map(({ label, v }) => (
                                       <span key={label} style={{ color: "var(--text-muted)" }}>
                                         {label}: <strong style={{ color: "var(--text-sub)", fontWeight: 600 }}>{v}</strong>
@@ -531,20 +539,37 @@ export default function PlayerRatingPage() {
                                     {cats.filter(c => bd.weights[c.key] > 0).flatMap(c => {
                                       if (c.key === "gk" && getPositionRole(mr.position) === "GK") {
                                         const gc = sr.goals_conceded ?? 0;
-                                        // Effective weights: GC 30%, saves 30%, catches 19% (uncapped — can exceed 100)
+                                        const totalFaced = sr.gk_saves + gc;
+                                        const saveRatio = totalFaced > 0 ? sr.gk_saves / totalFaced : null;
+                                        const efficiencyBonus = totalFaced > 0
+                                          ? (() => { const d = (saveRatio ?? 0.55) - 0.55; return Math.min(12, Math.max(-12, d * (d >= 0 ? 50 : 30))); })()
+                                          : 0;
+                                        // Effective weights: GC 30%, saves 30%, catches 19%
                                         return [
-                                          { key: "gk-gc",      label: "Goals Conceded", score: Math.max(0, (1 - gc / 9.2) * 100),   weight: 0.30 },
-                                          { key: "gk-saves",   label: "Saves",          score: (sr.gk_saves / 8.00) * 100,           weight: 0.30 },
-                                          { key: "gk-catches", label: "Catches",        score: Math.min(150, (sr.gk_catches / 4.00) * 100), weight: 0.19 },
+                                          { key: "gk-gc",      label: "Goals Conceded", score: Math.max(0, (1 - gc / 9.2) * 100),              weight: 0.30, effBonus: null as number | null },
+                                          { key: "gk-saves",   label: "Saves",          score: (sr.gk_saves / 8.00) * 100,                     weight: 0.30, effBonus: null },
+                                          { key: "gk-catches", label: "Catches",        score: Math.min(150, (sr.gk_catches / 4.00) * 100),    weight: 0.19, effBonus: null },
+                                          { key: "gk-eff",     label: "Save Efficiency", score: saveRatio !== null ? Math.round(saveRatio * 100) : 0, weight: 0, effBonus: efficiencyBonus },
                                         ];
                                       }
-                                      return [{ key: c.key, label: c.label, score: bd.scores[c.key], weight: bd.weights[c.key] }];
-                                    }).map(({ key, label, score, weight }) => (
+                                      return [{ key: c.key, label: c.label, score: bd.scores[c.key], weight: bd.weights[c.key], effBonus: null as number | null }];
+                                    }).map(({ key, label, score, weight, effBonus }) => (
                                       <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0" }}>
                                         <span style={{ fontSize: 12, color: "var(--text-sub)", width: 130 }}>{label}</span>
-                                        <span style={{ fontSize: 13, fontWeight: 700, color: getRatingColor(score), width: 32, textAlign: "right" }}>{Math.round(score)}</span>
-                                        <span style={{ fontSize: 10, color: "var(--text-faint)", width: 34, textAlign: "right" }}>×{Math.round(weight * 100)}%</span>
-                                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>= {(score * weight).toFixed(1)}</span>
+                                        {effBonus !== null ? (
+                                          <>
+                                            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-faint)", width: 32, textAlign: "right" }}>{score}%</span>
+                                            <span style={{ fontSize: 11, color: effBonus >= 0 ? "#4ade80" : "#e63946", fontWeight: 700, marginLeft: 4 }}>
+                                              {effBonus >= 0 ? "+" : ""}{effBonus.toFixed(1)} pts
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span style={{ fontSize: 13, fontWeight: 700, color: getRatingColor(score), width: 32, textAlign: "right" }}>{Math.round(score)}</span>
+                                            <span style={{ fontSize: 10, color: "var(--text-faint)", width: 34, textAlign: "right" }}>×{Math.round(weight * 100)}%</span>
+                                            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>= {(score * weight).toFixed(1)}</span>
+                                          </>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
