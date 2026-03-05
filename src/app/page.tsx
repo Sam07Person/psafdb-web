@@ -51,6 +51,13 @@ const NAV_ITEMS = [
     accent: "#f472b6",
     icon: "⇄",
   },
+  {
+    href: "/stats",
+    label: "Stats",
+    sub: "Player & Team Statistics",
+    accent: "#34d399",
+    icon: "▦",
+  },
 ];
 
 export default function HomePage() {
