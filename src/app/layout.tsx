@@ -6,6 +6,7 @@ import SearchBar from "@/components/SearchBar";
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata = {
   title: "PSAFDB",
@@ -95,6 +96,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </footer>
         </ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
