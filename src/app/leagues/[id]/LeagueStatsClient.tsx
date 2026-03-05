@@ -171,23 +171,34 @@ export function LeagueStatsClient({
   playerStats,
   teamStats,
   teamIdMap,
+  defaultSection,
+  onSectionChange,
+  hideSectionNav,
 }: {
   playerStats: PlayerStat[];
   teamStats: TeamStat[];
   teamIdMap: Record<string, string>;
+  defaultSection?: Section;
+  onSectionChange?: (s: Section) => void;
+  hideSectionNav?: boolean;
 }) {
-  const [section, setSection] = useState<Section>("attacking");
+  const [section, setSection] = useState<Section>(defaultSection ?? "attacking");
+
+  const handleSection = (s: Section) => {
+    setSection(s);
+    onSectionChange?.(s);
+  };
 
   const gkPlayers = playerStats.filter(p => p.gk_saves > 0 || p.gk_catches > 0);
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
       {/* Section nav */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
+      {!hideSectionNav && <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
         {SECTIONS.map(s => (
           <button
             key={s.id}
-            onClick={() => setSection(s.id)}
+            onClick={() => handleSection(s.id)}
             style={{
               padding: "6px 14px",
               fontSize: 11,
@@ -203,7 +214,7 @@ export function LeagueStatsClient({
             {s.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* Attacking */}
       {section === "attacking" && (
