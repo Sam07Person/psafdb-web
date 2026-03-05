@@ -5,6 +5,7 @@ import Image from "next/image";
 import SearchBar from "@/components/SearchBar";
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata = {
   title: "PSAFDB",
@@ -93,6 +94,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </div>
           </footer>
         </ThemeProvider>
+        <Analytics />
       </body>
     </html>
   );
