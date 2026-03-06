@@ -624,7 +624,7 @@ export default async function TeamDetailPage({
             ) : (
               <div className="divide-y divide-white/5">
                 {currentSquadWithRatings.map((player) => {
-                  const pRatingColor = player.rating !== null ? getRatingColor(player.rating) : null;
+                  const pRatingColor = player.rating != null ? getRatingColor(player.rating) : null;
                   return (
                     <Link
                       key={player.id}
