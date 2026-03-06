@@ -132,6 +132,7 @@ function StatCard({ label, value, subtext, color, tooltip }: { label: string; va
   );
 }
 
+
 function PositionBadge({ position }: { position: string | null }) {
   if (!position) return <span className="text-white/40">—</span>;
   const colorClass = POSITION_COLORS[position] ?? "border-white/30 bg-white/10 text-white/80";
@@ -591,6 +592,8 @@ export default function PlayerDetailPage() {
     }).filter(Boolean)
   )) as string[];
 
+  const recentFormRatings = matchRatingValues.slice(0, 5);
+
   const recentMatches = playedMatches.slice(0, 5);
   const displayMatches = showAllMatches ? playedMatches : recentMatches;
 
@@ -747,6 +750,87 @@ export default function PlayerDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Recent Form Strip */}
+      {recentFormRatings.length > 0 && (
+        <div className="mt-6">
+          <div className="text-sm text-white/50 mb-2">Recent Form <span className="text-white/30 text-xs">(last {recentFormRatings.length} rated matches)</span></div>
+          <div className="flex items-center gap-2">
+            {recentFormRatings.map((r, i) => {
+              const c = getRatingColor(r);
+              return (
+                <div
+                  key={i}
+                  title={`Match rating: ${r}/100`}
+                  style={{ background: c + "22", border: `1.5px solid ${c}55`, color: c }}
+                  className="flex h-9 w-12 items-center justify-center rounded-lg text-sm font-bold"
+                >
+                  {r}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Position Pie Chart */}
+      {Object.keys(positionCounts).length > 0 && (() => {
+        const entries = Object.entries(positionCounts).sort((a, b) => b[1] - a[1]);
+        const total = entries.reduce((s, [, n]) => s + n, 0);
+
+        // Hex colours per position (matching POSITION_COLORS theme)
+        const PIE_COLORS: Record<string, string> = {
+          GK: "#facc15",
+          LB: "#4ade80", RB: "#4ade80", CB: "#4ade80", LCB: "#4ade80", RCB: "#4ade80",
+          LWB: "#2dd4bf", RWB: "#2dd4bf",
+          CM: "#60a5fa", LM: "#60a5fa", RM: "#60a5fa", CDM: "#60a5fa", CAM: "#60a5fa",
+          LW: "#c084fc", RW: "#c084fc",
+          LF: "#fb923c", RF: "#fb923c",
+          CF: "#f87171", ST: "#f87171",
+        };
+        const sliceColor = (pos: string) => PIE_COLORS[pos] ?? "#94a3b8";
+
+        const R = 70, cx = 90, cy = 80;
+        let angle = -Math.PI / 2;
+        const slices = entries.map(([pos, count]) => {
+          const sweep = (count / total) * 2 * Math.PI;
+          const x1 = cx + R * Math.cos(angle);
+          const y1 = cy + R * Math.sin(angle);
+          angle += sweep;
+          const x2 = cx + R * Math.cos(angle);
+          const y2 = cy + R * Math.sin(angle);
+          const large = sweep > Math.PI ? 1 : 0;
+          return { pos, count, sweep, x1, y1, x2, y2, large, midAngle: angle - sweep / 2 };
+        });
+
+        return (
+          <div className="mt-6">
+            <div className="text-sm text-white/50 mb-3">Position Breakdown</div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-wrap items-center gap-6">
+              <svg viewBox="0 0 180 160" style={{ width: 180, height: 160, flexShrink: 0 }}>
+                {slices.map(({ pos, sweep, x1, y1, x2, y2, large }) =>
+                  sweep >= 2 * Math.PI - 0.001 ? (
+                    <circle key={pos} cx={cx} cy={cy} r={R} fill={sliceColor(pos)} opacity="0.85" />
+                  ) : (
+                    <path key={pos} d={`M${cx},${cy} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} Z`}
+                      fill={sliceColor(pos)} opacity="0.85" stroke="rgba(0,0,0,0.3)" strokeWidth="1" />
+                  )
+                )}
+              </svg>
+              <div className="flex flex-col gap-1.5">
+                {entries.map(([pos, count]) => (
+                  <div key={pos} className="flex items-center gap-2">
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: sliceColor(pos), flexShrink: 0, display: "inline-block" }} />
+                    <span className="text-xs text-white/70 font-medium w-8">{pos}</span>
+                    <span className="text-xs text-white/40">{count} match{count !== 1 ? "es" : ""}</span>
+                    <span className="text-xs text-white/50 ml-1">({Math.round(count / total * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Total Stats */}
       <div className="mt-8">

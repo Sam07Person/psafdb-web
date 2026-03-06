@@ -5,6 +5,7 @@ import PlayerStatsTable from "./PlayerStatsTable";
 import {
   calcMatchBreakdown,
   calcOverallRating,
+  getRatingColor,
   DEFAULT_TIER_BONUSES,
   type MatchStatRow,
   type MatchResult,
@@ -138,10 +139,105 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
       }
     }
     if (matchRatingsList.length < 3) continue;
-    const domTier = +Object.entries(tierCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0][0];
+    const tierEntries = Object.entries(tierCounts).sort((a, b) => Number(b[1]) - Number(a[1]));
+    const domTier = tierEntries.length > 0 ? +tierEntries[0][0] : 2;
     result[pid] = calcOverallRating(matchRatingsList, domTier, tierBonuses);
   }
   return result;
+}
+
+type LineupPlayer = { playerId: string; name: string; rating: number | null };
+type LineupSlot = { slot: string; player: LineupPlayer | null };
+
+const LINEUP_SLOT_ORDER = ["GK", "LW", "RW", "LB", "RB", "CM"] as const;
+const LINEUP_DISPLAY_ORDER = ["GK", "LB", "RB", "CM", "LW", "RW"] as const;
+const LINEUP_SLOT_POOLS: Record<string, string[]> = {
+  GK: ["GK"],
+  LB: ["LB", "LWB", "LCB"],
+  RB: ["RB", "RWB", "RCB"],
+  CM: ["CM", "LM", "RM", "CF", "ST", "CB"],
+  LW: ["LW", "LF"],
+  RW: ["RW", "RF"],
+};
+
+async function getBestLineup(teamName: string): Promise<LineupSlot[]> {
+  const { data: recentMatches } = await supabase
+    .from("matches")
+    .select("id,home_team")
+    .or(`home_team.eq.${teamName},away_team.eq.${teamName}`)
+    .not("home_score", "is", null)
+    .order("played_at", { ascending: false })
+    .limit(10);
+  if (!recentMatches?.length) return LINEUP_DISPLAY_ORDER.map(s => ({ slot: s, player: null }));
+
+  const matchSideMap = new Map<string, string>(
+    recentMatches.map((m: any) => [m.id, m.home_team === teamName ? "home" : "away"])
+  );
+  const matchIds = [...matchSideMap.keys()];
+
+  const { data: stats } = await supabase
+    .from("match_player_stats")
+    .select("player_id,match_id,team_side,position,benched,players(handle,name)")
+    .in("match_id", matchIds);
+
+  if (!stats?.length) return LINEUP_DISPLAY_ORDER.map(s => ({ slot: s, player: null }));
+
+  const playerMap = new Map<string, { name: string; positions: string[] }>();
+  for (const s of stats) {
+    if (s.team_side !== matchSideMap.get(s.match_id)) continue;
+    if (s.benched) continue;
+    const p = Array.isArray(s.players) ? s.players[0] : s.players;
+    const name = p?.name || p?.handle || s.player_id.slice(0, 8);
+    if (!playerMap.has(s.player_id)) playerMap.set(s.player_id, { name, positions: [] });
+    if (s.position) playerMap.get(s.player_id)!.positions.push(s.position);
+  }
+
+  const playerIds = [...playerMap.keys()];
+  if (!playerIds.length) return LINEUP_DISPLAY_ORDER.map(s => ({ slot: s, player: null }));
+  const ratings = await getPlayerOverallRatings(playerIds);
+
+  // Build candidates with dominant position, sorted by rating desc (unrated last)
+  const candidates = playerIds
+    .map(pid => {
+      const { name, positions } = playerMap.get(pid)!;
+      const posCount: Record<string, number> = {};
+      for (const p of positions) posCount[p] = (posCount[p] ?? 0) + 1;
+      const dominantPos = Object.entries(posCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      return { playerId: pid, name, dominantPos, rating: ratings[pid] ?? null };
+    })
+    .sort((a, b) => {
+      if (a.rating !== null && b.rating !== null) return b.rating - a.rating;
+      if (a.rating !== null) return -1;
+      if (b.rating !== null) return 1;
+      return 0;
+    });
+
+  // Fill slots in priority order (specific first, CM catch-all last)
+  const used = new Set<string>();
+  const filled: Record<string, LineupPlayer | null> = {};
+  for (const slot of LINEUP_SLOT_ORDER) {
+    const pool = LINEUP_SLOT_POOLS[slot];
+    const pick = candidates.find(c => !used.has(c.playerId) && c.dominantPos && pool.includes(c.dominantPos));
+    if (pick) {
+      filled[slot] = { playerId: pick.playerId, name: pick.name, rating: pick.rating };
+      used.add(pick.playerId);
+    } else {
+      // CM fallback: take best unslotted player regardless of position
+      if (slot === "CM") {
+        const fallback = candidates.find(c => !used.has(c.playerId));
+        if (fallback) {
+          filled[slot] = { playerId: fallback.playerId, name: fallback.name, rating: fallback.rating };
+          used.add(fallback.playerId);
+        } else {
+          filled[slot] = null;
+        }
+      } else {
+        filled[slot] = null;
+      }
+    }
+  }
+
+  return LINEUP_DISPLAY_ORDER.map(slot => ({ slot, player: filled[slot] ?? null }));
 }
 
 export const revalidate = 60;
@@ -171,18 +267,21 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const match = await getMatch(id);
   if (!match) notFound();
 
-  const [teamStats, playerStats, teamIds, prevEncounters, eloMap] = await Promise.all([
+  const played = match.home_score !== null && match.away_score !== null;
+
+  const [teamStats, playerStats, teamIds, prevEncounters, eloMap, homeBestXI, awayBestXI] = await Promise.all([
     getTeamStats(id),
     getPlayerStats(id),
     getTeamIds(match.home_team, match.away_team),
     getPreviousEncounters(match.home_team, match.away_team, id),
     // Use ELO up to (not including) this match so we get the pre-match ratings
     computeCurrentElos(supabase, { beforeDate: match.played_at }),
+    played ? Promise.resolve<LineupSlot[]>([]) : getBestLineup(match.home_team),
+    played ? Promise.resolve<LineupSlot[]>([]) : getBestLineup(match.away_team),
   ]);
 
   const homeStats = teamStats.find((s: any) => s.team_side === "home") ?? null;
   const awayStats = teamStats.find((s: any) => s.team_side === "away") ?? null;
-  const played = match.home_score !== null && match.away_score !== null;
 
   // Per-match ratings (0–100) for each player in this game
   const matchRatings: Record<string, number> = {};
@@ -451,6 +550,69 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
             </div>
           );
         })()}
+
+        {/* Predicted Lineup — unplayed matches only */}
+        {!played && (homeBestXI.length > 0 || awayBestXI.length > 0) && (
+          <div>
+            <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Predicted Lineup</span>
+              <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, letterSpacing: "0.08em", textTransform: "none" }}>Based on career ratings · Min. 3 games</span>
+            </div>
+            <div style={{ background: "var(--bg-card)" }}>
+              {/* Column headers */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 1fr", borderBottom: "1px solid var(--border-main)" }}>
+                <div style={{ padding: "10px 16px", fontSize: 11, fontWeight: 800, color: "#4ea8f7", letterSpacing: "0.1em", textTransform: "uppercase" }}>{match.home_team}</div>
+                <div style={{ padding: "10px 0", fontSize: 10, fontWeight: 700, color: "var(--text-faint)", letterSpacing: "0.12em", textTransform: "uppercase", textAlign: "center" }}>Pos</div>
+                <div style={{ padding: "10px 16px", fontSize: 11, fontWeight: 800, color: "#a78bfa", letterSpacing: "0.1em", textTransform: "uppercase", textAlign: "right" }}>{match.away_team}</div>
+              </div>
+              {/* One row per slot */}
+              {LINEUP_DISPLAY_ORDER.map((slot, i) => {
+                const homeSlot = homeBestXI.find((s: LineupSlot) => s.slot === slot);
+                const awaySlot = awayBestXI.find((s: LineupSlot) => s.slot === slot);
+                const hp = homeSlot?.player ?? null;
+                const ap = awaySlot?.player ?? null;
+                return (
+                  <div key={slot} style={{ display: "grid", gridTemplateColumns: "1fr 52px 1fr", background: i % 2 === 0 ? "var(--bg-row)" : "transparent", borderBottom: "1px solid var(--border-row)" }}>
+                    {/* Home player */}
+                    <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+                      {hp ? (
+                        <Link href={`/players/${hp.playerId}`} style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                          <div style={{ flex: 1, fontSize: 13, color: "var(--text-body)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hp.name}</div>
+                          {hp.rating !== null ? (
+                            <div style={{ fontSize: 12, fontWeight: 900, color: getRatingColor(hp.rating), flexShrink: 0 }}>{hp.rating}</div>
+                          ) : (
+                            <div style={{ fontSize: 11, color: "var(--text-faint)", flexShrink: 0 }}>—</div>
+                          )}
+                        </Link>
+                      ) : (
+                        <div style={{ fontSize: 12, color: "var(--text-faint)", fontStyle: "italic" }}>TBD</div>
+                      )}
+                    </div>
+                    {/* Slot label */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, color: "var(--text-faint)", letterSpacing: "0.1em", background: "var(--bg-nav)", padding: "3px 6px", textAlign: "center" }}>{slot}</div>
+                    </div>
+                    {/* Away player */}
+                    <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                      {ap ? (
+                        <Link href={`/players/${ap.playerId}`} style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          {ap.rating !== null ? (
+                            <div style={{ fontSize: 12, fontWeight: 900, color: getRatingColor(ap.rating), flexShrink: 0 }}>{ap.rating}</div>
+                          ) : (
+                            <div style={{ fontSize: 11, color: "var(--text-faint)", flexShrink: 0 }}>—</div>
+                          )}
+                          <div style={{ fontSize: 13, color: "var(--text-body)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>{ap.name}</div>
+                        </Link>
+                      ) : (
+                        <div style={{ fontSize: 12, color: "var(--text-faint)", fontStyle: "italic" }}>TBD</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Team Stats */}
         {(homeStats || awayStats) && (

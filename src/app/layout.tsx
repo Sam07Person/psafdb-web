@@ -33,6 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {/* Nav Links */}
               <nav style={{ display: "flex", alignItems: "center", gap: 2 }}>
                 {[
+                  { href: "/news", label: "News" },
                   { href: "/matches", label: "Matches" },
                   { href: "/leagues", label: "Leagues" },
                   { href: "/teams", label: "Teams" },
@@ -46,10 +47,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                     key={href}
                     href={href}
                     style={{
-                      padding: "6px 14px",
+                      padding: "6px 11px",
                       fontSize: 12,
                       fontWeight: 600,
-                      letterSpacing: "0.1em",
+                      letterSpacing: "0.08em",
                       textTransform: "uppercase",
                       color: "var(--text-sub)",
                       textDecoration: "none",

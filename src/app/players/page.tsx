@@ -27,6 +27,7 @@ type PlayerWithStats = PlayerRow & {
   total_assists: number;
   rating: number | null;
   dominant_position: string | null;
+  recent_form: number[];
 };
 
 type RawStatRow = {
@@ -48,12 +49,13 @@ type RawStatRow = {
   position: string | null;
   benched: boolean | null;
   stats_incomplete: boolean | null;
-  matches: { home_score: number | null; away_score: number | null; leagues: { tier: number | null; use_tier_bonus: boolean | null } | null } | null;
+  matches: { home_score: number | null; away_score: number | null; played_at: string | null; leagues: { tier: number | null; use_tier_bonus: boolean | null } | null } | null;
 };
 
 function cx(...s: Array<string | false | null | undefined>) {
   return s.filter(Boolean).join(" ");
 }
+
 
 export default function PlayersPage() {
   const [players, setPlayers] = useState<PlayerWithStats[]>([]);
@@ -105,7 +107,7 @@ export default function PlayersPage() {
         const { data: chunk, error: chunkErr } = await supabase
           .from("match_player_stats")
           .select(
-            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier,use_tier_bonus))"
+            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,played_at,leagues(tier,use_tier_bonus))"
           )
           .range(from, from + CHUNK - 1);
         if (chunkErr) { fetchError = chunkErr; break; }
@@ -153,11 +155,12 @@ export default function PlayersPage() {
 
         // Compute rating
         let rating: number | null = null;
+        const recent_form: number[] = [];
         if (stats.length > 0) {
-          // Only use played (non-benched, complete) stats for rating
-          const playedStats = stats.filter(
-            s => !s.benched && !s.stats_incomplete && s.matches
-          );
+          // Only use played (non-benched, complete) stats for rating — sorted newest first
+          const playedStats = stats
+            .filter(s => !s.benched && !s.stats_incomplete && s.matches)
+            .sort((a, b) => (b.matches?.played_at ?? "").localeCompare(a.matches?.played_at ?? ""));
 
           if (playedStats.length >= 3) {
             // Determine dominant position
@@ -214,6 +217,7 @@ export default function PlayersPage() {
             }
 
             rating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
+            recent_form.push(...matchRatingValues.slice(0, 5));
           }
         }
 
@@ -235,6 +239,7 @@ export default function PlayersPage() {
           total_assists: totalAssists,
           rating,
           dominant_position,
+          recent_form,
         };
       });
 
@@ -434,6 +439,25 @@ export default function PlayersPage() {
                       <div className="text-[10px] uppercase tracking-wide text-white/50">Assists</div>
                     </div>
                   </div>
+
+                  {p.recent_form.length > 0 && (
+                    <div className="mt-3 flex items-center gap-1.5">
+                      <span className="text-[9px] uppercase tracking-widest text-white/30 mr-0.5">Form</span>
+                      {p.recent_form.map((r, i) => {
+                        const c = getRatingColor(r);
+                        return (
+                          <div
+                            key={i}
+                            title={`Match rating: ${r}/100`}
+                            style={{ background: c + "22", border: `1.5px solid ${c}55`, color: c }}
+                            className="flex h-6 w-8 items-center justify-center rounded text-[10px] font-bold"
+                          >
+                            {r}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </Link>
               );
             })}

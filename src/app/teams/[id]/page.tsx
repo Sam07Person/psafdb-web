@@ -92,132 +92,6 @@ type PlayerWithStats = {
   rating?: number | null;
 };
 
-async function getTeamSquad(teamName: string): Promise<PlayerWithStats[]> {
-  // Get all matches for this team
-  const { data: matches } = await supabase
-    .from("matches")
-    .select("id, home_team, away_team, played_at")
-    .or(`home_team.eq.${teamName},away_team.eq.${teamName}`)
-    .order("played_at", { ascending: false });
-
-  if (!matches || matches.length === 0) return [];
-
-  const matchIds = matches.map(m => m.id);
-  
-  // Determine team_side for each match
-  const matchTeamSide: Record<string, "home" | "away"> = {};
-  for (const m of matches) {
-    matchTeamSide[m.id] = m.home_team === teamName ? "home" : "away";
-  }
-
-  // Get all player stats for these matches where they played for this team
-  const { data: playerStats } = await supabase
-    .from("match_player_stats")
-    .select("player_id, match_id, team_side, goals, assists, position")
-    .in("match_id", matchIds);
-
-  if (!playerStats) return [];
-
-  // Filter to only stats where player was on our team
-  const teamPlayerStats = playerStats.filter(ps => ps.team_side === matchTeamSide[ps.match_id]);
-
-  // Aggregate by player
-  const playerMap: Record<string, {
-    matches: number;
-    goals: number;
-    assists: number;
-    lastPosition: string | null;
-    lastMatchId: string;
-  }> = {};
-
-  for (const ps of teamPlayerStats) {
-    if (!playerMap[ps.player_id]) {
-      playerMap[ps.player_id] = {
-        matches: 0,
-        goals: 0,
-        assists: 0,
-        lastPosition: null,
-        lastMatchId: ps.match_id,
-      };
-    }
-    playerMap[ps.player_id].matches++;
-    playerMap[ps.player_id].goals += ps.goals || 0;
-    playerMap[ps.player_id].assists += ps.assists || 0;
-    
-    // Track the most recent position
-    const matchDate = matches.find(m => m.id === ps.match_id)?.played_at || "";
-    const currentLastDate = matches.find(m => m.id === playerMap[ps.player_id].lastMatchId)?.played_at || "";
-    if (matchDate >= currentLastDate) {
-      playerMap[ps.player_id].lastPosition = ps.position;
-      playerMap[ps.player_id].lastMatchId = ps.match_id;
-    }
-  }
-
-  // Get player details
-  const playerIds = Object.keys(playerMap);
-  if (playerIds.length === 0) return [];
-
-  const { data: players } = await supabase
-    .from("players")
-    .select("id, name, handle")
-    .in("id", playerIds);
-
-  if (!players) return [];
-
-  // Now determine which players have this team as their LAST club
-  // Get ALL match_player_stats for these players to check their most recent match
-  const { data: allPlayerStats } = await supabase
-    .from("match_player_stats")
-    .select("player_id, match_id, team_side")
-    .in("player_id", playerIds);
-
-  // Get all unique match IDs
-  const allMatchIds = [...new Set((allPlayerStats || []).map(ps => ps.match_id))];
-  
-  const { data: allMatches } = await supabase
-    .from("matches")
-    .select("id, home_team, away_team, played_at")
-    .in("id", allMatchIds);
-
-  // For each player, find their most recent match and check if it was for this team
-  const playersWithLastClub: PlayerWithStats[] = [];
-
-  for (const player of players) {
-    const playerAllStats = (allPlayerStats || []).filter(ps => ps.player_id === player.id);
-    
-    // Find most recent match for this player
-    let mostRecentMatch: { id: string; date: string; team: string } | null = null;
-    
-    for (const ps of playerAllStats) {
-      const match = (allMatches || []).find(m => m.id === ps.match_id);
-      if (match) {
-        const playedFor = ps.team_side === "home" ? match.home_team : match.away_team;
-        if (!mostRecentMatch || match.played_at > mostRecentMatch.date) {
-          mostRecentMatch = { id: match.id, date: match.played_at, team: playedFor };
-        }
-      }
-    }
-
-    // Only include if their last club is this team
-    if (mostRecentMatch && mostRecentMatch.team === teamName) {
-      const stats = playerMap[player.id];
-      playersWithLastClub.push({
-        id: player.id,
-        name: player.name,
-        handle: player.handle,
-        matches_for_team: stats.matches,
-        goals: stats.goals,
-        assists: stats.assists,
-        last_position: stats.lastPosition,
-        last_match_date: mostRecentMatch.date,
-      });
-    }
-  }
-
-  // Sort by matches played (descending)
-  return playersWithLastClub.sort((a, b) => b.matches_for_team - a.matches_for_team);
-}
-
 // Get all players who have ever played for this team
 async function getTeamAllTimePlayers(teamName: string): Promise<PlayerWithStats[]> {
   const { data: matches } = await supabase
@@ -375,80 +249,165 @@ async function getChampionships(teamName: string): Promise<Championship[]> {
   return championships;
 }
 
-// Fetch full stats for given player IDs and compute individual ratings.
-async function getSquadRatings(playerIds: string[]): Promise<Map<string, number | null>> {
-  if (playerIds.length === 0) return new Map();
-
+// Compute current squad + team rating using the exact same squad determination logic
+// as the teams list page: scan ALL player stats, find each player's most recent match,
+// assign to team only if that match was for teamName.
+async function computeTeamData(teamName: string): Promise<{
+  currentSquad: PlayerWithStats[];
+  teamRating: number | null;
+  ratedCount: number;
+}> {
   const { data: tierSettingsData } = await supabase.from("tier_settings").select("tier,bonus");
   const tierBonuses: Record<number, number> = { ...DEFAULT_TIER_BONUSES };
   if (tierSettingsData) for (const row of tierSettingsData) tierBonuses[row.tier] = row.bonus;
 
+  // All matches (same as list page — no team filter)
+  const { data: matchesRaw } = await supabase
+    .from("matches")
+    .select("id,home_team,away_team,played_at,home_score,away_score,leagues(tier,use_tier_bonus)");
+
+  if (!matchesRaw) return { currentSquad: [], teamRating: null, ratedCount: 0 };
+
+  const matchMap = new Map<string, any>();
+  for (const m of matchesRaw as any[]) {
+    matchMap.set(m.id, {
+      ...m,
+      leagues: Array.isArray(m.leagues) ? m.leagues[0] ?? null : m.leagues ?? null,
+    });
+  }
+
+  // All player stats (no filter — same as list page)
   const { data: statsRaw } = await supabase
     .from("match_player_stats")
-    .select("player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,leagues(tier,use_tier_bonus))")
-    .in("player_id", playerIds);
+    .select("player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete");
 
-  if (!statsRaw) return new Map(playerIds.map(id => [id, null]));
+  if (!statsRaw) return { currentSquad: [], teamRating: null, ratedCount: 0 };
 
-  // Group by player, normalize matches
+  // Group stats per player
   const statsByPlayer = new Map<string, any[]>();
-  for (const raw of statsRaw as any[]) {
-    const stat = { ...raw, matches: Array.isArray(raw.matches) ? raw.matches[0] ?? null : raw.matches ?? null };
+  for (const stat of statsRaw as any[]) {
+    const matchInfo = matchMap.get(stat.match_id);
+    if (!matchInfo) continue;
     const list = statsByPlayer.get(stat.player_id) ?? [];
-    list.push(stat);
+    list.push({ ...stat, matchInfo });
     statsByPlayer.set(stat.player_id, list);
   }
 
-  const ratings = new Map<string, number | null>();
-
-  for (const playerId of playerIds) {
-    const stats = statsByPlayer.get(playerId) ?? [];
-    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && s.matches);
-
-    if (played.length < 3) { ratings.set(playerId, null); continue; }
-
-    const posCounts = new Map<string, number>();
-    for (const s of played) {
-      if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
+  // Determine each player's current team (most recent match) — identical to list page logic
+  const currentSquadIds: string[] = [];
+  for (const [playerId, stats] of statsByPlayer) {
+    let latestDate = "";
+    let latestTeam = "";
+    for (const s of stats) {
+      if (s.matchInfo.played_at > latestDate) {
+        latestDate = s.matchInfo.played_at;
+        latestTeam = s.team_side === "home" ? s.matchInfo.home_team : s.matchInfo.away_team;
+      }
     }
-    let dominantPos: string | null = null, maxPosCount = 0;
-    for (const [pos, count] of posCounts) {
-      if (count > maxPosCount) { maxPosCount = count; dominantPos = pos; }
-    }
-
-    const tierCounts = new Map<number, number>();
-    for (const s of played) {
-      if (s.matches?.leagues?.use_tier_bonus === false) continue;
-      const tier = s.matches?.leagues?.tier ?? 2;
-      tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
-    }
-    let dominantTier = 2, maxTierCount = 0;
-    for (const [tier, count] of tierCounts) {
-      if (count > maxTierCount) { maxTierCount = count; dominantTier = tier; }
-    }
-
-    const matchRatingValues: number[] = [];
-    for (const s of played) {
-      const m = s.matches;
-      const isHome = s.team_side === "home";
-      const my = isHome ? (m.home_score ?? 0) : (m.away_score ?? 0);
-      const opp = isHome ? (m.away_score ?? 0) : (m.home_score ?? 0);
-      const result: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
-      const statRow: MatchStatRow = {
-        goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
-        shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
-        tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
-        interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
-        possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
-        gk_catches: s.gk_catches ?? 0, goals_conceded: opp, score: s.score ?? 0, position: s.position,
-      };
-      matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
-    }
-
-    ratings.set(playerId, calcOverallRating(matchRatingValues, dominantTier, tierBonuses));
+    if (latestTeam === teamName) currentSquadIds.push(playerId);
   }
 
-  return ratings;
+  if (currentSquadIds.length === 0) return { currentSquad: [], teamRating: null, ratedCount: 0 };
+
+  // Fetch player info
+  const { data: players } = await supabase
+    .from("players").select("id,name,handle").in("id", currentSquadIds);
+  const playerInfoMap = new Map<string, { id: string; name: string | null; handle: string | null }>();
+  for (const p of players ?? []) playerInfoMap.set(p.id, p);
+
+  // Compute per-player ratings + collect appearance stats for this team
+  const teamRatingAccum: number[] = [];
+  const currentSquad: PlayerWithStats[] = [];
+
+  for (const playerId of currentSquadIds) {
+    const stats = statsByPlayer.get(playerId) ?? [];
+
+    // Appearance stats: only games played for teamName
+    const teamStats = stats.filter((s: any) => {
+      const side = s.team_side === "home" ? s.matchInfo.home_team : s.matchInfo.away_team;
+      return side === teamName;
+    });
+    let appMatches = 0, appGoals = 0, appAssists = 0;
+    let lastPosition: string | null = null, lastMatchDate = "";
+    for (const s of teamStats) {
+      appMatches++;
+      appGoals += s.goals ?? 0;
+      appAssists += s.assists ?? 0;
+      if (s.matchInfo.played_at >= lastMatchDate) {
+        lastMatchDate = s.matchInfo.played_at;
+        lastPosition = s.position;
+      }
+    }
+
+    // Rating: from all matches (all teams), same as list page
+    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete);
+    let playerRating: number | null = null;
+
+    if (played.length >= 3) {
+      const posCounts = new Map<string, number>();
+      for (const s of played) {
+        if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
+      }
+      let dominantPos: string | null = null, maxPosCount = 0;
+      for (const [pos, count] of posCounts) {
+        if (count > maxPosCount) { maxPosCount = count; dominantPos = pos; }
+      }
+
+      const tierCounts = new Map<number, number>();
+      for (const s of played) {
+        if (s.matchInfo.leagues?.use_tier_bonus === false) continue;
+        const tier = s.matchInfo.leagues?.tier ?? 2;
+        tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
+      }
+      let dominantTier = 2, maxTierCount = 0;
+      for (const [tier, count] of tierCounts) {
+        if (count > maxTierCount) { maxTierCount = count; dominantTier = tier; }
+      }
+
+      const matchRatingValues: number[] = [];
+      for (const s of played) {
+        const m = s.matchInfo;
+        const isHome = s.team_side === "home";
+        const my = isHome ? (m.home_score ?? 0) : (m.away_score ?? 0);
+        const opp = isHome ? (m.away_score ?? 0) : (m.home_score ?? 0);
+        const result: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
+        const statRow: MatchStatRow = {
+          goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
+          shots_on_target: s.shots_on_target ?? 0, passes: s.passes ?? 0,
+          tackles: s.tackles ?? 0, key_tackles: s.key_tackles ?? 0,
+          interceptions: s.interceptions ?? 0, key_interceptions: s.key_interceptions ?? 0,
+          possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
+          gk_catches: s.gk_catches ?? 0, goals_conceded: opp, score: s.score ?? 0, position: s.position,
+        };
+        matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
+      }
+      playerRating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
+      teamRatingAccum.push(playerRating);
+    }
+
+    const info = playerInfoMap.get(playerId);
+    if (info) {
+      currentSquad.push({
+        id: playerId,
+        name: info.name,
+        handle: info.handle,
+        matches_for_team: appMatches,
+        goals: appGoals,
+        assists: appAssists,
+        last_position: lastPosition,
+        last_match_date: lastMatchDate,
+        rating: playerRating,
+      });
+    }
+  }
+
+  currentSquad.sort((a, b) => b.matches_for_team - a.matches_for_team);
+
+  const teamRating = teamRatingAccum.length >= 3
+    ? Math.round(teamRatingAccum.reduce((a, b) => a + b, 0) / teamRatingAccum.length)
+    : null;
+
+  return { currentSquad, teamRating, ratedCount: teamRatingAccum.length };
 }
 
 const POSITION_COLORS: Record<string, string> = {
@@ -485,28 +444,15 @@ export default async function TeamDetailPage({
 
   if (!team) notFound();
 
-  const [matches, stats, currentSquad, allTimePlayers, championships] = await Promise.all([
+  const [matches, stats, teamData, allTimePlayers, championships] = await Promise.all([
     getTeamMatches(team.name),
     getTeamStats(team.name),
-    getTeamSquad(team.name),
+    computeTeamData(team.name),
     getTeamAllTimePlayers(team.name),
     getChampionships(team.name),
   ]);
 
-  // Fetch individual ratings for current squad
-  const squadRatings = await getSquadRatings(currentSquad.map(p => p.id));
-
-  // Attach ratings to squad players
-  const currentSquadWithRatings = currentSquad.map(p => ({
-    ...p,
-    rating: squadRatings.get(p.id) ?? null,
-  }));
-
-  // Team rating = average of squad members who have an official rating (≥3 required)
-  const ratedSquadValues = Array.from(squadRatings.values()).filter((r): r is number => r !== null);
-  const teamRating = ratedSquadValues.length >= 3
-    ? Math.round(ratedSquadValues.reduce((a, b) => a + b, 0) / ratedSquadValues.length)
-    : null;
+  const { currentSquad: currentSquadWithRatings, teamRating, ratedCount } = teamData;
   const teamRatingColor = teamRating !== null ? getRatingColor(teamRating) : null;
   const teamRatingLabel = teamRating !== null ? getRatingLabel(teamRating) : null;
 
@@ -516,7 +462,7 @@ export default async function TeamDetailPage({
 
   // Players who have played for this team but are now at another club
   const formerPlayers = allTimePlayers.filter(
-    p => !currentSquad.find(cs => cs.id === p.id)
+    p => !currentSquadWithRatings.find(cs => cs.id === p.id)
   );
 
   return (
@@ -553,7 +499,7 @@ export default async function TeamDetailPage({
             </div>
             <div className="text-sm font-bold" style={{ color: teamRatingColor ?? undefined }}>
               {teamRatingLabel}
-              <div className="text-xs font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>Avg of {ratedSquadValues.length} rated players</div>
+              <div className="text-xs font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>Avg of {ratedCount} rated players</div>
             </div>
           </div>
         )}
@@ -615,7 +561,7 @@ export default async function TeamDetailPage({
         </div>
 
         {/* Win Rate Bar */}
-        <div className="mb-8 rounded-xl bg-white/5 border border-white/10 p-4">
+        <div className="mb-4 rounded-xl bg-white/5 border border-white/10 p-4">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm text-white/60">Win Rate</span>
             <span className="text-sm font-medium">{winRate}%</span>
@@ -628,11 +574,48 @@ export default async function TeamDetailPage({
           </div>
         </div>
 
+        {/* Recent Form */}
+        {(() => {
+          const last5 = matches
+            .filter((m: any) => m.home_score !== null && m.away_score !== null)
+            .slice(0, 5)
+            .map((m: any) => {
+              const isHome = m.home_team === team.name;
+              const scored = isHome ? m.home_score : m.away_score;
+              const conceded = isHome ? m.away_score : m.home_score;
+              const opponent = isHome ? m.away_team : m.home_team;
+              const result: "W" | "D" | "L" = scored > conceded ? "W" : scored < conceded ? "L" : "D";
+              return { result, scored, conceded, opponent, matchId: m.id };
+            });
+          if (last5.length === 0) return null;
+          return (
+            <div className="mb-8 rounded-xl bg-white/5 border border-white/10 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/60">Recent Form</span>
+                <div className="flex items-center gap-2">
+                  {last5.map((r, i) => (
+                    <Link key={i} href={`/matches/${r.matchId}`} title={`${r.result} vs ${r.opponent} (${r.scored}–${r.conceded})`}>
+                      <div className={`w-9 h-9 rounded-lg flex flex-col items-center justify-center font-bold transition hover:opacity-80 ${
+                        r.result === "W" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : r.result === "L" ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                        : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                      }`}>
+                        <span className="text-xs leading-none">{r.result}</span>
+                        <span className="text-[9px] leading-none mt-0.5 opacity-70">{r.scored}–{r.conceded}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="grid lg:grid-cols-2 gap-6 mb-8">
           {/* Current Squad */}
           <div className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10 bg-white/5">
-              <h2 className="font-semibold">Current Squad ({currentSquad.length})</h2>
+              <h2 className="font-semibold">Current Squad ({currentSquadWithRatings.length})</h2>
               <p className="text-xs text-white/50">Players whose last match was for this team</p>
             </div>
             

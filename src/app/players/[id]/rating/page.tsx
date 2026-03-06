@@ -90,6 +90,7 @@ export default function PlayerRatingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  const [hoveredDot, setHoveredDot] = useState<{ i: number; x: number; y: number; d: { rating: number; date: string; homeTeam: string; awayTeam: string; homeScore: number; awayScore: number } } | null>(null);
   const [tierBonuses, setTierBonuses] = useState<Record<number, number>>(DEFAULT_TIER_BONUSES);
 
   useEffect(() => {
@@ -274,6 +275,23 @@ export default function PlayerRatingPage() {
   const ratingColor = overall !== null ? getRatingColor(overall) : "var(--text-faint)";
   const ratingLabel = overall !== null ? getRatingLabel(overall) : null;
 
+  // Cumulative overall rating after each eligible match, oldest → newest
+  const cumulativeRatingHistory = ratingPlayedStats
+    .map((s, i) => ({
+      date: s.matches?.played_at ?? "",
+      matchId: s.match_id,
+      homeTeam: s.matches!.home_team,
+      awayTeam: s.matches!.away_team,
+      homeScore: s.matches!.home_score,
+      awayScore: s.matches!.away_score,
+      matchRatingValue: allMatchRatingValues[i],
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((item, i, arr) => ({
+      ...item,
+      overall: calcOverallRating(arr.slice(0, i + 1).map(x => x.matchRatingValue), leagueTier, tierBonuses),
+    }));
+
   // Per-match display sorted newest first, max 20
   const sortedStats = [...playedStats].sort((a, b) => {
     const aDate = a.matches?.played_at ?? "";
@@ -416,6 +434,90 @@ export default function PlayerRatingPage() {
             <div style={{ marginTop: 8 }}>{playedStats.length} of 3 matches recorded.</div>
           </div>
         ) : (
+          <>
+          {cumulativeRatingHistory.length >= 2 && (() => {
+            const chartData = cumulativeRatingHistory; // already oldest → newest
+            const W = 820, H = 150;
+            const padL = 36, padR = 16, padT = 14, padB = 8;
+            const chartW = W - padL - padR;
+            const chartH = H - padT - padB;
+
+            const minR = Math.max(0, Math.min(...chartData.map(d => d.overall)) - 8);
+            const maxR = Math.min(100, Math.max(...chartData.map(d => d.overall)) + 8);
+            const yRange = maxR - minR || 10;
+
+            const xOf = (i: number) => padL + (chartData.length === 1 ? chartW / 2 : (i / (chartData.length - 1)) * chartW);
+            const yOf = (r: number) => padT + chartH - ((r - minR) / yRange) * chartH;
+
+            const linePoints = chartData.map((d, i) => `${xOf(i)},${yOf(d.overall)}`).join(" ");
+            const areaPoints = `${xOf(0)},${padT + chartH} ${linePoints} ${xOf(chartData.length - 1)},${padT + chartH}`;
+
+            const gridVals = [40, 50, 60, 70, 80, 90, 100].filter(v => v > minR && v <= maxR + 2);
+
+            return (
+              <div style={{ background: "var(--bg-card)", padding: "20px 24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>
+                  Overall Rating History
+                </div>
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+                  {/* Grid lines */}
+                  {gridVals.map(v => (
+                    <g key={v}>
+                      <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="var(--border-row)" strokeWidth="1" strokeDasharray="3 4" />
+                      <text x={padL - 5} y={yOf(v)} textAnchor="end" dominantBaseline="middle" fill="var(--text-faint)" fontSize="9">{v}</text>
+                    </g>
+                  ))}
+
+
+                  {/* Area fill */}
+                  <polygon points={areaPoints} fill={ratingColor} opacity="0.07" />
+
+                  {/* Line */}
+                  <polyline points={linePoints} fill="none" stroke={ratingColor} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+                  {/* Dots */}
+                  {chartData.map((d, i) => {
+                    const c = getRatingColor(d.overall);
+                    const cx = xOf(i);
+                    const cy = yOf(d.overall);
+                    return (
+                      <g key={d.matchId} style={{ cursor: "pointer" }}
+                        onMouseEnter={() => setHoveredDot({ i, x: cx, y: cy, d: { rating: d.overall, date: d.date, homeTeam: d.homeTeam, awayTeam: d.awayTeam, homeScore: d.homeScore, awayScore: d.awayScore } })}
+                        onMouseLeave={() => setHoveredDot(null)}
+                      >
+                        <circle cx={cx} cy={cy} r="8" fill="transparent" />
+                        <circle cx={cx} cy={cy} r={hoveredDot?.i === i ? 7 : 5} fill={c} stroke="var(--bg-card)" strokeWidth="2" />
+                      </g>
+                    );
+                  })}
+
+                  {/* Hover tooltip */}
+                  {hoveredDot && (() => {
+                    const { x, y, d: hd } = hoveredDot;
+                    const label1 = `${hd.homeTeam} ${hd.homeScore}–${hd.awayScore} ${hd.awayTeam}`;
+                    const label2 = formatDate(hd.date);
+                    const ratingStr = String(hd.rating);
+                    const tipW = 170, tipH = 52, tipR = 4;
+                    const tipX = Math.max(padL, Math.min(x - tipW / 2, W - padR - tipW));
+                    const tipY = y - tipH - 12 < padT ? y + 14 : y - tipH - 12;
+                    return (
+                      <g pointerEvents="none">
+                        <rect x={tipX} y={tipY} width={tipW} height={tipH} rx={tipR} ry={tipR}
+                          fill="#1a1a2e" stroke={getRatingColor(hd.rating)} strokeWidth="1.5" opacity="0.96" />
+                        <text x={tipX + tipW / 2} y={tipY + 16} textAnchor="middle" fill={getRatingColor(hd.rating)} fontSize="15" fontWeight="700">{ratingStr}</text>
+                        <text x={tipX + tipW / 2} y={tipY + 31} textAnchor="middle" fill="#ccc" fontSize="8.5">{label1}</text>
+                        <text x={tipX + tipW / 2} y={tipY + 44} textAnchor="middle" fill="#888" fontSize="8">{label2}</text>
+                      </g>
+                    );
+                  })()}
+                </svg>
+                <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6, textAlign: "right" }}>
+                  {chartData.length} matches · oldest → newest · overall rating after each match
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24, alignItems: "start" }}>
             {/* Left: sub-ratings + match history */}
             <div>
@@ -632,6 +734,7 @@ export default function PlayerRatingPage() {
               </Link>
             </div>
           </div>
+          </>
         )}
       </div>
     </main>

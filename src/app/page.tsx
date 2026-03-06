@@ -31,6 +31,13 @@ const NAV_ITEMS = [
     icon: "◉",
   },
   {
+    href: "/news",
+    label: "News",
+    sub: "Latest Stories & Events",
+    accent: "#38bdf8",
+    icon: "📰",
+  },
+  {
     href: "/awards",
     label: "Awards",
     sub: "Team of the Week",
