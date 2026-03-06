@@ -745,7 +745,7 @@ export default function NewsPage() {
             .select(STATS_SELECT)
             .range(from, from + PAGE - 1);
           if (!page || page.length === 0) break;
-          allStats.push(...(page as StatRow[]));
+          allStats.push(...(page as unknown as StatRow[]));
           if (page.length < PAGE) break;
           from += PAGE;
         }
