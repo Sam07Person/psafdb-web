@@ -15,7 +15,7 @@ type ResultItem = { href: string; label: string; sub: string; category: string }
 function buildItems(r: SearchResults): ResultItem[] {
   const items: ResultItem[] = [];
   for (const p of r.players) {
-    items.push({ category: "Players", href: `/players/${p.id}`, label: p.handle ?? p.name ?? "Unknown", sub: p.name ?? "" });
+    items.push({ category: "Players", href: `/players/${p.id}`, label: p.name ?? p.handle ?? "Unknown", sub: p.handle ?? "" });
   }
   for (const t of r.teams) {
     items.push({ category: "Teams", href: `/teams/${t.id}`, label: t.name, sub: "Team" });
