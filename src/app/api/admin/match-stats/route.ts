@@ -106,36 +106,57 @@ export async function PUT(req: NextRequest) {
   }
 
   // Update player stats via upsert (PK: match_id, player_id)
-  if (Array.isArray(player_stats) && player_stats.length > 0) {
-    const rows = player_stats.map((p: any) => ({
-      match_id,
-      player_id: p.player_id,
-      team_side: p.team_side,
-      position: p.position || null,
-      score: p.score ?? 0,
-      passes: p.passes ?? 0,
-      key_passes: p.key_passes ?? 0,
-      assists: p.assists ?? 0,
-      shots: p.shots ?? 0,
-      shots_on_target: p.shots_on_target ?? 0,
-      goals: p.goals ?? 0,
-      tackles: p.tackles ?? 0,
-      key_tackles: p.key_tackles ?? 0,
-      interceptions: p.interceptions ?? 0,
-      key_interceptions: p.key_interceptions ?? 0,
-      possessions_lost: p.possessions_lost ?? 0,
-      gk_saves: p.gk_saves ?? 0,
-      gk_catches: p.gk_catches ?? 0,
-      is_starter: p.is_starter ?? true,
-      sub_number: p.sub_number ?? null,
-      benched: p.benched ?? false,
-      stats_incomplete: p.stats_incomplete ?? false,
-    }));
-    const { error } = await supabaseAdmin
+  if (Array.isArray(player_stats)) {
+    if (player_stats.length > 0) {
+      const rows = player_stats.map((p: any) => ({
+        match_id,
+        player_id: p.player_id,
+        team_side: p.team_side,
+        position: p.position || null,
+        score: p.score ?? 0,
+        passes: p.passes ?? 0,
+        key_passes: p.key_passes ?? 0,
+        assists: p.assists ?? 0,
+        shots: p.shots ?? 0,
+        shots_on_target: p.shots_on_target ?? 0,
+        goals: p.goals ?? 0,
+        tackles: p.tackles ?? 0,
+        key_tackles: p.key_tackles ?? 0,
+        interceptions: p.interceptions ?? 0,
+        key_interceptions: p.key_interceptions ?? 0,
+        possessions_lost: p.possessions_lost ?? 0,
+        gk_saves: p.gk_saves ?? 0,
+        gk_catches: p.gk_catches ?? 0,
+        is_starter: p.is_starter ?? true,
+        sub_number: p.sub_number ?? null,
+        benched: p.benched ?? false,
+        stats_incomplete: p.stats_incomplete ?? false,
+      }));
+      const { error } = await supabaseAdmin
+        .from("match_player_stats")
+        .upsert(rows, { onConflict: "match_id,player_id" });
+      if (error) return json(500, { error: error.message });
+      results.player_stats = rows.length;
+    }
+
+    // Delete players removed from the list
+    const keepIds = player_stats.map((p: any) => p.player_id);
+    const { data: existing } = await supabaseAdmin
       .from("match_player_stats")
-      .upsert(rows, { onConflict: "match_id,player_id" });
-    if (error) return json(500, { error: error.message });
-    results.player_stats = rows.length;
+      .select("player_id")
+      .eq("match_id", match_id);
+    const toDelete = (existing || [])
+      .map((r: any) => r.player_id)
+      .filter((id: string) => !keepIds.includes(id));
+    if (toDelete.length > 0) {
+      const { error } = await supabaseAdmin
+        .from("match_player_stats")
+        .delete()
+        .eq("match_id", match_id)
+        .in("player_id", toDelete);
+      if (error) return json(500, { error: error.message });
+      results.deleted_players = toDelete.length;
+    }
   }
 
   return json(200, { ok: true, updated: results });

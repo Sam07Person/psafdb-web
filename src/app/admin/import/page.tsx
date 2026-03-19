@@ -266,6 +266,8 @@ export default function AdminDashboardPage() {
   const [editingMatchStats, setEditingMatchStats] = useState<MatchStatsData | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsTab, setStatsTab] = useState<"team" | "players">("team");
+  const [addPlayerSearch, setAddPlayerSearch] = useState("");
+  const [addPlayerSide, setAddPlayerSide] = useState<"home" | "away">("home");
 
   const authHeaders = {
     "Content-Type": "application/json",
@@ -906,9 +908,11 @@ export default function AdminDashboardPage() {
     if (expandedFixtureStats === matchId) {
       setExpandedFixtureStats(null);
       setEditingMatchStats(null);
+      setAddPlayerSearch("");
     } else {
       setExpandedFixtureStats(matchId);
       setStatsTab("team");
+      setAddPlayerSearch("");
       loadMatchStats(matchId);
     }
   };
@@ -966,15 +970,45 @@ export default function AdminDashboardPage() {
     });
   };
 
-  const updatePlayerStat = (playerIdx: number, field: string, value: string) => {
+  const updatePlayerStat = (playerIdx: number, field: string, value: string | boolean) => {
     if (!editingMatchStats) return;
     setEditingMatchStats((prev) => {
       if (!prev) return prev;
       const updated = [...prev.player_stats];
-      updated[playerIdx] = {
-        ...updated[playerIdx],
-        [field]: field === "position" ? (value || null) : (parseInt(value) || 0),
-      };
+      let parsed: string | number | boolean | null;
+      if (typeof value === "boolean") parsed = value;
+      else if (field === "position") parsed = value || null;
+      else parsed = parseInt(value) || 0;
+      updated[playerIdx] = { ...updated[playerIdx], [field]: parsed };
+      return { ...prev, player_stats: updated };
+    });
+  };
+
+  const addPlayerToMatch = (playerId: string, teamSide: "home" | "away") => {
+    if (!editingMatchStats || !expandedFixtureStats) return;
+    const player = players.find(p => p.id === playerId);
+    if (!player) return;
+    if (editingMatchStats.player_stats.some(ps => ps.player_id === playerId)) return;
+    const newRow: PlayerStatsRow = {
+      match_id: expandedFixtureStats,
+      player_id: playerId,
+      team_side: teamSide,
+      position: null,
+      score: 0, passes: 0, key_passes: 0, assists: 0, shots: 0, shots_on_target: 0,
+      goals: 0, tackles: 0, key_tackles: 0, interceptions: 0, key_interceptions: 0,
+      possessions_lost: 0, gk_saves: 0, gk_catches: 0,
+      is_starter: true, sub_number: null, benched: false, stats_incomplete: false,
+      player: { id: player.id, name: player.name, handle: player.handle, game_user_id: player.game_user_id },
+    };
+    setEditingMatchStats(prev => prev ? { ...prev, player_stats: [...prev.player_stats, newRow] } : prev);
+  };
+
+  const removePlayerFromMatch = (playerIdx: number) => {
+    if (!editingMatchStats) return;
+    setEditingMatchStats(prev => {
+      if (!prev) return prev;
+      const updated = [...prev.player_stats];
+      updated.splice(playerIdx, 1);
       return { ...prev, player_stats: updated };
     });
   };
@@ -2814,10 +2848,8 @@ export default function AdminDashboardPage() {
 
                                 {statsTab === "players" && (
                                   <div className="overflow-auto">
-                                    {editingMatchStats.player_stats.length === 0 ? (
-                                      <p className="text-gray-400 text-sm">No player stats recorded for this match.</p>
-                                    ) : (
-                                      <table className="w-full text-sm">
+                                    {editingMatchStats.player_stats.length > 0 && (
+                                      <table className="w-full text-sm mb-4">
                                         <thead>
                                           <tr className="text-gray-400 text-xs">
                                             <th className="text-left py-1 pr-1 sticky left-0 bg-gray-700">Player</th>
@@ -2827,6 +2859,8 @@ export default function AdminDashboardPage() {
                                               <th key={key} className="text-left py-1 pr-1 whitespace-nowrap">{label}</th>
                                             ))}
                                             <th className="text-left py-1 pr-1 whitespace-nowrap">Check</th>
+                                            <th className="text-left py-1 pr-1 whitespace-nowrap">Detail</th>
+                                            <th className="text-left py-1 pr-1"></th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -2850,11 +2884,67 @@ export default function AdminDashboardPage() {
                                                 if (diff === 0) return <td className="py-1 pr-1 text-green-400 text-xs">OK</td>;
                                                 return <td className={`py-1 pr-1 text-xs font-semibold ${Math.abs(diff) > 50 ? "text-red-400" : "text-yellow-400"}`}>{diff > 0 ? "+" : ""}{diff}</td>;
                                               })()}
+                                              <td className="py-1 pr-1">
+                                                <label className="flex items-center gap-1 cursor-pointer" title={ps.stats_incomplete ? "Stats incomplete — check to mark as complete" : "Stats complete — uncheck to mark incomplete"}>
+                                                  <input type="checkbox" checked={!ps.stats_incomplete} onChange={(e) => updatePlayerStat(idx, "stats_incomplete", !e.target.checked)} className="accent-green-500" />
+                                                  <span className={`text-xs ${ps.stats_incomplete ? "text-gray-500" : "text-green-400"}`}>{ps.stats_incomplete ? "Inc" : "Full"}</span>
+                                                </label>
+                                              </td>
+                                              <td className="py-1 pr-1">
+                                                <button onClick={() => removePlayerFromMatch(idx)} className="text-red-400 hover:text-red-300 text-xs">X</button>
+                                              </td>
                                             </tr>
                                           ))}
                                         </tbody>
                                       </table>
                                     )}
+                                    {editingMatchStats.player_stats.length === 0 && (
+                                      <p className="text-gray-400 text-sm mb-4">No player stats recorded for this match.</p>
+                                    )}
+
+                                    {/* Add player section */}
+                                    <div className="bg-gray-800 p-3 rounded border border-gray-600">
+                                      <p className="text-gray-300 text-xs font-semibold mb-2">Add Player</p>
+                                      <div className="flex gap-2 items-end flex-wrap">
+                                        <div className="flex-1 min-w-[180px]">
+                                          <input
+                                            type="text"
+                                            placeholder="Search player name..."
+                                            value={addPlayerSearch}
+                                            onChange={(e) => setAddPlayerSearch(e.target.value)}
+                                            className="w-full p-1.5 rounded bg-gray-700 text-white border border-gray-600 text-xs"
+                                          />
+                                        </div>
+                                        <select value={addPlayerSide} onChange={(e) => setAddPlayerSide(e.target.value as "home" | "away")} className="p-1.5 rounded bg-gray-700 text-white border border-gray-600 text-xs">
+                                          <option value="home">{f.home_team} (Home)</option>
+                                          <option value="away">{f.away_team} (Away)</option>
+                                        </select>
+                                      </div>
+                                      {addPlayerSearch.trim().length >= 2 && (() => {
+                                        const q = addPlayerSearch.trim().toLowerCase();
+                                        const existingIds = new Set(editingMatchStats.player_stats.map(ps => ps.player_id));
+                                        const matches = players.filter(p =>
+                                          !existingIds.has(p.id) &&
+                                          ((p.name?.toLowerCase().includes(q)) || (p.handle?.toLowerCase().includes(q)))
+                                        ).slice(0, 8);
+                                        return matches.length > 0 ? (
+                                          <div className="mt-2 space-y-1">
+                                            {matches.map(p => (
+                                              <button
+                                                key={p.id}
+                                                onClick={() => { addPlayerToMatch(p.id, addPlayerSide); setAddPlayerSearch(""); }}
+                                                className="block w-full text-left px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white text-xs"
+                                              >
+                                                {p.name || p.handle || p.id.slice(0, 8)}
+                                                {p.name && p.handle ? <span className="text-gray-400 ml-2">{p.handle}</span> : null}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <p className="mt-2 text-gray-500 text-xs">No matching players found.</p>
+                                        );
+                                      })()}
+                                    </div>
                                   </div>
                                 )}
 
