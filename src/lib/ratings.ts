@@ -277,7 +277,10 @@ export function calcMatchBreakdown(
   result: MatchResult,
   position: string | null | undefined
 ): MatchBreakdown {
-  const role = getPositionRole(position);
+  // If the player has GK stats (saves/catches), rate as GK — handles subs coming on in goal
+  const role = (stat.gk_saves > 0 || stat.gk_catches > 0) && getPositionRole(position) !== "GK"
+    ? "GK" as PositionRole
+    : getPositionRole(position);
   const w = getPositionWeights(role);
 
   const consScore = stat.score > 60
