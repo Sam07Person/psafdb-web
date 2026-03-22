@@ -276,12 +276,23 @@ async function computeTeamData(teamName: string): Promise<{
     });
   }
 
-  // All player stats (no filter — same as list page)
-  const { data: statsRaw } = await supabase
-    .from("match_player_stats")
-    .select("player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete");
+  // All player stats (paginated to bypass 1000-row cap)
+  const STATS_SELECT = "player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete";
+  const statsRaw: any[] = [];
+  let from = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data: page } = await supabase
+      .from("match_player_stats")
+      .select(STATS_SELECT)
+      .range(from, from + PAGE - 1);
+    if (!page || page.length === 0) break;
+    statsRaw.push(...page);
+    if (page.length < PAGE) break;
+    from += PAGE;
+  }
 
-  if (!statsRaw) return { currentSquad: [], teamRating: null, ratedCount: 0 };
+  if (statsRaw.length === 0) return { currentSquad: [], teamRating: null, ratedCount: 0 };
 
   // Group stats per player
   const statsByPlayer = new Map<string, any[]>();
@@ -339,8 +350,8 @@ async function computeTeamData(teamName: string): Promise<{
       }
     }
 
-    // Rating: from all matches (all teams), same as list page
-    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete);
+    // Rating: from all matches (all teams), same as player page
+    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60));
     let playerRating: number | null = null;
 
     if (played.length >= 3) {

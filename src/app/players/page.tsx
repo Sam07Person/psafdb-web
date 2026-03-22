@@ -158,8 +158,9 @@ export default function PlayersPage() {
         const recent_form: number[] = [];
         if (stats.length > 0) {
           // Only use played (non-benched, complete) stats for rating — sorted newest first
+          // Filter score: include unscored (0) or valid scores (>60), same as player page
           const playedStats = stats
-            .filter(s => !s.benched && !s.stats_incomplete && s.matches)
+            .filter(s => !s.benched && !s.stats_incomplete && s.matches && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60))
             .sort((a, b) => (b.matches?.played_at ?? "").localeCompare(a.matches?.played_at ?? ""));
 
           if (playedStats.length >= 3) {
