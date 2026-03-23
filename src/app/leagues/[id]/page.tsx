@@ -140,6 +140,111 @@ function knockoutStageRank(stage: string) {
   return idx === -1 ? 999 : idx;
 }
 
+// ── Two-leg tie merging ──────────────────────────────────────────────────────
+// Detects pairs where Team A vs Team B and Team B vs Team A in the same stage
+// and merges them into a single "tie" with aggregate score.
+type MergedTie = {
+  id: string;         // first leg match id (used as key)
+  ids: string[];      // both match ids
+  team1: string;
+  team2: string;
+  leg1: { home_score: number | null; away_score: number | null; home_team: string; away_team: string; id: string } | null;
+  leg2: { home_score: number | null; away_score: number | null; home_team: string; away_team: string; id: string } | null;
+  agg1: number | null; // team1's aggregate goals
+  agg2: number | null; // team2's aggregate goals
+  played: boolean;
+  forfeited_by: string | null;
+};
+
+function mergeKnockoutLegs(stageMatches: any[]): MergedTie[] {
+  const used = new Set<string>();
+  const ties: MergedTie[] = [];
+
+  for (let i = 0; i < stageMatches.length; i++) {
+    if (used.has(stageMatches[i].id)) continue;
+    const m = stageMatches[i];
+
+    // Find the reverse fixture (same teams, swapped sides) in same stage
+    let pairIdx = -1;
+    for (let j = i + 1; j < stageMatches.length; j++) {
+      if (used.has(stageMatches[j].id)) continue;
+      const n = stageMatches[j];
+      if ((m.home_team === n.away_team && m.away_team === n.home_team) ||
+          (m.home_team === n.home_team && m.away_team === n.away_team)) {
+        pairIdx = j;
+        break;
+      }
+    }
+
+    if (pairIdx === -1) {
+      // Single match, no pair — pass through as-is
+      const played = m.home_score !== null && m.away_score !== null;
+      ties.push({
+        id: m.id,
+        ids: [m.id],
+        team1: m.home_team,
+        team2: m.away_team,
+        leg1: m,
+        leg2: null,
+        agg1: played ? m.home_score : null,
+        agg2: played ? m.away_score : null,
+        played,
+        forfeited_by: m.forfeited_by,
+      });
+    } else {
+      // Two-leg tie found
+      const n = stageMatches[pairIdx];
+      used.add(m.id);
+      used.add(n.id);
+
+      // Determine chronological order (earlier = leg 1)
+      const mDate = m.played_at || "";
+      const nDate = n.played_at || "";
+      const [first, second] = mDate <= nDate ? [m, n] : [n, m];
+
+      // team1 = home team in leg 1
+      const team1 = first.home_team;
+      const team2 = first.away_team;
+
+      const leg1Played = first.home_score !== null && first.away_score !== null;
+      const leg2Played = second.home_score !== null && second.away_score !== null;
+      const bothPlayed = leg1Played && leg2Played;
+      const anyPlayed = leg1Played || leg2Played;
+
+      // Aggregate: team1's goals across played legs
+      let agg1: number | null = null;
+      let agg2: number | null = null;
+      if (anyPlayed) {
+        agg1 = 0;
+        agg2 = 0;
+        if (leg1Played) {
+          agg1 += first.home_score;
+          agg2 += first.away_score;
+        }
+        if (leg2Played) {
+          agg1 += second.home_team === team1 ? second.home_score : second.away_score;
+          agg2 += second.home_team === team1 ? second.away_score : second.home_score;
+        }
+      }
+
+      ties.push({
+        id: first.id,
+        ids: [first.id, second.id],
+        team1,
+        team2,
+        leg1: first,
+        leg2: second,
+        agg1,
+        agg2,
+        played: anyPlayed,
+        forfeited_by: null,
+      });
+    }
+  }
+
+  return ties;
+}
+
 async function getLeagueStats(playedMatchIds: string[], playedMatches: any[], teamIdMap: Record<string, string>) {
   if (!playedMatchIds.length) return { players: [] as PlayerStat[], teams: [] as TeamStat[] };
 
@@ -240,11 +345,16 @@ export default async function LeagueDetailPage({
   const sortedKnockoutStages = Object.keys(knockoutByStage).sort((a, b) => knockoutStageRank(a) - knockoutStageRank(b));
 
   // Bracket data — all knockout matches (played + upcoming), sorted earliest-first for left→right display
-  const bracketByStage: Record<string, any[]> = {};
+  // Merge two-leg ties into single entries with aggregate scores
+  const rawBracketByStage: Record<string, any[]> = {};
   for (const m of matches.filter((m: any) => !m.group_name)) {
     const stage = m.stage || "Knockout";
-    if (!bracketByStage[stage]) bracketByStage[stage] = [];
-    bracketByStage[stage].push(m);
+    if (!rawBracketByStage[stage]) rawBracketByStage[stage] = [];
+    rawBracketByStage[stage].push(m);
+  }
+  const bracketByStage: Record<string, MergedTie[]> = {};
+  for (const [stage, stageMatches] of Object.entries(rawBracketByStage)) {
+    bracketByStage[stage] = mergeKnockoutLegs(stageMatches);
   }
   // Sort stages: earliest (most matches) first → final last
   const bracketStages = Object.keys(bracketByStage).sort((a, b) => knockoutStageRank(b) - knockoutStageRank(a));
@@ -358,36 +468,68 @@ export default async function LeagueDetailPage({
     );
   }
 
-  function KnockoutBracket({ stages, byStage }: { stages: string[]; byStage: Record<string, any[]> }) {
+  function KnockoutBracket({ stages, byStage }: { stages: string[]; byStage: Record<string, MergedTie[]> }) {
     if (stages.length === 0) return null;
 
     const BASE = 96;        // base slot height (px) for the earliest round
     const CW   = 28;        // connector column width (px)
-    const MW   = 164;       // match card width (px)
+    const MW   = 190;       // match card width (px)
     const AC   = "#a78bfa"; // accent colour
 
     // Third place is displayed separately below the main bracket
     const thirdStage = stages.find(s => s.toLowerCase().includes("third"));
     const main = stages.filter(s => !s.toLowerCase().includes("third"));
 
-    function BracketCard({ match }: { match: any }) {
-      const played = match.home_score !== null;
-      const homeWin = played && match.home_score > match.away_score;
-      const awayWin = played && match.away_score > match.home_score;
+    function BracketCard({ tie }: { tie: MergedTie }) {
+      const isTwoLeg = tie.leg2 !== null;
+      const leg1Played = tie.leg1 !== null && tie.leg1.home_score !== null && tie.leg1.away_score !== null;
+      const leg2Played = tie.leg2 !== null && tie.leg2.home_score !== null && tie.leg2.away_score !== null;
+      const bothPlayed = isTwoLeg && leg1Played && leg2Played;
+      // Only highlight winner when all legs are complete (or single-leg tie)
+      const isComplete = isTwoLeg ? bothPlayed : tie.played;
+      const t1Win = isComplete && tie.agg1 !== null && tie.agg2 !== null && tie.agg1 > tie.agg2;
+      const t2Win = isComplete && tie.agg1 !== null && tie.agg2 !== null && tie.agg2 > tie.agg1;
+
+      const rows = [
+        { team: tie.team1, agg: tie.agg1, win: t1Win },
+        { team: tie.team2, agg: tie.agg2, win: t2Win },
+      ];
+
+      // Build leg score labels for two-leg ties
+      let legLabel: string | null = null;
+      if (isTwoLeg && tie.leg1 && tie.leg2) {
+        const parts: string[] = [];
+        if (leg1Played) parts.push(`${tie.leg1.home_score}-${tie.leg1.away_score}`);
+        if (leg2Played) parts.push(`${tie.leg2.home_score}-${tie.leg2.away_score}`);
+        if (parts.length > 0) {
+          const legsText = bothPlayed ? parts.join(", ") : `${parts[0]} (Leg 2 TBD)`;
+          legLabel = legsText;
+        }
+      }
+
+      const cardContent = (
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-main)", width: MW, overflow: "hidden" }}>
+          {rows.map((row, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 9px", background: tie.played && row.win ? "rgba(74,222,128,0.08)" : "transparent", borderBottom: i === 0 ? "1px solid var(--border-row)" : "none" }}>
+              <span style={{ fontSize: 12, fontWeight: tie.played && row.win ? 700 : 400, color: tie.played && row.win ? "var(--text-body)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: MW - 50 }}>
+                {row.team || "TBD"}
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 900, color: tie.played && row.win ? AC : "var(--text-faint)", flexShrink: 0, minWidth: 16, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>
+                {tie.played && row.agg !== null ? row.agg : ""}
+              </span>
+            </div>
+          ))}
+          {isTwoLeg && legLabel && (
+            <div style={{ padding: "2px 9px 3px", fontSize: 9, color: "var(--text-faint)", letterSpacing: "0.04em", borderTop: "1px solid var(--border-row)" }}>
+              Legs: {legLabel}
+            </div>
+          )}
+        </div>
+      );
+
       return (
-        <Link href={`/matches/${match.id}`} style={{ display: "block", textDecoration: "none" }} className="nav-card">
-          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-main)", width: MW, overflow: "hidden" }}>
-            {[{ team: match.home_team, score: match.home_score, win: homeWin }, { team: match.away_team, score: match.away_score, win: awayWin }].map((row, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 9px", background: played && row.win ? "rgba(74,222,128,0.08)" : "transparent", borderBottom: i === 0 ? "1px solid var(--border-row)" : "none" }}>
-                <span style={{ fontSize: 12, fontWeight: played && row.win ? 700 : 400, color: played && row.win ? "var(--text-body)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: MW - 34 }}>
-                  {row.team || "TBD"}
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 900, color: played && row.win ? AC : "var(--text-faint)", flexShrink: 0, minWidth: 16, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>
-                  {played ? row.score : ""}
-                </span>
-              </div>
-            ))}
-          </div>
+        <Link href={`/matches/${tie.ids[0]}`} style={{ display: "block", textDecoration: "none" }} className="nav-card">
+          {cardContent}
         </Link>
       );
     }
@@ -426,9 +568,9 @@ export default async function LeagueDetailPage({
                     <div style={{ textAlign: "center", fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8, width: MW }}>
                       {stage}
                     </div>
-                    {colMatches.map((match: any) => (
-                      <div key={match.id} style={{ height: slotH, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <BracketCard match={match} />
+                    {colMatches.map((tie: MergedTie) => (
+                      <div key={tie.id} style={{ height: slotH, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <BracketCard tie={tie} />
                       </div>
                     ))}
                   </div>
@@ -467,7 +609,10 @@ export default async function LeagueDetailPage({
             <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
               Third Place Play-off
             </div>
-            {byStage[thirdStage].map((match: any) => <MatchRow key={match.id} match={match} />)}
+            {byStage[thirdStage].map((tie: MergedTie) => {
+              if (tie.leg1) return <MatchRow key={tie.id} match={tie.leg1} />;
+              return null;
+            })}
           </div>
         )}
       </div>
