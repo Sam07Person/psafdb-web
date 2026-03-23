@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
       name,
       league_id,
       no_elo,
+      disbanded,
       created_at,
       league:leagues!teams_league_id_fkey(id, name, season)
     `)
@@ -156,15 +157,172 @@ export async function PUT(req: NextRequest) {
     // Use first league_id as primary
     const primaryLeagueId = league_id || (league_ids && league_ids[0]) || null;
 
+    const disbanded = body.disbanded ?? false;
+
+    // Fetch the team's current state to detect disband toggle
+    const { data: oldTeam } = await supabaseAdmin
+      .from("teams").select("name,disbanded").eq("id", id).single();
+
     const { data: team, error } = await supabaseAdmin
       .from("teams")
-      .update({ name, league_id: primaryLeagueId, no_elo: no_elo ?? false })
+      .update({ name, league_id: primaryLeagueId, no_elo: no_elo ?? false, disbanded })
       .eq("id", id)
       .select()
       .single();
 
     if (error) {
       return json(500, { error: error.message });
+    }
+
+    // Handle disband/undisband score changes
+    const disbandChanged = oldTeam && (!!oldTeam.disbanded !== !!disbanded);
+    let disbandResults: { forfeited: number; restored: number } | null = null;
+    if (disbandChanged && oldTeam) {
+      const teamName = oldTeam.name;
+
+      // Get all non-ended leagues this team participates in
+      const { data: endedLeagues } = await supabaseAdmin
+        .from("leagues").select("id").eq("ended", true);
+      const endedIds = new Set((endedLeagues || []).map((l: any) => l.id));
+
+      // Get all matches involving this team
+      const { data: homeMatches } = await supabaseAdmin
+        .from("matches").select("id,home_team,away_team,home_score,away_score,league_id,forfeited_by")
+        .eq("home_team", teamName);
+      const { data: awayMatches } = await supabaseAdmin
+        .from("matches").select("id,home_team,away_team,home_score,away_score,league_id,forfeited_by")
+        .eq("away_team", teamName);
+
+      const allMatches = [...(homeMatches || []), ...(awayMatches || [])];
+      let forfeited = 0, restored = 0;
+
+      if (disbanded) {
+        // Backup original scores before overwriting, so undisband can restore them
+        const backup: { match_id: string; home_score: number | null; away_score: number | null; forfeited_by: string | null }[] = [];
+
+        // Disband: set all existing matches in non-ended leagues to 3-0 forfeit
+        for (const m of allMatches) {
+          if (!m.league_id || endedIds.has(m.league_id)) continue;
+          const isHome = m.home_team === teamName;
+          const newHomeScore = isHome ? 0 : 3;
+          const newAwayScore = isHome ? 3 : 0;
+          const forfeitSide = isHome ? "home" : "away";
+
+          backup.push({ match_id: m.id, home_score: m.home_score, away_score: m.away_score, forfeited_by: m.forfeited_by });
+
+          await supabaseAdmin.from("matches").update({
+            home_score: newHomeScore,
+            away_score: newAwayScore,
+            forfeited_by: forfeitSide,
+          }).eq("id", m.id);
+          forfeited++;
+        }
+
+        // Create missing fixtures for league-format leagues:
+        // Find all opponents in each active league that don't have a fixture yet
+        const { data: teamLeaguesData } = await supabaseAdmin
+          .from("team_leagues").select("league_id").eq("team_id", id);
+        const teamLeagueIds = (teamLeaguesData || []).map((tl: any) => tl.league_id);
+
+        const { data: activeLeagues } = await supabaseAdmin
+          .from("leagues").select("id,format")
+          .in("id", teamLeagueIds.length > 0 ? teamLeagueIds : ["__none__"])
+          .eq("ended", false);
+
+        for (const league of activeLeagues || []) {
+          if (league.format !== "league") continue;
+
+          // Get all teams in this league
+          const { data: leagueTeams } = await supabaseAdmin
+            .from("team_leagues").select("team_id,teams(name)")
+            .eq("league_id", league.id);
+
+          const otherTeams = (leagueTeams || [])
+            .filter((lt: any) => lt.team_id !== id)
+            .map((lt: any) => {
+              const t = Array.isArray(lt.teams) ? lt.teams[0] : lt.teams;
+              return t?.name;
+            })
+            .filter(Boolean) as string[];
+
+          // Find which opponents already have a fixture
+          const playedOpponents = new Set<string>();
+          for (const m of allMatches) {
+            if (m.league_id !== league.id) continue;
+            const opp = m.home_team === teamName ? m.away_team : m.home_team;
+            playedOpponents.add(opp);
+          }
+
+          // Create missing fixtures as 3-0 forfeit
+          const now = new Date().toISOString();
+          for (const opp of otherTeams) {
+            if (playedOpponents.has(opp)) continue;
+            await supabaseAdmin.from("matches").insert({
+              home_team: teamName,
+              away_team: opp,
+              home_score: 0,
+              away_score: 3,
+              forfeited_by: "home",
+              league_id: league.id,
+              played_at: now,
+            });
+            forfeited++;
+          }
+        }
+
+        // Save backup so undisband can restore original scores
+        await supabaseAdmin.from("teams").update({ disband_backup: backup }).eq("id", id);
+      } else {
+        // Undisband: restore original scores from backup, delete auto-created fixtures
+        let backupMap = new Map<string, { home_score: number | null; away_score: number | null; forfeited_by: string | null }>();
+        try {
+          const { data: teamWithBackup } = await supabaseAdmin
+            .from("teams").select("disband_backup").eq("id", id).single();
+          const backupList = (teamWithBackup?.disband_backup as any[]) || [];
+          backupMap = new Map(backupList.map((b: any) => [b.match_id, b]));
+        } catch { /* disband_backup column may not exist yet */ }
+
+        for (const m of allMatches) {
+          if (!m.league_id || endedIds.has(m.league_id)) continue;
+          const isHome = m.home_team === teamName;
+          const expectedForfeit = isHome ? "home" : "away";
+          if (m.forfeited_by !== expectedForfeit) continue;
+
+          const original = backupMap.get(m.id);
+          if (original) {
+            // Restore to original score from backup
+            await supabaseAdmin.from("matches").update({
+              home_score: original.home_score,
+              away_score: original.away_score,
+              forfeited_by: original.forfeited_by,
+            }).eq("id", m.id);
+            restored++;
+          } else {
+            // No backup entry — check if match has player stats (real match vs auto-created)
+            const { data: stats } = await supabaseAdmin
+              .from("match_player_stats").select("match_id").eq("match_id", m.id).limit(1);
+            if (stats && stats.length > 0) {
+              // Real match with stats — restore to null so admin can re-enter correct score
+              await supabaseAdmin.from("matches").update({
+                home_score: null,
+                away_score: null,
+                forfeited_by: null,
+              }).eq("id", m.id);
+            } else {
+              // Auto-created fixture with no stats — delete it
+              await supabaseAdmin.from("matches").delete().eq("id", m.id);
+            }
+            restored++;
+          }
+        }
+
+        // Clear backup if column exists
+        try {
+          await supabaseAdmin.from("teams").update({ disband_backup: null }).eq("id", id);
+        } catch { /* column may not exist */ }
+      }
+
+      disbandResults = { forfeited, restored };
     }
 
     // Update team_leagues: delete old, insert new
@@ -188,7 +346,7 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    return json(200, { team });
+    return json(200, { team, disbandResults });
   } catch (err: any) {
     return json(500, { error: err.message });
   }

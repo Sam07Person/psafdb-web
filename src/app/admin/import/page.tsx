@@ -33,6 +33,7 @@ type Team = {
   name: string;
   league_id: string | null;
   no_elo?: boolean;
+  disbanded?: boolean;
   league?: { name: string } | null;
   leagues?: { id: string; name: string; season: string | null }[];
   league_ids?: string[];
@@ -237,7 +238,7 @@ export default function AdminDashboardPage() {
   const [editingZoneIdx, setEditingZoneIdx] = useState<number | null>(null);
   const [editingLeague, setEditingLeague] = useState<string | null>(null);
 
-  const [teamForm, setTeamForm] = useState<{ id: string; name: string; league_ids: string[]; no_elo: boolean }>({ id: "", name: "", league_ids: [], no_elo: false });
+  const [teamForm, setTeamForm] = useState<{ id: string; name: string; league_ids: string[]; no_elo: boolean; disbanded: boolean }>({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false });
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [mergingTeams, setMergingTeams] = useState<{ source: string | null; target: string | null }>({ source: null, target: null });
 
@@ -616,12 +617,15 @@ export default function AdminDashboardPage() {
           name: teamForm.name,
           league_ids: teamForm.league_ids,
           no_elo: teamForm.no_elo,
+          disbanded: teamForm.disbanded,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: editingTeam ? "Team updated!" : "Team created!" });
-        setTeamForm({ id: "", name: "", league_ids: [], no_elo: false });
+        const dr = data.disbandResults;
+        const extra = dr ? (dr.forfeited > 0 ? ` ${dr.forfeited} match(es) forfeited.` : dr.restored > 0 ? ` ${dr.restored} match(es) restored.` : "") : "";
+        setMessage({ type: "success", text: (editingTeam ? "Team updated!" : "Team created!") + extra });
+        setTeamForm({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false });
         setEditingTeam(null);
         loadTeams();
       } else {
@@ -640,6 +644,7 @@ export default function AdminDashboardPage() {
       name: team.name,
       league_ids: team.league_ids || (team.league_id ? [team.league_id] : []),
       no_elo: team.no_elo ?? false,
+      disbanded: team.disbanded ?? false,
     });
     setEditingTeam(team.id);
   };
@@ -1019,7 +1024,7 @@ export default function AdminDashboardPage() {
     setEditingPlayer(null);
     setEditingFixture(null);
     setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, use_tier_bonus: true, award_champion: true, ended: false, zones: [] });
-    setTeamForm({ id: "", name: "", league_ids: [], no_elo: false });
+    setTeamForm({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
     setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "", forfeited_by: "" });
@@ -2592,10 +2597,14 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </div>
-              <div className="mt-4">
+              <div className="mt-4 space-y-3">
                 <label className="flex items-center gap-3 cursor-pointer select-none w-fit">
                   <input type="checkbox" checked={teamForm.no_elo} onChange={(e) => setTeamForm({ ...teamForm, no_elo: e.target.checked })} className="w-4 h-4 rounded accent-red-500" />
-                  <span className="text-gray-300 text-sm">Disable ELO <span className="text-gray-500 font-normal">(exclude this team from ELO calculations — matches involving them won't affect any team's rating)</span></span>
+                  <span className="text-gray-300 text-sm">Disable ELO <span className="text-gray-500 font-normal">(exclude this team from ELO calculations)</span></span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer select-none w-fit">
+                  <input type="checkbox" checked={teamForm.disbanded} onChange={(e) => setTeamForm({ ...teamForm, disbanded: e.target.checked })} className="w-4 h-4 rounded accent-red-500" />
+                  <span className="text-gray-300 text-sm">Disbanded <span className="text-gray-500 font-normal">(all results in active leagues become 3-0 forfeit to the opponent — ended leagues are untouched, existing player stats are kept)</span></span>
                 </label>
               </div>
               <div className="mt-4 flex gap-2">
@@ -2636,7 +2645,7 @@ export default function AdminDashboardPage() {
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {teams.map((t) => (
                     <div key={t.id} className="flex items-center justify-between bg-gray-700 p-3 rounded">
-                      <span className="text-white font-medium">{t.name}</span>
+                      <span className="text-white font-medium">{t.name}{t.disbanded && <span className="ml-2 text-xs text-red-400 font-semibold">[DISBANDED]</span>}</span>
                       <div className="flex gap-2"><button onClick={() => handleEditTeam(t)} className="text-blue-400 text-sm">Edit</button><button onClick={() => handleDeleteTeam(t.id)} className="text-red-400 text-sm">Delete</button></div>
                     </div>
                   ))}
