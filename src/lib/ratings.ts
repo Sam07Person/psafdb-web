@@ -74,13 +74,14 @@ function attackingScore(s: MatchStatRow, role: PositionRole): number {
   const kpMax     = role === "MID" ? 15 : 20;
 
   // FWD: include conversion rate (goals / SoT). 50% conversion → max pts.
-  // Weights adjusted to keep total at 100: goals 35, assists 20, kp 15, SoT 10, conv 20.
+  // Weights adjusted to keep total at 100: goals 44, assists 16, kp 10, SoT 10, conv 20.
+  // 3 goals + 5 SoT + 0 assists → ~74 attacking (goals are the primary metric for attackers).
   if (role === "FWD") {
     const convRate = s.shots_on_target > 0 ? s.goals / s.shots_on_target : 0;
     return (
-      Math.min(35, (s.goals / gThresh) * 35) +
-      Math.min(20, (s.assists / aThresh) * 20) +
-      Math.min(15, (s.key_passes / 3.0) * 15) +
+      Math.min(44, (s.goals / gThresh) * 44) +
+      Math.min(16, (s.assists / aThresh) * 16) +
+      Math.min(10, (s.key_passes / 3.0) * 10) +
       Math.min(10, (s.shots_on_target / sotThresh) * 10) +
       Math.min(20, (convRate / 0.5) * 20)
     );
@@ -209,9 +210,9 @@ export function calcSubRatings(
   const attacking = Math.min(100, role === "FWD" ? (() => {
     const convRate = avgSOT > 0 ? avgGoals / avgSOT : 0;
     return (
-      Math.min(35, (avgGoals / gThresh) * 35) +
-      Math.min(20, (avgAssists / aThresh) * 20) +
-      Math.min(15, (avgKP / 3.0) * 15) +
+      Math.min(44, (avgGoals / gThresh) * 44) +
+      Math.min(16, (avgAssists / aThresh) * 16) +
+      Math.min(10, (avgKP / 3.0) * 10) +
       Math.min(10, (avgSOT / sotThresh) * 10) +
       Math.min(20, (convRate / 0.5) * 20)
     );
