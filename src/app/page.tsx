@@ -59,6 +59,13 @@ const NAV_ITEMS = [
     icon: "⇄",
   },
   {
+    href: "/predictions",
+    label: "Predictions",
+    sub: "Vote on Upcoming Fixtures",
+    accent: "#facc15",
+    icon: "🔮",
+  },
+  {
     href: "/stats",
     label: "Stats",
     sub: "Player & Team Statistics",
