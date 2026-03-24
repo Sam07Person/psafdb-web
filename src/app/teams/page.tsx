@@ -95,12 +95,23 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
         });
     }
 
-    // Q2: all player stats (no join — use matchMap for match info)
-    const { data: statsRaw } = await supabase
-        .from("match_player_stats")
-        .select("player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete");
+    // Q2: all player stats (paginated to bypass 1000-row cap)
+    const STATS_SEL = "player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete";
+    const statsRaw: any[] = [];
+    let sFrom = 0;
+    const S_PAGE = 1000;
+    while (true) {
+        const { data: page } = await supabase
+            .from("match_player_stats")
+            .select(STATS_SEL)
+            .range(sFrom, sFrom + S_PAGE - 1);
+        if (!page || page.length === 0) break;
+        statsRaw.push(...page);
+        if (page.length < S_PAGE) break;
+        sFrom += S_PAGE;
+    }
 
-    if (!statsRaw) return new Map(teamNames.map(n => [n, null]));
+    if (statsRaw.length === 0) return new Map(teamNames.map(n => [n, null]));
 
     const teamNameSet = new Set(teamNames);
 
@@ -135,7 +146,7 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
 
     for (const [playerId, currentTeam] of playerCurrentTeam) {
         const stats = statsByPlayer.get(playerId) ?? [];
-        const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete);
+        const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60));
 
         if (played.length < 3) continue;
 
