@@ -2375,6 +2375,35 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
 
+                  {/* Score Mismatch Warning */}
+                  {(() => {
+                    const ed = editingGroup?.editedData;
+                    if (!ed) return null;
+                    const mismatches: { name: string; actual: number; expected: number }[] = [];
+                    for (const side of ["home_team", "away_team"] as const) {
+                      const players = ed[side]?.players ?? [];
+                      for (const p of players) {
+                        if (p.stats_incomplete) continue;
+                        const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
+                        if (isBenched) continue;
+                        const actual = p.score ?? 0;
+                        const expected = calculateExpectedScore(p);
+                        if (actual !== expected) {
+                          mismatches.push({ name: p.name || p.user_id || "Unknown", actual, expected });
+                        }
+                      }
+                    }
+                    return mismatches.length > 0 ? (
+                      <div className="mx-4 mb-2 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+                        <div className="text-red-400 text-sm font-semibold mb-1">⚠️ Score Mismatch — Import Blocked</div>
+                        {mismatches.map((m, i) => (
+                          <div key={i} className="text-red-300 text-xs">{m.name}: actual {m.actual} vs expected {m.expected} (diff {m.actual - m.expected > 0 ? "+" : ""}{m.actual - m.expected})</div>
+                        ))}
+                        <div className="text-red-400/70 text-xs mt-1">Fix the player stats so scores add up before importing.</div>
+                      </div>
+                    ) : null;
+                  })()}
+
                   {/* Modal Footer */}
                   <div className="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex gap-3">
                     <button
@@ -2385,6 +2414,24 @@ export default function AdminDashboardPage() {
                     </button>
                     <button
                       onClick={() => {
+                        const ed = editingGroup?.editedData;
+                        if (ed) {
+                          // Block import if any player has a score mismatch (stats don't add up)
+                          for (const side of ["home_team", "away_team"] as const) {
+                            const players = ed[side]?.players ?? [];
+                            for (const p of players) {
+                              if (p.stats_incomplete) continue;
+                              const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
+                              if (isBenched) continue;
+                              const actual = p.score ?? 0;
+                              const expected = calculateExpectedScore(p);
+                              if (actual !== expected) {
+                                alert(`⚠️ Score mismatch for ${p.name || p.user_id || "Unknown"}: actual ${actual} vs expected ${expected}. Fix player stats before importing.`);
+                                return;
+                              }
+                            }
+                          }
+                        }
                         handleImportGroup(editingGroupId);
                         setEditingGroupId(null);
                       }}
