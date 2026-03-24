@@ -372,11 +372,19 @@ function generateNews(
     }
   }
 
-  // ── 3. Clean Sheets & Narrow Wins ─────────────────────────────────────────
+  // ── 3. Match result stories ───────────────────────────────────────────────
+  // Deterministic "random" pick from an array based on match id hash
+  function pick<T>(arr: T[], seed: string): T {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+    return arr[Math.abs(h) % arr.length];
+  }
+
   for (const m of matches) {
     if (m.home_score === null || m.away_score === null) continue;
+    const totalGoals = m.home_score + m.away_score;
     const diff = m.home_score - m.away_score;
-    if (diff === 0) continue; // draw — skip
+    const isDraw = diff === 0;
     const homeWin = diff > 0;
     const winner = homeWin ? m.home_team : m.away_team;
     const loser = homeWin ? m.away_team : m.home_team;
@@ -385,51 +393,307 @@ function generateNews(
     const absDiff = Math.abs(diff);
     const score = `${m.home_score}–${m.away_score}`;
     const league = m.league_id ? leagueById.get(m.league_id) : null;
-
-    const isCleanSheet = loserScore === 0;
-    const isNarrow = absDiff === 1;
-
-    if (!isCleanSheet && !isNarrow) continue;
-
-    let title: string, body: string, tag: string;
-
     const isForfeited = !!m.forfeited_by;
+    const isCleanSheet = !isDraw && loserScore === 0;
+    const isNarrow = !isDraw && absDiff === 1;
 
+    let title: string | null = null, body: string | null = null, tag: string | null = null;
+    let accent = "var(--text-faint)", icon = "⚽", type = "clean_sheet";
+
+    // ── Forfeits ──
     if (isForfeited) {
-      // Forfeit — don't describe as a played match
-      title = `${loser} Forfeit — ${winner} Awarded ${score} Win`;
-      body = `${loser} failed to fulfil the fixture and the match was awarded to ${winner} by forfeit, resulting in a ${score} scoreline.`;
-      tag = "Forfeit";
-    } else if (isCleanSheet && isNarrow) {
-      // 1-0
-      title = `${winner} Edge Out ${loser} 1-0 — Clean Sheet and All Three Points`;
-      body = `${winner} kept it tight and clinical, shutting out ${loser} with a 1-0 win. A disciplined defensive performance combined with a single decisive goal took all three points.`;
-      tag = "1-0 Clean Sheet";
-    } else if (isCleanSheet) {
-      // e.g. 2-0, 3-0
-      title = `${winner} Blank ${loser} ${winnerScore}-0 — Dominant Clean Sheet`;
-      body = `${winner} kept a clean sheet in a convincing ${score} victory over ${loser}, conceding nothing while scoring ${winnerScore} at the other end.`;
-      tag = "Clean Sheet";
-    } else {
-      // narrow win, loser scored (e.g. 2-1, 3-2)
-      title = `${winner} Edge Out ${loser} in a Narrow ${score} Win`;
-      body = `${winner} held on to claim all three points in a tight ${score} contest against ${loser} — just a single goal separating the sides at the final whistle.`;
-      tag = "Narrow Win";
+      title = pick([
+        `${loser} Forfeit — ${winner} Awarded ${score} Win`,
+        `Walkover for ${winner} as ${loser} Fail to Show`,
+        `${loser} No-Show — ${winner} Take the Points`,
+      ], m.id);
+      body = pick([
+        `${loser} failed to fulfil the fixture and the match was awarded to ${winner} by forfeit, resulting in a ${score} scoreline.`,
+        `${winner} received a walkover victory after ${loser} were unable to field a team. The result goes down as ${score}.`,
+        `No contest required — ${loser} forfeited and ${winner} pick up a ${score} win without kicking a ball.`,
+      ], m.id);
+      tag = "Forfeit"; accent = "#ef4444"; icon = "🚫"; type = "forfeit";
+    }
+    // ── 0-0 draws ──
+    else if (isDraw && totalGoals === 0) {
+      title = pick([
+        `${m.home_team} and ${m.away_team} Share Goalless Stalemate`,
+        `Defences on Top as ${m.home_team} and ${m.away_team} Draw 0-0`,
+        `Blank at Both Ends — ${m.home_team} 0-0 ${m.away_team}`,
+        `Neither Side Can Break the Deadlock — ${m.home_team} 0-0 ${m.away_team}`,
+      ], m.id);
+      body = pick([
+        `A disciplined defensive showing from both sides meant neither ${m.home_team} nor ${m.away_team} could find the net. Honours even.`,
+        `Goalkeepers and centre-backs dominated proceedings as ${m.home_team} and ${m.away_team} cancelled each other out in a tense goalless encounter.`,
+        `Despite their best efforts, neither ${m.home_team} nor ${m.away_team} could find a breakthrough in a match where defensive organisation reigned supreme.`,
+      ], m.id);
+      tag = "Goalless Draw"; accent = "#64748b"; icon = "🤝"; type = "goalless_draw";
+    }
+    // ── High-scoring draws (4+ total) ──
+    else if (isDraw && totalGoals >= 4) {
+      title = pick([
+        `Thriller Ends All Square — ${m.home_team} ${score} ${m.away_team}`,
+        `${m.home_team} and ${m.away_team} Serve Up ${totalGoals}-Goal Classic`,
+        `Incredible ${score} Draw Between ${m.home_team} and ${m.away_team}`,
+        `No Winner in ${totalGoals}-Goal Spectacular — ${m.home_team} ${score} ${m.away_team}`,
+      ], m.id);
+      body = pick([
+        `A breathtaking end-to-end encounter produced ${totalGoals} goals but no winner as ${m.home_team} and ${m.away_team} shared the spoils in a ${score} thriller.`,
+        `${m.home_team} and ${m.away_team} traded blows in a pulsating ${score} draw packed with ${totalGoals} goals and drama from start to finish.`,
+        `Neither side could hold on for the win in an extraordinary ${score} draw. ${totalGoals} goals, endless entertainment, but ultimately a point each.`,
+      ], m.id);
+      tag = "Goal Fest Draw"; accent = "#f59e0b"; icon = "🎭"; type = "high_draw";
+    }
+    // ── Thrashings (5+ goal difference) ──
+    else if (!isDraw && absDiff >= 5) {
+      title = pick([
+        `${winner} Demolish ${loser} in ${score} Rout`,
+        `Humiliation for ${loser} as ${winner} Run Riot — ${score}`,
+        `${winner} Put ${loser} to the Sword in ${score} Hammering`,
+        `${winnerScore}-Goal ${winner} Dismantle Helpless ${loser}`,
+      ], m.id);
+      body = pick([
+        `A complete demolition job saw ${winner} destroy ${loser} with a commanding ${score} victory. The ${absDiff}-goal margin tells the full story of a thoroughly one-sided affair.`,
+        `${loser} had no answer as ${winner} turned on the style in devastating fashion, running out ${score} winners in a match that was over long before the final whistle.`,
+        `${winner} were simply ruthless, tearing ${loser} apart with ${winnerScore} goals in a performance that sent a message to the rest of the league.`,
+      ], m.id);
+      tag = "Thrashing"; accent = "#dc2626"; icon = "💥"; type = "thrashing";
+    }
+    // ── Comprehensive win (3-4 goal difference) ──
+    else if (!isDraw && absDiff >= 3 && absDiff < 5) {
+      title = pick([
+        `${winner} Cruise Past ${loser} — ${score}`,
+        `Comfortable ${score} Win for ${winner} Over ${loser}`,
+        `${winner} Dispatch ${loser} with Ease — ${score}`,
+        `${winner} Make Light Work of ${loser} in ${score} Victory`,
+      ], m.id);
+      body = pick([
+        `${winner} were in control throughout, recording a convincing ${score} win over ${loser} in a thoroughly professional display.`,
+        `A clinical performance from ${winner} saw them ease past ${loser} with a ${score} victory that was never really in doubt.`,
+        `${loser} were outclassed as ${winner} took all three points in a dominant ${score} display from start to finish.`,
+      ], m.id);
+      tag = "Comprehensive Win"; accent = "#4ade80"; icon = "✅"; type = "comprehensive";
+    }
+    // ── Goal fest wins (7+ total goals) ──
+    else if (!isDraw && totalGoals >= 7) {
+      title = pick([
+        `${totalGoals} Goals! ${winner} Prevail in ${score} Goal Fest`,
+        `${winner} Win Wild ${score} Encounter Against ${loser}`,
+        `Mayhem as ${winner} Edge ${loser} in ${totalGoals}-Goal Thriller`,
+      ], m.id);
+      body = pick([
+        `A chaotic match produced ${totalGoals} goals as ${winner} emerged victorious in a ${score} classic against ${loser}. Entertainment was guaranteed — defending was optional.`,
+        `Both defences were nowhere to be seen as ${winner} and ${loser} served up a ${totalGoals}-goal thriller. ${winner} took the spoils with a ${score} win.`,
+        `In a game that had everything, ${winner} and ${loser} combined for ${totalGoals} goals in an unbelievable ${score} result.`,
+      ], m.id);
+      tag = "Goal Fest"; accent = "#f59e0b"; icon = "🎆"; type = "goal_fest";
+    }
+    // ── 1-0 clean sheet ──
+    else if (isCleanSheet && isNarrow) {
+      title = pick([
+        `${winner} Edge Out ${loser} 1-0 — Clean Sheet and All Three Points`,
+        `Solitary Goal Enough as ${winner} Beat ${loser} 1-0`,
+        `${winner} Grind Out 1-0 Win Over ${loser}`,
+        `One Moment of Quality Separates ${winner} and ${loser}`,
+      ], m.id);
+      body = pick([
+        `${winner} kept it tight and clinical, shutting out ${loser} with a 1-0 win. A disciplined defensive performance combined with a single decisive goal took all three points.`,
+        `It was the fine margins that decided this one — ${winner} found the only goal and made it count, holding ${loser} at bay for a hard-earned 1-0 victory.`,
+        `${winner} proved that sometimes one goal is all you need, keeping a clean sheet and edging past ${loser} in a tightly contested 1-0 win.`,
+      ], m.id);
+      tag = "1-0 Clean Sheet"; accent = "#22d3ee"; icon = "🛡️";
+    }
+    // ── Clean sheet (2-0, 3-0, 4-0) ──
+    else if (isCleanSheet) {
+      title = pick([
+        `${winner} Blank ${loser} ${winnerScore}-0 — Dominant Clean Sheet`,
+        `Shutout for ${winner} as ${loser} Draw Blank in ${score} Defeat`,
+        `${winner} Keep Clean Sheet in Comfortable ${score} Win`,
+        `Not a Sniff for ${loser} as ${winner} Win ${score}`,
+      ], m.id);
+      body = pick([
+        `${winner} kept a clean sheet in a convincing ${score} victory over ${loser}, conceding nothing while scoring ${winnerScore} at the other end.`,
+        `${loser} couldn't find a way through as ${winner} locked the door and strolled to a ${score} victory with a clean sheet to boot.`,
+        `A defensive masterclass from ${winner} meant ${loser} went home with nothing — not even a goal to show for their efforts in a ${score} loss.`,
+      ], m.id);
+      tag = "Clean Sheet"; accent = "#22d3ee"; icon = "🛡️";
+    }
+    // ── Narrow win ──
+    else if (isNarrow) {
+      title = pick([
+        `${winner} Edge Out ${loser} in a Narrow ${score} Win`,
+        `${winner} Hold On for ${score} Victory Over ${loser}`,
+        `Tight Affair Settled as ${winner} Beat ${loser} ${score}`,
+        `${winner} Scrape Past ${loser} — ${score}`,
+      ], m.id);
+      body = pick([
+        `${winner} held on to claim all three points in a tight ${score} contest against ${loser} — just a single goal separating the sides at the final whistle.`,
+        `It went down to the wire but ${winner} did just enough to see off ${loser} in a nervy ${score} encounter where the margins were razor-thin.`,
+        `A one-goal cushion was all ${winner} needed as they ground out a ${score} result against a determined ${loser} side.`,
+      ], m.id);
+      tag = "Narrow Win"; accent = "#a78bfa"; icon = "⚔️"; type = "narrow_win";
     }
 
-    items.push({
-      id: `result_${m.id}`,
-      type: "clean_sheet",
-      date: m.played_at,
-      title,
-      body,
-      accent: isForfeited ? "#ef4444" : isCleanSheet ? "#22d3ee" : "#a78bfa",
-      icon: isForfeited ? "🚫" : isCleanSheet ? "🛡️" : "⚔️",
-      tag,
-      leagueId: league?.id,
-      leagueName: league?.name,
-      matchId: m.id,
-    });
+    if (title && body && tag) {
+      items.push({
+        id: `result_${m.id}`,
+        type,
+        date: m.played_at,
+        title, body,
+        accent,
+        icon,
+        tag,
+        leagueId: league?.id,
+        leagueName: league?.name,
+        matchId: m.id,
+      });
+    }
+  }
+
+  // ── 3b. Individual performance stories ──────────────────────────────────
+  for (const m of matches) {
+    if (m.home_score === null || m.away_score === null) continue;
+    if (m.forfeited_by) continue;
+    const mStats = statsByMatch.get(m.id) ?? [];
+    const league = m.league_id ? leagueById.get(m.league_id) : null;
+    const score = `${m.home_score}–${m.away_score}`;
+
+    for (const s of mStats) {
+      if (s.benched || s.stats_incomplete) continue;
+      const myTeam = s.team_side === "home" ? m.home_team : m.away_team;
+
+      // ── Brace (exactly 2 goals) ──
+      if (s.goals === 2) {
+        const title = pick([
+          `${pName(s)} Scores a Brace as ${myTeam} Feature in ${score} Result`,
+          `Two-Goal ${pName(s)} Stars for ${myTeam}`,
+          `${pName(s)} at the Double for ${myTeam} in ${score} Match`,
+        ], m.id + s.player_id);
+        const body = pick([
+          `${pName(s)} found the net twice for ${myTeam} in the ${score} result against ${myTeam === m.home_team ? m.away_team : m.home_team}. A clinical two-goal contribution.`,
+          `A two-goal display from ${pName(s)} was a highlight as ${myTeam} played out a ${score} match. The striker's finishing was on point.`,
+          `${pName(s)} grabbed a brace, netting two goals in ${myTeam}'s ${score} game. A performance to remember.`,
+        ], m.id + s.player_id);
+        items.push({
+          id: `brace_${m.id}_${s.player_id}`,
+          type: "brace",
+          date: m.played_at,
+          title, body,
+          accent: "#86efac",
+          icon: "⚽",
+          tag: "Brace",
+          leagueId: league?.id,
+          leagueName: league?.name,
+          matchId: m.id,
+        });
+      }
+
+      // ── Assist king (3+ assists in one match) ──
+      if ((s.assists ?? 0) >= 3) {
+        const title = pick([
+          `${pName(s)} Provides ${s.assists} Assists in One Game`,
+          `Playmaker ${pName(s)} Sets Up ${s.assists} Goals for ${myTeam}`,
+          `${pName(s)}'s ${s.assists}-Assist Masterclass for ${myTeam}`,
+        ], m.id + s.player_id + "a");
+        const body = pick([
+          `${pName(s)} was the creative force behind ${myTeam}'s attack, providing ${s.assists} assists in the ${score} result. A sensational passing display.`,
+          `Vision, timing, precision — ${pName(s)} had it all, threading ${s.assists} assists for ${myTeam} in a ${score} game.`,
+          `${pName(s)} turned provider with ${s.assists} assists, pulling the strings for ${myTeam} in their ${score} fixture.`,
+        ], m.id + s.player_id + "a");
+        items.push({
+          id: `assist_king_${m.id}_${s.player_id}`,
+          type: "assist_king",
+          date: m.played_at,
+          title, body,
+          accent: "#7dd3fc",
+          icon: "🎯",
+          tag: "Assist King",
+          leagueId: league?.id,
+          leagueName: league?.name,
+          matchId: m.id,
+        });
+      }
+
+      // ── GK save hero (8+ saves) ──
+      if ((s.gk_saves ?? 0) >= 8) {
+        const title = pick([
+          `${pName(s)} Makes ${s.gk_saves} Saves in Heroic Display`,
+          `Shot-Stopper ${pName(s)} Keeps ${myTeam} in It with ${s.gk_saves} Saves`,
+          `Incredible ${s.gk_saves}-Save Performance from ${pName(s)}`,
+        ], m.id + s.player_id + "gk");
+        const body = pick([
+          `${pName(s)} was a wall between the sticks, making ${s.gk_saves} saves for ${myTeam} in the ${score} result. Without this performance the scoreline could have been very different.`,
+          `${myTeam} owe a huge debt to ${pName(s)}, whose ${s.gk_saves} saves kept them competitive in a ${score} match.`,
+          `An outstanding goalkeeping display from ${pName(s)} saw them pull off ${s.gk_saves} saves — a truly commanding presence.`,
+        ], m.id + s.player_id + "gk");
+        items.push({
+          id: `save_hero_${m.id}_${s.player_id}`,
+          type: "save_hero",
+          date: m.played_at,
+          title, body,
+          accent: "#fbbf24",
+          icon: "🧤",
+          tag: "Save Hero",
+          leagueId: league?.id,
+          leagueName: league?.name,
+          matchId: m.id,
+        });
+      }
+
+      // ── Defensive wall (10+ tackles+interceptions) ──
+      const defActions = (s.tackles ?? 0) + (s.key_tackles ?? 0) + (s.interceptions ?? 0) + (s.key_interceptions ?? 0);
+      if (defActions >= 10) {
+        const title = pick([
+          `${pName(s)} Puts In ${defActions}-Action Defensive Shift`,
+          `Defensive Masterclass from ${pName(s)} — ${defActions} Actions`,
+          `${pName(s)} a Rock at the Back for ${myTeam}`,
+        ], m.id + s.player_id + "d");
+        const body = pick([
+          `${pName(s)} was everywhere for ${myTeam}, racking up ${defActions} combined tackles and interceptions in the ${score} result. An absolute wall at the back.`,
+          `Nobody got past ${pName(s)} easily — ${defActions} defensive actions in one match shows the kind of tireless, no-nonsense display ${myTeam} needed.`,
+          `A commanding defensive performance from ${pName(s)} saw them record ${defActions} tackles and interceptions, marshalling ${myTeam}'s backline in the ${score} game.`,
+        ], m.id + s.player_id + "d");
+        items.push({
+          id: `def_wall_${m.id}_${s.player_id}`,
+          type: "def_wall",
+          date: m.played_at,
+          title, body,
+          accent: "#94a3b8",
+          icon: "🧱",
+          tag: "Defensive Wall",
+          leagueId: league?.id,
+          leagueName: league?.name,
+          matchId: m.id,
+        });
+      }
+
+      // ── Goal + Assist combo (1+ goals AND 2+ assists) ──
+      if ((s.goals ?? 0) >= 1 && (s.assists ?? 0) >= 2) {
+        const g = s.goals!, a = s.assists!;
+        const title = pick([
+          `${pName(s)} Scores ${g} and Assists ${a} in Complete Display`,
+          `${pName(s)} Involved in ${g + a} Goals for ${myTeam}`,
+          `All-Round ${pName(s)} — ${g}G ${a}A for ${myTeam}`,
+        ], m.id + s.player_id + "ga");
+        const body = pick([
+          `${pName(s)} was involved in everything good for ${myTeam}, contributing ${g} goal${g > 1 ? "s" : ""} and ${a} assists in the ${score} result. A complete attacking performance.`,
+          `Goals and assists — ${pName(s)} had both, finishing with ${g}G and ${a}A as ${myTeam} played out a ${score} match.`,
+          `${pName(s)} was the heartbeat of ${myTeam}'s attack with ${g} goal${g > 1 ? "s" : ""} and ${a} assists in a ${score} game. Involved in everything.`,
+        ], m.id + s.player_id + "ga");
+        items.push({
+          id: `ga_combo_${m.id}_${s.player_id}`,
+          type: "ga_combo",
+          date: m.played_at,
+          title, body,
+          accent: "#c084fc",
+          icon: "💫",
+          tag: "Goal + Assist",
+          leagueId: league?.id,
+          leagueName: league?.name,
+          matchId: m.id,
+        });
+      }
+    }
   }
 
   // ── 4. TOTW ───────────────────────────────────────────────────────────────
@@ -621,8 +885,9 @@ function generateNews(
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "league", label: "Titles", types: ["league_winner", "league_relegation"] },
-  { key: "goals", label: "Goals", types: ["hattrick", "hattrick_multi"] },
-  { key: "results", label: "Results", types: ["clean_sheet"] as const },
+  { key: "goals", label: "Goals", types: ["hattrick", "hattrick_multi", "brace", "assist_king", "ga_combo"] },
+  { key: "results", label: "Results", types: ["clean_sheet", "goalless_draw", "high_draw", "thrashing", "comprehensive", "goal_fest", "forfeit", "narrow_win"] as const },
+  { key: "performance", label: "Performance", types: ["save_hero", "def_wall"] },
   { key: "standings", label: "Standings", types: ["standings_overtake", "league_gap"] },
   { key: "totw", label: "TOTW", types: ["totw"] },
   { key: "elo", label: "ELO", types: ["elo_overtake"] },
