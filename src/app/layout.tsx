@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <SearchBar />
 
               {/* Nav Links */}
-              <nav style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <nav style={{ display: "flex", alignItems: "center", gap: 0 }}>
                 {[
                   { href: "/news", label: "News" },
                   { href: "/matches", label: "Matches" },
@@ -41,16 +41,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   { href: "/stats", label: "Stats" },
                   { href: "/compare", label: "Compare" },
                   { href: "/elo", label: "ELO" },
+                  { href: "/predictions", label: "Predictions" },
                   { href: "/awards", label: "Awards" },
                 ].map(({ href, label }) => (
                   <Link
                     key={href}
                     href={href}
                     style={{
-                      padding: "6px 11px",
-                      fontSize: 12,
+                      padding: "6px 8px",
+                      fontSize: 11.5,
                       fontWeight: 600,
-                      letterSpacing: "0.08em",
+                      letterSpacing: "0.06em",
                       textTransform: "uppercase",
                       color: "var(--text-sub)",
                       textDecoration: "none",
