@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 type Zone = { name: string; color: string; spots: number; type: "top" | "bottom" };
 type StandingRow = {
@@ -23,7 +23,15 @@ function getRowZone(index: number, totalRows: number, zones: Zone[]): Zone | nul
   return null;
 }
 
-function getTeamForm(teamName: string, matches: any[]): ("W" | "D" | "L")[] {
+type FormEntry = {
+  result: "W" | "D" | "L";
+  opponent: string;
+  myScore: number;
+  oppScore: number;
+  isHome: boolean;
+};
+
+function getTeamForm(teamName: string, matches: any[]): FormEntry[] {
   return matches
     .filter((m: any) => (m.home_team === teamName || m.away_team === teamName) && m.home_score !== null)
     .slice(0, 4)
@@ -31,7 +39,13 @@ function getTeamForm(teamName: string, matches: any[]): ("W" | "D" | "L")[] {
       const isHome = m.home_team === teamName;
       const my = isHome ? m.home_score : m.away_score;
       const opp = isHome ? m.away_score : m.home_score;
-      return my > opp ? "W" : my < opp ? "L" : "D";
+      return {
+        result: my > opp ? "W" as const : my < opp ? "L" as const : "D" as const,
+        opponent: isHome ? m.away_team : m.home_team,
+        myScore: my,
+        oppScore: opp,
+        isHome,
+      };
     });
 }
 
@@ -40,6 +54,65 @@ const RESULT_STYLE: Record<"W" | "D" | "L", { bg: string; color: string }> = {
   D: { bg: "#f4c43022", color: "#f4c430" },
   L: { bg: "#e6394622", color: "#e63946" },
 };
+
+function FormBadge({ entry }: { entry: FormEntry }) {
+  const [show, setShow] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  const label = entry.result === "W" ? "Win" : entry.result === "L" ? "Loss" : "Draw";
+
+  const handleEnter = () => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setCoords({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+    setShow(true);
+  };
+
+  return (
+    <span
+      ref={ref}
+      onMouseEnter={handleEnter}
+      onMouseLeave={() => setShow(false)}
+      style={{
+        position: "relative",
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 18, height: 18, borderRadius: 3, fontSize: 10, fontWeight: 800,
+        background: RESULT_STYLE[entry.result].bg, color: RESULT_STYLE[entry.result].color,
+        cursor: "default",
+      }}
+    >
+      {entry.result}
+      {show && (
+        <div style={{
+          position: "fixed",
+          top: coords.top,
+          left: coords.left,
+          transform: "translate(-50%, -100%)",
+          background: "#1a1a2e",
+          border: `1px solid ${RESULT_STYLE[entry.result].color}40`,
+          borderRadius: 6,
+          padding: "6px 10px",
+          whiteSpace: "nowrap",
+          zIndex: 9999,
+          pointerEvents: "none",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: RESULT_STYLE[entry.result].color, marginBottom: 2 }}>
+            {label}
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#e8e8f0" }}>
+            vs {entry.opponent}
+          </div>
+          <div style={{ fontSize: 10, color: "#a0a0b8", marginTop: 1 }}>
+            {entry.myScore} - {entry.oppScore} ({entry.isHome ? "Home" : "Away"})
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
 
 export default function StandingsTableWithForm({
   rows,
@@ -116,14 +189,8 @@ export default function StandingsTableWithForm({
                     {showForm && (
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-                          {form.map((r, i) => (
-                            <span key={i} style={{
-                              display: "inline-flex", alignItems: "center", justifyContent: "center",
-                              width: 18, height: 18, borderRadius: 3, fontSize: 10, fontWeight: 800,
-                              background: RESULT_STYLE[r].bg, color: RESULT_STYLE[r].color,
-                            }}>
-                              {r}
-                            </span>
+                          {form.map((f, i) => (
+                            <FormBadge key={i} entry={f} />
                           ))}
                           {Array.from({ length: 4 - form.length }).map((_, i) => (
                             <span key={`e${i}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 3, background: "var(--bg-row)", color: "var(--text-faint)", fontSize: 11 }}>·</span>
