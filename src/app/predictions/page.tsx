@@ -269,7 +269,7 @@ function MatchCard({
     }}>
       {/* League + link */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <span style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-faint)", fontWeight: 700 }}>
+        <span style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 700 }}>
           {leagueLabel}{m.day != null ? ` · MD ${m.day}` : ""}
         </span>
         <Link href={`/matches/${m.id}`} style={{ fontSize: 10, color: "#4ea8f7", fontWeight: 700, textDecoration: "none", letterSpacing: "0.1em" }}>
@@ -315,13 +315,13 @@ function MatchCard({
       {/* ELO probability bar */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#4ea8f7", letterSpacing: "0.08em" }}>{homeProb}% ELO</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", letterSpacing: "0.08em" }}>ELO PREDICTION</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#a78bfa", letterSpacing: "0.08em" }}>{awayProb}% ELO</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", letterSpacing: "0.08em" }}>{homeProb}% ELO</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em" }}>ELO PREDICTION</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#f87171", letterSpacing: "0.08em" }}>{awayProb}% ELO</span>
         </div>
-        <div style={{ display: "flex", height: 6, borderRadius: 3, overflow: "hidden" }}>
-          <div style={{ width: `${homeProb}%`, background: "#4ea8f7", transition: "width 0.3s" }} />
-          <div style={{ flex: 1, background: "#a78bfa" }} />
+        <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ width: `${homeProb}%`, background: "#22c55e", transition: "width 0.3s" }} />
+          <div style={{ flex: 1, background: "#f87171" }} />
         </div>
       </div>
 
@@ -334,14 +334,14 @@ function MatchCard({
             const isCorrect = locked && actualResult === opt;
             const isWrong = locked && userVote === opt && actualResult !== opt;
 
-            let bg = "transparent";
+            let bg = "var(--bg-row)";
             let border = "1px solid var(--border-main)";
-            let color = "var(--text-muted)";
+            let color = "var(--text-sub)";
 
             if (isSelected && !locked) {
-              bg = opt === "home" ? "#4ea8f720" : opt === "away" ? "#a78bfa20" : "#f4c43020";
-              border = `1px solid ${opt === "home" ? "#4ea8f7" : opt === "away" ? "#a78bfa" : "#f4c430"}`;
-              color = opt === "home" ? "#4ea8f7" : opt === "away" ? "#a78bfa" : "#f4c430";
+              bg = opt === "home" ? "#22c55e20" : opt === "away" ? "#f8717120" : "#fde04720";
+              border = `1px solid ${opt === "home" ? "#22c55e" : opt === "away" ? "#f87171" : "#fde047"}`;
+              color = opt === "home" ? "#22c55e" : opt === "away" ? "#f87171" : "#fde047";
             }
 
             if (locked && isCorrect) {
@@ -369,7 +369,7 @@ function MatchCard({
               >
                 {label}
                 {isSelected && !locked && (
-                  <span style={{ fontSize: 9, display: "block", marginTop: 2, opacity: 0.7 }}>YOUR PICK</span>
+                  <span style={{ fontSize: 9, display: "block", marginTop: 2, opacity: 0.85 }}>YOUR PICK</span>
                 )}
                 {locked && isCorrect && played && (
                   <span style={{ fontSize: 9, display: "block", marginTop: 2, color: "#22c55e" }}>CORRECT</span>
@@ -387,27 +387,27 @@ function MatchCard({
       {totalVotes > 0 && (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: "#4ea8f7", fontWeight: 700 }}>{homeVotePct}%</span>
-            <span style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.1em" }}>
+            <span style={{ fontSize: 10, color: "#22c55e", fontWeight: 700 }}>{homeVotePct}%</span>
+            <span style={{ fontSize: 10, color: "var(--text-sub)", letterSpacing: "0.1em", fontWeight: 600 }}>
               {totalVotes} VOTE{totalVotes !== 1 ? "S" : ""}
             </span>
-            <span style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700 }}>{awayVotePct}%</span>
+            <span style={{ fontSize: 10, color: "#f87171", fontWeight: 700 }}>{awayVotePct}%</span>
           </div>
-          <div style={{ display: "flex", height: 6, borderRadius: 3, overflow: "hidden", background: "var(--bg-base)" }}>
+          <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: "var(--bg-row)" }}>
             {homeVotePct > 0 && (
-              <div style={{ width: `${homeVotePct}%`, background: "#4ea8f7", transition: "width 0.3s" }} />
+              <div style={{ width: `${homeVotePct}%`, background: "#22c55e", transition: "width 0.3s" }} />
             )}
             {drawVotePct > 0 && (
-              <div style={{ width: `${drawVotePct}%`, background: "#f4c430", transition: "width 0.3s" }} />
+              <div style={{ width: `${drawVotePct}%`, background: "#fde047", transition: "width 0.3s" }} />
             )}
             {awayVotePct > 0 && (
-              <div style={{ width: `${awayVotePct}%`, background: "#a78bfa", transition: "width 0.3s" }} />
+              <div style={{ width: `${awayVotePct}%`, background: "#f87171", transition: "width 0.3s" }} />
             )}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
-            <span style={{ fontSize: 9, color: "var(--text-faint)" }}>{counts.home} home</span>
-            <span style={{ fontSize: 9, color: "#f4c430", fontWeight: 600 }}>{drawVotePct}% draw</span>
-            <span style={{ fontSize: 9, color: "var(--text-faint)" }}>{counts.away} away</span>
+            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{counts.home} home</span>
+            <span style={{ fontSize: 9, color: "#fde047", fontWeight: 600 }}>{drawVotePct}% draw</span>
+            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{counts.away} away</span>
           </div>
         </div>
       )}
