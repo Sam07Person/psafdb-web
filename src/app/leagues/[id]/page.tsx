@@ -92,11 +92,42 @@ function applyMatchToStandings(s: Record<string, StandingRow>, match: any) {
   else if (match.forfeited_by === "away") { away.points -= 1; away.forfeit_deductions++; }
 }
 
-function sortRows(rows: StandingRow[]): StandingRow[] {
+function getH2HResult(teamA: string, teamB: string, matches: any[]): number {
+  // Returns: 1 if A beats B, -1 if B beats A, 0 if draw or not played
+  for (const m of matches) {
+    if (m.home_score === null || m.away_score === null) continue;
+    if (m.home_team === teamA && m.away_team === teamB) {
+      if (m.home_score > m.away_score) return 1;
+      if (m.home_score < m.away_score) return -1;
+      return 0;
+    }
+    if (m.home_team === teamB && m.away_team === teamA) {
+      if (m.away_score > m.home_score) return 1;
+      if (m.away_score < m.home_score) return -1;
+      return 0;
+    }
+  }
+  return 0; // not played
+}
+
+function sortRows(rows: StandingRow[], matches?: any[], mode: "league" | "group" = "league"): StandingRow[] {
   return [...rows].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
+    if (mode === "group" && matches) {
+      // Group format: points → h2h → GD → GF
+      const h2h = getH2HResult(a.team, b.team, matches);
+      if (h2h !== 0) return -h2h;
+      const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
+      if (gdB !== gdA) return gdB - gdA;
+      return b.gf - a.gf;
+    }
+    // League format: points → GD → h2h → GF
     const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
     if (gdB !== gdA) return gdB - gdA;
+    if (matches) {
+      const h2h = getH2HResult(a.team, b.team, matches);
+      if (h2h !== 0) return -h2h;
+    }
     return b.gf - a.gf;
   });
 }
@@ -105,18 +136,20 @@ function calculateStandings(teams: any[], matches: any[]): StandingRow[] {
   const s: Record<string, StandingRow> = {};
   for (const t of teams) s[t.name] = { team: t.name, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
   for (const m of matches) applyMatchToStandings(s, m);
-  return sortRows(Object.values(s));
+  return sortRows(Object.values(s), matches);
 }
 
 function calculateGroupStandings(matches: any[]): Record<string, StandingRow[]> {
   const byGroup: Record<string, Record<string, StandingRow>> = {};
+  const matchesByGroup: Record<string, any[]> = {};
   for (const m of matches.filter((m: any) => m.group_name)) {
     const g = m.group_name;
-    if (!byGroup[g]) byGroup[g] = {};
+    if (!byGroup[g]) { byGroup[g] = {}; matchesByGroup[g] = []; }
     applyMatchToStandings(byGroup[g], m);
+    matchesByGroup[g].push(m);
   }
   const result: Record<string, StandingRow[]> = {};
-  for (const [g, s] of Object.entries(byGroup)) result[g] = sortRows(Object.values(s));
+  for (const [g, s] of Object.entries(byGroup)) result[g] = sortRows(Object.values(s), matchesByGroup[g], "group");
   return result;
 }
 

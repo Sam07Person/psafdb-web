@@ -68,11 +68,39 @@ function applyMatchToStandings(s: Record<string, StandingRow>, home_team: string
   else if (forfeited_by === "away") { away.points -= 1; away.forfeit_deductions++; }
 }
 
-function sortRows(rows: StandingRow[]): StandingRow[] {
+function getH2HResult(teamA: string, teamB: string, fixtures: Fixture[]): number {
+  for (const f of fixtures) {
+    if (f.home_score === null || f.away_score === null) continue;
+    if (f.home_team === teamA && f.away_team === teamB) {
+      if (f.home_score > f.away_score) return 1;
+      if (f.home_score < f.away_score) return -1;
+      return 0;
+    }
+    if (f.home_team === teamB && f.away_team === teamA) {
+      if (f.away_score > f.home_score) return 1;
+      if (f.away_score < f.home_score) return -1;
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function sortRows(rows: StandingRow[], fixtures?: Fixture[], mode: "league" | "group" = "league"): StandingRow[] {
   return [...rows].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
+    if (mode === "group" && fixtures) {
+      const h2h = getH2HResult(a.team, b.team, fixtures);
+      if (h2h !== 0) return -h2h;
+      const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
+      if (gdB !== gdA) return gdB - gdA;
+      return b.gf - a.gf;
+    }
     const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
     if (gdB !== gdA) return gdB - gdA;
+    if (fixtures) {
+      const h2h = getH2HResult(a.team, b.team, fixtures);
+      if (h2h !== 0) return -h2h;
+    }
     return b.gf - a.gf;
   });
 }
@@ -296,7 +324,24 @@ export default function TablePredictorPage() {
   const resetFixture = useCallback((fixtureKey: string) => {
     setFixtures(prev => prev.map(f => {
       if (f.key !== fixtureKey || f.played) return f;
-      return { ...f, home_score: null, away_score: null };
+      return { ...f, home_score: null, away_score: null, forfeited_by: null };
+    }));
+  }, []);
+
+  // Forfeit a fixture (toggle)
+  const forfeitFixture = useCallback((fixtureKey: string, side: "home" | "away") => {
+    setFixtures(prev => prev.map(f => {
+      if (f.key !== fixtureKey || f.played) return f;
+      // If already forfeited by this side, undo it
+      if (f.forfeited_by === side) {
+        return { ...f, home_score: null, away_score: null, forfeited_by: null };
+      }
+      return {
+        ...f,
+        home_score: side === "home" ? 0 : 3,
+        away_score: side === "home" ? 3 : 0,
+        forfeited_by: side,
+      };
     }));
   }, []);
 
@@ -324,7 +369,7 @@ export default function TablePredictorPage() {
         for (const t of gTeams) {
           if (!s[t]) s[t] = { team: t, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
         }
-        result.set(g, sortRows(Object.values(s)));
+        result.set(g, sortRows(Object.values(s), gFixtures, "group"));
       }
       return result;
     } else {
@@ -333,7 +378,7 @@ export default function TablePredictorPage() {
       for (const f of fixtures) {
         applyMatchToStandings(s, f.home_team, f.away_team, f.home_score, f.away_score, f.forfeited_by);
       }
-      return new Map([["default", sortRows(Object.values(s))]]);
+      return new Map([["default", sortRows(Object.values(s), fixtures)]]);
     }
   }, [fixtures, teams, selectedLeague, leagues]);
 
@@ -364,6 +409,77 @@ export default function TablePredictorPage() {
   const playedCount = fixtures.filter(f => f.played).length;
 
   const selectedLeagueObj = leagues.find(l => l.id === selectedLeague);
+
+  // Save predictions to file
+  const savePredictions = useCallback(() => {
+    const predictions = fixtures
+      .filter(f => !f.played && f.home_score !== null && f.away_score !== null)
+      .map(f => ({
+        key: f.key,
+        home_team: f.home_team,
+        away_team: f.away_team,
+        home_score: f.home_score,
+        away_score: f.away_score,
+        forfeited_by: f.forfeited_by,
+      }));
+    const payload = {
+      league_id: selectedLeague,
+      league_name: selectedLeagueObj?.name ?? "",
+      saved_at: new Date().toISOString(),
+      predictions,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `table-prediction-${(selectedLeagueObj?.name ?? "league").replace(/\s+/g, "-").toLowerCase()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [fixtures, selectedLeague, selectedLeagueObj]);
+
+  // Load predictions from file
+  const loadPredictions = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const payload = JSON.parse(ev.target?.result as string);
+          if (payload.league_id !== selectedLeague) {
+            alert(`This prediction file is for "${payload.league_name}" but you have a different league selected.`);
+            return;
+          }
+          const predMap = new Map<string, typeof payload.predictions[0]>();
+          for (const p of payload.predictions) {
+            predMap.set(p.key, p);
+            // Also match by team pair for generated fixtures with different keys
+            predMap.set(`${p.home_team}__${p.away_team}`, p);
+          }
+          setFixtures(prev => prev.map(f => {
+            if (f.played) return f;
+            const match = predMap.get(f.key) ?? predMap.get(`${f.home_team}__${f.away_team}`);
+            if (match) {
+              return {
+                ...f,
+                home_score: match.home_score,
+                away_score: match.away_score,
+                forfeited_by: match.forfeited_by ?? null,
+              };
+            }
+            return f;
+          }));
+        } catch {
+          alert("Invalid prediction file.");
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }, [selectedLeague]);
 
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
@@ -422,6 +538,36 @@ export default function TablePredictorPage() {
             )}
 
             {selectedLeague && !loadingLeague && (
+              <>
+              {/* Save / Load buttons */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                <button
+                  onClick={savePredictions}
+                  disabled={predictedCount === 0}
+                  style={{
+                    padding: "7px 16px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
+                    textTransform: "uppercase", cursor: predictedCount === 0 ? "default" : "pointer",
+                    background: predictedCount > 0 ? "#22c55e18" : "var(--bg-card)",
+                    color: predictedCount > 0 ? "#22c55e" : "var(--text-faint)",
+                    border: predictedCount > 0 ? "1px solid #22c55e50" : "1px solid var(--border-main)",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  Save Predictions
+                </button>
+                <button
+                  onClick={loadPredictions}
+                  style={{
+                    padding: "7px 16px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
+                    textTransform: "uppercase", cursor: "pointer",
+                    background: "#4ea8f718", color: "#4ea8f7",
+                    border: "1px solid #4ea8f750",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  Load Predictions
+                </button>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
                 {/* Left: Standings */}
                 <div>
@@ -532,6 +678,7 @@ export default function TablePredictorPage() {
                             fixture={f}
                             onUpdate={updateScore}
                             onReset={resetFixture}
+                            onForfeit={forfeitFixture}
                           />
                         ))}
                       </div>
@@ -539,6 +686,7 @@ export default function TablePredictorPage() {
                   })}
                 </div>
               </div>
+              </>
             )}
           </>
         )}
@@ -553,18 +701,21 @@ function FixtureRow({
   fixture: f,
   onUpdate,
   onReset,
+  onForfeit,
 }: {
   fixture: Fixture;
   onUpdate: (key: string, side: "home" | "away", value: string) => void;
   onReset: (key: string) => void;
+  onForfeit: (key: string, side: "home" | "away") => void;
 }) {
   const predicted = !f.played && f.home_score !== null && f.away_score !== null;
+  const isForfeited = f.forfeited_by !== null;
 
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", alignItems: "center", gap: 6,
       background: "var(--bg-card)", borderBottom: "1px solid var(--border-row)",
-      padding: "8px 16px",
+      padding: "8px 12px",
       opacity: f.played ? 0.7 : 1,
     }}>
       {/* Group badge */}
@@ -574,10 +725,28 @@ function FixtureRow({
         </span>
       )}
 
+      {/* Home FF button */}
+      {!f.played && (
+        <button
+          onClick={() => onForfeit(f.key, "home")}
+          title={`${f.home_team} forfeits`}
+          style={{
+            padding: "2px 5px", fontSize: 8, fontWeight: 800, letterSpacing: "0.05em",
+            background: isForfeited && f.forfeited_by === "home" ? "#e6394630" : "transparent",
+            border: isForfeited && f.forfeited_by === "home" ? "1px solid #e6394660" : "1px solid var(--border-main)",
+            color: isForfeited && f.forfeited_by === "home" ? "#e63946" : "var(--text-faint)",
+            cursor: "pointer", lineHeight: 1.2,
+          }}
+        >
+          FF
+        </button>
+      )}
+
       {/* Home team */}
       <div style={{
         flex: 1, textAlign: "right", fontSize: 12, fontWeight: 700,
-        color: predicted && f.home_score! > f.away_score! ? "#4ade80" : "var(--text-body)",
+        color: isForfeited && f.forfeited_by === "home" ? "#e63946"
+          : predicted && f.home_score! > f.away_score! ? "#4ade80" : "var(--text-body)",
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
       }}>
         {f.home_team}
@@ -598,30 +767,36 @@ function FixtureRow({
             type="text"
             inputMode="numeric"
             value={f.home_score ?? ""}
-            onChange={e => onUpdate(f.key, "home", e.target.value)}
+            onChange={e => {
+              onUpdate(f.key, "home", e.target.value);
+            }}
             style={{
               width: 28, height: 28, textAlign: "center",
-              background: f.home_score !== null ? "#4ea8f718" : "var(--bg-base)",
-              border: f.home_score !== null ? "1px solid #4ea8f750" : "1px solid var(--border-main)",
+              background: f.home_score !== null ? (isForfeited ? "#e6394618" : "#4ea8f718") : "var(--bg-base)",
+              border: f.home_score !== null ? (isForfeited ? "1px solid #e6394650" : "1px solid #4ea8f750") : "1px solid var(--border-main)",
               color: "var(--text-main)", fontSize: 13, fontWeight: 800,
               outline: "none", fontVariantNumeric: "tabular-nums",
             }}
             maxLength={2}
+            disabled={isForfeited}
           />
           <span style={{ color: "var(--text-faint)", fontSize: 10 }}>-</span>
           <input
             type="text"
             inputMode="numeric"
             value={f.away_score ?? ""}
-            onChange={e => onUpdate(f.key, "away", e.target.value)}
+            onChange={e => {
+              onUpdate(f.key, "away", e.target.value);
+            }}
             style={{
               width: 28, height: 28, textAlign: "center",
-              background: f.away_score !== null ? "#4ea8f718" : "var(--bg-base)",
-              border: f.away_score !== null ? "1px solid #4ea8f750" : "1px solid var(--border-main)",
+              background: f.away_score !== null ? (isForfeited ? "#e6394618" : "#4ea8f718") : "var(--bg-base)",
+              border: f.away_score !== null ? (isForfeited ? "1px solid #e6394650" : "1px solid #4ea8f750") : "1px solid var(--border-main)",
               color: "var(--text-main)", fontSize: 13, fontWeight: 800,
               outline: "none", fontVariantNumeric: "tabular-nums",
             }}
             maxLength={2}
+            disabled={isForfeited}
           />
           {predicted && (
             <button
@@ -642,11 +817,29 @@ function FixtureRow({
       {/* Away team */}
       <div style={{
         flex: 1, fontSize: 12, fontWeight: 700,
-        color: predicted && f.away_score! > f.home_score! ? "#4ade80" : "var(--text-body)",
+        color: isForfeited && f.forfeited_by === "away" ? "#e63946"
+          : predicted && f.away_score! > f.home_score! ? "#4ade80" : "var(--text-body)",
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
       }}>
         {f.away_team}
       </div>
+
+      {/* Away FF button */}
+      {!f.played && (
+        <button
+          onClick={() => onForfeit(f.key, "away")}
+          title={`${f.away_team} forfeits`}
+          style={{
+            padding: "2px 5px", fontSize: 8, fontWeight: 800, letterSpacing: "0.05em",
+            background: isForfeited && f.forfeited_by === "away" ? "#e6394630" : "transparent",
+            border: isForfeited && f.forfeited_by === "away" ? "1px solid #e6394660" : "1px solid var(--border-main)",
+            color: isForfeited && f.forfeited_by === "away" ? "#e63946" : "var(--text-faint)",
+            cursor: "pointer", lineHeight: 1.2,
+          }}
+        >
+          FF
+        </button>
+      )}
     </div>
   );
 }
