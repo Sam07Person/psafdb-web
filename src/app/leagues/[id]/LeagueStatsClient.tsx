@@ -174,6 +174,9 @@ export function LeagueStatsClient({
   defaultSection,
   onSectionChange,
   hideSectionNav,
+  activeTeamNames,
+  showTeamFilters,
+  showPlayerFilters,
 }: {
   playerStats: PlayerStat[];
   teamStats: TeamStat[];
@@ -181,15 +184,26 @@ export function LeagueStatsClient({
   defaultSection?: Section;
   onSectionChange?: (s: Section) => void;
   hideSectionNav?: boolean;
+  activeTeamNames?: string[];
+  showTeamFilters?: boolean;
+  showPlayerFilters?: boolean;
 }) {
   const [section, setSection] = useState<Section>(defaultSection ?? "attacking");
+  const [teamMinGames, setTeamMinGames] = useState(0);
+  const [playerMinGames, setPlayerMinGames] = useState(0);
+  const [activeOnly, setActiveOnly] = useState(true);
 
   const handleSection = (s: Section) => {
     setSection(s);
     onSectionChange?.(s);
   };
 
-  const gkPlayers = playerStats.filter(p => p.gk_saves > 0 || p.gk_catches > 0);
+  const filteredPlayers = showPlayerFilters && playerMinGames > 0
+    ? playerStats.filter(p => p.games >= playerMinGames)
+    : playerStats;
+  const gkPlayers = filteredPlayers.filter(p => p.gk_saves > 0 || p.gk_catches > 0);
+
+  const isPlayerSection = section === "attacking" || section === "passing" || section === "defending" || section === "gk";
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
@@ -216,6 +230,25 @@ export function LeagueStatsClient({
         ))}
       </div>}
 
+      {/* Player min games filter */}
+      {showPlayerFilters && isPlayerSection && (
+        <div style={{ background: "var(--bg-card)", padding: "10px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>Min GP</span>
+          <select
+            value={playerMinGames}
+            onChange={e => setPlayerMinGames(Number(e.target.value))}
+            style={{
+              background: "var(--bg-base)", border: "1px solid var(--border-main)",
+              color: "var(--text-body)", padding: "3px 8px", fontSize: 11, cursor: "pointer",
+            }}
+          >
+            {[0, 1, 2, 3, 5, 8, 10, 15, 20].map(n => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Attacking */}
       {section === "attacking" && (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946" }}>
@@ -223,7 +256,7 @@ export function LeagueStatsClient({
             Attacking Stats
           </div>
           <StatTable<PlayerStat>
-            rows={playerStats}
+            rows={filteredPlayers}
             defaultSort="goals"
             rowKey={r => r.playerId}
             cols={[
@@ -245,7 +278,7 @@ export function LeagueStatsClient({
             Passing Stats
           </div>
           <StatTable<PlayerStat & { passes_pg: number; kp_pg: number }>
-            rows={playerStats.map(p => ({
+            rows={filteredPlayers.map(p => ({
               ...p,
               passes_pg: p.games > 0 ? Math.round((p.passes / p.games) * 10) / 10 : 0,
               kp_pg: p.games > 0 ? Math.round((p.key_passes / p.games) * 10) / 10 : 0,
@@ -271,7 +304,7 @@ export function LeagueStatsClient({
             Defensive Stats
           </div>
           <StatTable<PlayerStat & { total_tackles: number; total_ints: number }>
-            rows={playerStats.map(p => ({
+            rows={filteredPlayers.map(p => ({
               ...p,
               total_tackles: p.tackles + p.key_tackles,
               total_ints: p.interceptions + p.key_interceptions,
@@ -320,16 +353,52 @@ export function LeagueStatsClient({
       )}
 
       {/* Teams */}
-      {section === "teams" && (
+      {section === "teams" && (() => {
+        const activeSet = activeTeamNames ? new Set(activeTeamNames) : null;
+        const filteredTeams = teamStats.filter(t => {
+          if (showTeamFilters && activeOnly && activeSet && !activeSet.has(t.name)) return false;
+          if (showTeamFilters && t.games < teamMinGames) return false;
+          return true;
+        });
+        return (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa" }}>
-          <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid var(--border-main)" }}>
-            Team Stats
+          <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <span>Team Stats</span>
+            {showTeamFilters && (
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-sub)", textTransform: "uppercase", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={activeOnly}
+                    onChange={e => setActiveOnly(e.target.checked)}
+                    style={{ cursor: "pointer" }}
+                  />
+                  Active leagues only
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-sub)", textTransform: "uppercase" }}>Min GP</span>
+                  <select
+                    value={teamMinGames}
+                    onChange={e => setTeamMinGames(Number(e.target.value))}
+                    style={{
+                      background: "var(--bg-base)", border: "1px solid var(--border-main)",
+                      color: "var(--text-body)", padding: "3px 8px", fontSize: 11, cursor: "pointer",
+                    }}
+                  >
+                    {[0, 1, 2, 3, 5, 8, 10, 15, 20].map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
-          <StatTable<TeamStat & { gd: number; gpg: number }>
-            rows={teamStats.map(t => ({
+          <StatTable<TeamStat & { gd: number; gpg: number; gapg: number }>
+            rows={filteredTeams.map(t => ({
               ...t,
               gd: t.gf - t.ga,
               gpg: t.games > 0 ? Math.round((t.gf / t.games) * 10) / 10 : 0,
+              gapg: t.games > 0 ? Math.round((t.ga / t.games) * 10) / 10 : 0,
             }))}
             defaultSort="gf"
             rowKey={r => r.name}
@@ -338,7 +407,7 @@ export function LeagueStatsClient({
               {
                 key: "name",
                 label: "Team",
-                render: (val: string, r: TeamStat & { gd: number; gpg: number }) => {
+                render: (val: string, r: TeamStat & { gd: number; gpg: number; gapg: number }) => {
                   const id = teamIdMap[val];
                   return id
                     ? <Link href={`/teams/${id}`} style={{ color: "inherit", textDecoration: "none" }} className="nav-link">{val}</Link>
@@ -357,12 +426,14 @@ export function LeagueStatsClient({
                   </span>
                 ),
               },
-              { key: "gpg", label: "Goals/Game" },
+              { key: "gpg", label: "GF/Game" },
+              { key: "gapg", label: "GA/Game", defaultAsc: true },
               { key: "cs", label: "Clean Sheets" },
             ]}
           />
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

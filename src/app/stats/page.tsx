@@ -9,12 +9,36 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-async function getAllStats(leagueId?: string): Promise<{ players: PlayerStat[]; teams: TeamStat[] }> {
+async function getAllStats(leagueIds?: string[], season?: string): Promise<{ players: PlayerStat[]; teams: TeamStat[] }> {
+  // If season filter, first get league IDs for that season
+  let seasonLeagueIds: string[] | null = null;
+  if (season) {
+    const { data: seasonLeagues } = await supabase
+      .from("leagues")
+      .select("id")
+      .eq("season", season);
+    seasonLeagueIds = (seasonLeagues ?? []).map((l: any) => l.id);
+    if (seasonLeagueIds.length === 0) return { players: [], teams: [] };
+  }
+
+  // Combine league IDs from filter + season
+  let filterIds: string[] | null = null;
+  if (leagueIds && leagueIds.length > 0 && seasonLeagueIds) {
+    // Intersection: only leagues that match both filters
+    const seasonSet = new Set(seasonLeagueIds);
+    filterIds = leagueIds.filter(id => seasonSet.has(id));
+    if (filterIds.length === 0) return { players: [], teams: [] };
+  } else if (leagueIds && leagueIds.length > 0) {
+    filterIds = leagueIds;
+  } else if (seasonLeagueIds) {
+    filterIds = seasonLeagueIds;
+  }
+
   let matchQuery = supabase
     .from("matches")
     .select("id,home_team,away_team,home_score,away_score")
     .not("home_score", "is", null);
-  if (leagueId) matchQuery = matchQuery.eq("league_id", leagueId);
+  if (filterIds) matchQuery = matchQuery.in("league_id", filterIds);
 
   const { data: matches } = await matchQuery.limit(10000);
   if (!matches || matches.length === 0) return { players: [], teams: [] };
@@ -89,15 +113,31 @@ export const revalidate = 60;
 export default async function StatsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ league?: string; tab?: string }>;
+  searchParams?: Promise<{ league?: string; tab?: string; season?: string }>;
 }) {
   const sp = await searchParams;
-  const selectedLeague = sp?.league || "";
+  const leagueParam = sp?.league || "";
+  const selectedLeagues = leagueParam ? leagueParam.split(",").filter(Boolean) : [];
+  const selectedSeason = sp?.season || "";
 
-  const [{ data: leaguesRaw }, stats] = await Promise.all([
-    supabase.from("leagues").select("id,name,ended").order("name"),
-    getAllStats(selectedLeague || undefined),
+  const [{ data: leaguesRaw }, stats, { data: teamLeaguesRaw }, { data: directTeamsRaw }] = await Promise.all([
+    supabase.from("leagues").select("id,name,ended,season").order("name"),
+    getAllStats(selectedLeagues.length > 0 ? selectedLeagues : undefined, selectedSeason || undefined),
+    supabase.from("team_leagues").select("team_id, teams(name), leagues(id,ended)").limit(10000),
+    supabase.from("teams").select("name, league_id, leagues:league_id(id,ended)").limit(10000),
   ]);
+
+  // Build set of team names that are in at least one active (non-ended) league
+  const activeTeamNames = new Set<string>();
+  for (const tl of teamLeaguesRaw ?? []) {
+    const team = (tl as any).teams;
+    const league = (tl as any).leagues;
+    if (team?.name && league && !league.ended) activeTeamNames.add(team.name);
+  }
+  for (const t of directTeamsRaw ?? []) {
+    const league = (t as any).leagues;
+    if (t.name && league && !league.ended) activeTeamNames.add(t.name);
+  }
 
   const leagues = (leaguesRaw ?? []).sort((a: any, b: any) => {
     const aE = a.ended ? 1 : 0;
@@ -105,7 +145,10 @@ export default async function StatsPage({
     return aE - bE || a.name.localeCompare(b.name);
   });
 
-  const selectedLeagueName = leagues.find((l: any) => l.id === selectedLeague)?.name;
+  const selectedLeagueNames = selectedLeagues.map(id => leagues.find((l: any) => l.id === id)?.name).filter(Boolean);
+
+  // Get unique seasons
+  const seasons = [...new Set((leaguesRaw ?? []).map((l: any) => l.season).filter(Boolean))].sort();
 
   // Build a dummy teamIdMap from players — teams are already resolved in getAllStats
   const teamIdMap: Record<string, string> = Object.fromEntries(
@@ -126,10 +169,9 @@ export default async function StatsPage({
             <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
               Stats
             </h1>
-            {selectedLeagueName && (
-              <span style={{ fontSize: 14, color: "var(--text-faint)" }}>{selectedLeagueName}</span>
-            )}
-            {!selectedLeagueName && (
+            {selectedLeagueNames.length > 0 ? (
+              <span style={{ fontSize: 14, color: "var(--text-faint)" }}>{selectedLeagueNames.join(", ")}</span>
+            ) : (
               <span style={{ fontSize: 14, color: "var(--text-faint)" }}>All Leagues</span>
             )}
           </div>
@@ -138,17 +180,20 @@ export default async function StatsPage({
 
       {/* Filter bar + section nav */}
       <Suspense>
-        <StatsFilterBar leagues={leagues} selectedLeague={selectedLeague} />
+        <StatsFilterBar leagues={leagues} selectedLeagues={selectedLeagues} seasons={seasons} selectedSeason={selectedSeason} />
       </Suspense>
 
       {/* Stats content — pass activeTab to control which section is shown */}
       <LeagueStatsClient
-        key={`${selectedLeague}-${sp?.tab || "attacking"}`}
+        key={`${leagueParam}-${selectedSeason}-${sp?.tab || "attacking"}`}
         playerStats={stats.players}
         teamStats={stats.teams}
         teamIdMap={teamIdMap}
         defaultSection={(sp?.tab as any) || "attacking"}
         hideSectionNav
+        activeTeamNames={[...activeTeamNames]}
+        showTeamFilters
+        showPlayerFilters
       />
     </main>
   );
