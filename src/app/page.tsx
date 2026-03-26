@@ -66,6 +66,13 @@ const NAV_ITEMS = [
     icon: "🔮",
   },
   {
+    href: "/table-predictor",
+    label: "Table Predictor",
+    sub: "Predict the Final Standings",
+    accent: "#fb923c",
+    icon: "📊",
+  },
+  {
     href: "/stats",
     label: "Stats",
     sub: "Player & Team Statistics",
