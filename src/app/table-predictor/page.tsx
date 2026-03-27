@@ -55,17 +55,23 @@ function applyMatchToStandings(s: Record<string, StandingRow>, home_team: string
   const away = s[away_team];
 
   home.played++; home.gf += home_score; home.ga += away_score;
-  if (home_score > away_score) { home.won++; home.points += 3; }
-  else if (home_score < away_score) { home.lost++; }
-  else { home.drawn++; home.points += 1; }
-
   away.played++; away.gf += away_score; away.ga += home_score;
-  if (away_score > home_score) { away.won++; away.points += 3; }
-  else if (away_score < home_score) { away.lost++; }
-  else { away.drawn++; away.points += 1; }
 
-  if (forfeited_by === "home") { home.points -= 1; home.forfeit_deductions++; }
-  else if (forfeited_by === "away") { away.points -= 1; away.forfeit_deductions++; }
+  if (forfeited_by === "both") {
+    home.lost++; home.points -= 1; home.forfeit_deductions++;
+    away.lost++; away.points -= 1; away.forfeit_deductions++;
+  } else {
+    if (home_score > away_score) { home.won++; home.points += 3; }
+    else if (home_score < away_score) { home.lost++; }
+    else { home.drawn++; home.points += 1; }
+
+    if (away_score > home_score) { away.won++; away.points += 3; }
+    else if (away_score < home_score) { away.lost++; }
+    else { away.drawn++; away.points += 1; }
+
+    if (forfeited_by === "home") { home.points -= 1; home.forfeit_deductions++; }
+    else if (forfeited_by === "away") { away.points -= 1; away.forfeit_deductions++; }
+  }
 }
 
 function getH2HResult(teamA: string, teamB: string, fixtures: Fixture[]): number {

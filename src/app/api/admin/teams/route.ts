@@ -177,6 +177,48 @@ export async function PUT(req: NextRequest) {
     // Handle disband/undisband score changes
     const disbandChanged = oldTeam && (!!oldTeam.disbanded !== !!disbanded);
     let disbandResults: { forfeited: number; restored: number } | null = null;
+
+    // Even if disband didn't change, if the team IS disbanded, fix any matches
+    // against other disbanded teams that still have single-team forfeits
+    if (!disbandChanged && disbanded && oldTeam) {
+      const teamName = oldTeam.name;
+      const { data: endedLeagues } = await supabaseAdmin
+        .from("leagues").select("id").eq("ended", true);
+      const endedIds = new Set((endedLeagues || []).map((l: any) => l.id));
+
+      const { data: disbandedTeams } = await supabaseAdmin
+        .from("teams").select("name").eq("disbanded", true);
+      const disbandedNames = new Set((disbandedTeams || []).map((t: any) => t.name));
+
+      const { data: homeMatches } = await supabaseAdmin
+        .from("matches").select("id,home_team,away_team,home_score,away_score,league_id,forfeited_by")
+        .eq("home_team", teamName);
+      const { data: awayMatches } = await supabaseAdmin
+        .from("matches").select("id,home_team,away_team,home_score,away_score,league_id,forfeited_by")
+        .eq("away_team", teamName);
+
+      const allMatches = [...(homeMatches || []), ...(awayMatches || [])];
+      let fixed = 0;
+
+      for (const m of allMatches) {
+        if (!m.league_id || endedIds.has(m.league_id)) continue;
+        const opponent = m.home_team === teamName ? m.away_team : m.home_team;
+        // If opponent is disbanded but match isn't "both", fix it
+        if (disbandedNames.has(opponent) && m.forfeited_by !== "both") {
+          await supabaseAdmin.from("matches").update({
+            home_score: 0,
+            away_score: 0,
+            forfeited_by: "both",
+          }).eq("id", m.id);
+          fixed++;
+        }
+      }
+
+      if (fixed > 0) {
+        disbandResults = { forfeited: fixed, restored: 0 };
+      }
+    }
+
     if (disbandChanged && oldTeam) {
       const teamName = oldTeam.name;
 
@@ -200,21 +242,37 @@ export async function PUT(req: NextRequest) {
         // Backup original scores before overwriting, so undisband can restore them
         const backup: { match_id: string; home_score: number | null; away_score: number | null; forfeited_by: string | null }[] = [];
 
+        // Get all disbanded teams to detect double-forfeit scenarios
+        const { data: disbandedTeams } = await supabaseAdmin
+          .from("teams").select("name").eq("disbanded", true);
+        const disbandedNames = new Set((disbandedTeams || []).map((t: any) => t.name));
+        disbandedNames.add(teamName); // Include the team being disbanded now
+
         // Disband: set all existing matches in non-ended leagues to 3-0 forfeit
         for (const m of allMatches) {
           if (!m.league_id || endedIds.has(m.league_id)) continue;
           const isHome = m.home_team === teamName;
-          const newHomeScore = isHome ? 0 : 3;
-          const newAwayScore = isHome ? 3 : 0;
-          const forfeitSide = isHome ? "home" : "away";
+          const opponent = isHome ? m.away_team : m.home_team;
 
           backup.push({ match_id: m.id, home_score: m.home_score, away_score: m.away_score, forfeited_by: m.forfeited_by });
 
-          await supabaseAdmin.from("matches").update({
-            home_score: newHomeScore,
-            away_score: newAwayScore,
-            forfeited_by: forfeitSide,
-          }).eq("id", m.id);
+          // Check if opponent is also disbanded — double forfeit
+          if (disbandedNames.has(opponent)) {
+            await supabaseAdmin.from("matches").update({
+              home_score: 0,
+              away_score: 0,
+              forfeited_by: "both",
+            }).eq("id", m.id);
+          } else {
+            const newHomeScore = isHome ? 0 : 3;
+            const newAwayScore = isHome ? 3 : 0;
+            const forfeitSide = isHome ? "home" : "away";
+            await supabaseAdmin.from("matches").update({
+              home_score: newHomeScore,
+              away_score: newAwayScore,
+              forfeited_by: forfeitSide,
+            }).eq("id", m.id);
+          }
           forfeited++;
         }
 
@@ -253,16 +311,17 @@ export async function PUT(req: NextRequest) {
             playedOpponents.add(opp);
           }
 
-          // Create missing fixtures as 3-0 forfeit
+          // Create missing fixtures as forfeit (double forfeit if opponent also disbanded)
           const now = new Date().toISOString();
           for (const opp of otherTeams) {
             if (playedOpponents.has(opp)) continue;
+            const isDoubleForfeit = disbandedNames.has(opp);
             await supabaseAdmin.from("matches").insert({
               home_team: teamName,
               away_team: opp,
-              home_score: 0,
-              away_score: 3,
-              forfeited_by: "home",
+              home_score: isDoubleForfeit ? 0 : 0,
+              away_score: isDoubleForfeit ? 0 : 3,
+              forfeited_by: isDoubleForfeit ? "both" : "home",
               league_id: league.id,
               played_at: now,
             });
@@ -286,7 +345,8 @@ export async function PUT(req: NextRequest) {
           if (!m.league_id || endedIds.has(m.league_id)) continue;
           const isHome = m.home_team === teamName;
           const expectedForfeit = isHome ? "home" : "away";
-          if (m.forfeited_by !== expectedForfeit) continue;
+          // Match must be forfeited by this team's side, or be a double forfeit
+          if (m.forfeited_by !== expectedForfeit && m.forfeited_by !== "both") continue;
 
           const original = backupMap.get(m.id);
           if (original) {
