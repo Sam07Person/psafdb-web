@@ -401,6 +401,35 @@ export default async function LeagueDetailPage({
   const bracketThirdStage = bracketStages.find(s => s.toLowerCase().includes("third"));
   const mainBracketStages = bracketStages.filter(s => !s.toLowerCase().includes("third"));
 
+  // Sort ties in each round so that teams coming from higher positions in the
+  // previous round appear higher, avoiding crossed connector lines.
+  for (let col = 1; col < mainBracketStages.length; col++) {
+    const prevTies = bracketByStage[mainBracketStages[col - 1]] || [];
+    const curTies  = bracketByStage[mainBracketStages[col]] || [];
+    if (curTies.length <= 1) continue;
+
+    // Map each team in the previous round to its vertical position (tie index)
+    const teamToPrevIdx: Record<string, number> = {};
+    for (let i = 0; i < prevTies.length; i++) {
+      const t = prevTies[i];
+      if (t.team1) teamToPrevIdx[t.team1] = i;
+      if (t.team2) teamToPrevIdx[t.team2] = i;
+    }
+
+    // Sort current round by the earliest previous-round index of their participants
+    bracketByStage[mainBracketStages[col]] = [...curTies].sort((a, b) => {
+      const aIdx = Math.min(
+        teamToPrevIdx[a.team1] ?? 9999,
+        teamToPrevIdx[a.team2] ?? 9999
+      );
+      const bIdx = Math.min(
+        teamToPrevIdx[b.team1] ?? 9999,
+        teamToPrevIdx[b.team2] ?? 9999
+      );
+      return aIdx - bIdx;
+    });
+  }
+
   const playedMatches = matches.filter((m: any) => m.home_score !== null);
   const upcomingMatches = matches.filter((m: any) => m.home_score === null).reverse().slice(0, 5);
   const logo = getLeagueLogo(league.image);
@@ -511,21 +540,84 @@ export default async function LeagueDetailPage({
   function KnockoutBracket({ stages, byStage }: { stages: string[]; byStage: Record<string, MergedTie[]> }) {
     if (stages.length === 0) return null;
 
-    const BASE = 96;        // base slot height (px) for the earliest round
-    const CW   = 28;        // connector column width (px)
-    const MW   = 190;       // match card width (px)
-    const AC   = "#a78bfa"; // accent colour
+    const SLOT_H = 72;      // height per match slot
+    const GAP    = 12;      // vertical gap between slots
+    const CW     = 40;      // connector column width (px)
+    const MW     = 190;     // match card width (px)
+    const LABEL_H = 24;     // stage label height
+    const AC     = "#a78bfa"; // accent colour
 
-    // Third place is displayed separately below the main bracket
     const thirdStage = stages.find(s => s.toLowerCase().includes("third"));
     const main = stages.filter(s => !s.toLowerCase().includes("third"));
+
+    // Helper to get winner name of a completed tie
+    function getWinner(tie: MergedTie): string | null {
+      if (!tie.played) return null;
+      if (tie.agg1 !== null && tie.agg2 !== null) {
+        if (tie.agg1 > tie.agg2) return tie.team1;
+        if (tie.agg2 > tie.agg1) return tie.team2;
+      }
+      return null;
+    }
+
+    // Compute per-column data: how many ties, and the Y center of each card
+    const maxTies = Math.max(...main.map(s => (byStage[s] || []).length), 1);
+    const totalH = maxTies * SLOT_H + (maxTies - 1) * GAP;
+
+    // For each column, compute the Y center of each card, evenly distributed within totalH
+    function getCardCenters(count: number): number[] {
+      if (count === 0) return [];
+      if (count === 1) return [totalH / 2];
+      const usable = totalH - SLOT_H;
+      return Array.from({ length: count }, (_, i) => (SLOT_H / 2) + (usable * i) / (count - 1));
+    }
+
+    // Build connection data: for each tie in col > 0, find which previous-round tie
+    // contains one of its teams (winner or participant) and draw a line
+    type Connection = { fromX: number; fromY: number; toX: number; toY: number };
+    const connections: Connection[] = [];
+
+    const colWidth = MW + CW;
+    const colCenters: number[][] = main.map(s => getCardCenters((byStage[s] || []).length));
+
+    for (let col = 1; col < main.length; col++) {
+      const prevTies = byStage[main[col - 1]] || [];
+      const curTies  = byStage[main[col]] || [];
+      const prevCenters = colCenters[col - 1];
+      const curCenters  = colCenters[col];
+
+      for (let ci = 0; ci < curTies.length; ci++) {
+        const cur = curTies[ci];
+        const curTeams = new Set([cur.team1, cur.team2].filter(Boolean));
+
+        // Find all previous ties whose winner (or any participant) appears in this tie
+        for (let pi = 0; pi < prevTies.length; pi++) {
+          const prev = prevTies[pi];
+          const winner = getWinner(prev);
+          // Connect if winner advanced, OR if a participant (even loser) appears in next round
+          const connected = winner
+            ? curTeams.has(winner)
+            : (curTeams.has(prev.team1) || curTeams.has(prev.team2));
+          if (connected) {
+            connections.push({
+              fromX: (col - 1) * colWidth + MW,  // right edge of prev column's card
+              fromY: LABEL_H + prevCenters[pi],
+              toX:   col * colWidth,              // left edge of cur column's card
+              toY:   LABEL_H + curCenters[ci],
+            });
+          }
+        }
+      }
+    }
+
+    const svgW = main.length * colWidth - CW; // no trailing connector
+    const svgH = LABEL_H + totalH;
 
     function BracketCard({ tie }: { tie: MergedTie }) {
       const isTwoLeg = tie.leg2 !== null;
       const leg1Played = tie.leg1 !== null && tie.leg1.home_score !== null && tie.leg1.away_score !== null;
       const leg2Played = tie.leg2 !== null && tie.leg2.home_score !== null && tie.leg2.away_score !== null;
       const bothPlayed = isTwoLeg && leg1Played && leg2Played;
-      // Only highlight winner when all legs are complete (or single-leg tie)
       const isComplete = isTwoLeg ? bothPlayed : tie.played;
       const t1Win = isComplete && tie.agg1 !== null && tie.agg2 !== null && tie.agg1 > tie.agg2;
       const t2Win = isComplete && tie.agg1 !== null && tie.agg2 !== null && tie.agg2 > tie.agg1;
@@ -535,115 +627,79 @@ export default async function LeagueDetailPage({
         { team: tie.team2, agg: tie.agg2, win: t2Win },
       ];
 
-      // Build leg score labels for two-leg ties
       let legLabel: string | null = null;
       if (isTwoLeg && tie.leg1 && tie.leg2) {
         const parts: string[] = [];
         if (leg1Played) parts.push(`${tie.leg1.home_score}-${tie.leg1.away_score}`);
         if (leg2Played) parts.push(`${tie.leg2.home_score}-${tie.leg2.away_score}`);
         if (parts.length > 0) {
-          const legsText = bothPlayed ? parts.join(", ") : `${parts[0]} (Leg 2 TBD)`;
-          legLabel = legsText;
+          legLabel = bothPlayed ? parts.join(", ") : `${parts[0]} (Leg 2 TBD)`;
         }
       }
 
-      const cardContent = (
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-main)", width: MW, overflow: "hidden" }}>
-          {rows.map((row, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 9px", background: tie.played && row.win ? "rgba(74,222,128,0.08)" : "transparent", borderBottom: i === 0 ? "1px solid var(--border-row)" : "none" }}>
-              <span style={{ fontSize: 12, fontWeight: tie.played && row.win ? 700 : 400, color: tie.played && row.win ? "var(--text-body)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: MW - 50 }}>
-                {row.team || "TBD"}
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 900, color: tie.played && row.win ? AC : "var(--text-faint)", flexShrink: 0, minWidth: 16, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>
-                {tie.played && row.agg !== null ? row.agg : ""}
-              </span>
-            </div>
-          ))}
-          {isTwoLeg && legLabel && (
-            <div style={{ padding: "2px 9px 3px", fontSize: 9, color: "var(--text-faint)", letterSpacing: "0.04em", borderTop: "1px solid var(--border-row)" }}>
-              Legs: {legLabel}
-            </div>
-          )}
-        </div>
-      );
-
       return (
         <Link href={`/matches/${tie.ids[0]}`} style={{ display: "block", textDecoration: "none" }} className="nav-card">
-          {cardContent}
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-main)", width: MW, overflow: "hidden" }}>
+            {rows.map((row, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 9px", background: tie.played && row.win ? "rgba(74,222,128,0.08)" : "transparent", borderBottom: i === 0 ? "1px solid var(--border-row)" : "none" }}>
+                <span style={{ fontSize: 12, fontWeight: tie.played && row.win ? 700 : 400, color: tie.played && row.win ? "var(--text-body)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: MW - 50 }}>
+                  {row.team || "TBD"}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 900, color: tie.played && row.win ? AC : "var(--text-faint)", flexShrink: 0, minWidth: 16, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>
+                  {tie.played && row.agg !== null ? row.agg : ""}
+                </span>
+              </div>
+            ))}
+            {isTwoLeg && legLabel && (
+              <div style={{ padding: "2px 9px 3px", fontSize: 9, color: "var(--text-faint)", letterSpacing: "0.04em", borderTop: "1px solid var(--border-row)" }}>
+                Legs: {legLabel}
+              </div>
+            )}
+          </div>
         </Link>
       );
     }
 
     return (
       <div>
-        {/* Bracket header */}
         <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
           Bracket
         </div>
 
-        {/* Scrollable bracket */}
         <div style={{ overflowX: "auto", background: "var(--bg-row)", padding: "24px 20px 28px" }}>
-          <div style={{ display: "inline-flex", alignItems: "flex-start" }}>
+          <div style={{ position: "relative", width: svgW, minHeight: svgH }}>
+            {/* SVG connector lines */}
+            <svg width={svgW} height={svgH} style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}>
+              {connections.map((c, i) => {
+                const midX = (c.fromX + c.toX) / 2;
+                return (
+                  <path key={i} d={`M${c.fromX},${c.fromY} C${midX},${c.fromY} ${midX},${c.toY} ${c.toX},${c.toY}`} fill="none" stroke={AC} strokeWidth={2} />
+                );
+              })}
+            </svg>
+
+            {/* Match card columns */}
             {main.map((stage, colIdx) => {
-              const slotH = BASE * Math.pow(2, colIdx);
-              const colMatches: any[] = byStage[stage] || [];
-              const isLast = colIdx === main.length - 1;
+              const ties = byStage[stage] || [];
+              const centers = colCenters[colIdx];
+              const x = colIdx * colWidth;
 
               return (
-                <div key={stage} style={{ display: "flex", alignItems: "flex-start" }}>
-                  {/* Incoming arm (horizontal line to card) for rounds after the first */}
-                  {colIdx > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      {colMatches.map((_: any, mi: number) => (
-                        <div key={mi} style={{ height: slotH, display: "flex", alignItems: "center" }}>
-                          <div style={{ width: CW, height: 0, borderTop: `2px solid ${AC}` }} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Match cards column */}
-                  <div>
-                    {/* Stage label */}
-                    <div style={{ textAlign: "center", fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8, width: MW }}>
-                      {stage}
-                    </div>
-                    {colMatches.map((tie: MergedTie) => (
-                      <div key={tie.id} style={{ height: slotH, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <BracketCard tie={tie} />
-                      </div>
-                    ))}
+                <div key={stage} style={{ position: "absolute", left: x, top: 0, width: MW }}>
+                  <div style={{ textAlign: "center", fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", height: LABEL_H, lineHeight: `${LABEL_H}px` }}>
+                    {stage}
                   </div>
-
-                  {/* Outgoing connector to next round */}
-                  {!isLast && (
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      {Array.from({ length: Math.ceil(colMatches.length / 2) }).map((_, pairIdx) => {
-                        const hasBottom = pairIdx * 2 + 1 < colMatches.length;
-                        return (
-                          <div key={pairIdx}>
-                            {/* Top match of pair: ┐ connector in bottom half of slot */}
-                            <div style={{ height: slotH, position: "relative" }}>
-                              <div style={{ position: "absolute", top: "50%", left: 0, right: 0, bottom: 0, borderTop: `2px solid ${AC}`, borderRight: `2px solid ${AC}` }} />
-                            </div>
-                            {/* Bottom match of pair: ┘ connector in top half of slot */}
-                            {hasBottom && (
-                              <div style={{ height: slotH, position: "relative" }}>
-                                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: "50%", borderRight: `2px solid ${AC}`, borderBottom: `2px solid ${AC}` }} />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                  {ties.map((tie: MergedTie, mi: number) => (
+                    <div key={tie.id} style={{ position: "absolute", top: LABEL_H + centers[mi] - SLOT_H / 2, left: 0, width: MW, height: SLOT_H, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <BracketCard tie={tie} />
                     </div>
-                  )}
+                  ))}
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Third place play-off shown below the bracket */}
         {thirdStage && (byStage[thirdStage] || []).length > 0 && (
           <div style={{ marginTop: 2 }}>
             <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
