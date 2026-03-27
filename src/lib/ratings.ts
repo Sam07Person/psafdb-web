@@ -278,10 +278,12 @@ export function calcMatchBreakdown(
   result: MatchResult,
   position: string | null | undefined
 ): MatchBreakdown {
-  // If the player has GK stats (saves/catches), rate as GK — handles subs coming on in goal
-  const role = (stat.gk_saves > 0 || stat.gk_catches > 0) && getPositionRole(position) !== "GK"
+  // Only override to GK for players with no known position (e.g. subs) who have GK stats.
+  // Outfield players with incidental GK stats (e.g. 1 catch) keep their outfield role.
+  const baseRole = getPositionRole(position);
+  const role = baseRole === "MID" && !position && (stat.gk_saves > 0 || stat.gk_catches > 0)
     ? "GK" as PositionRole
-    : getPositionRole(position);
+    : baseRole;
   const w = getPositionWeights(role);
 
   const consScore = stat.score > 60
