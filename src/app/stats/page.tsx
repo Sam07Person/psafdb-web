@@ -34,25 +34,43 @@ async function getAllStats(leagueIds?: string[], season?: string): Promise<{ pla
     filterIds = seasonLeagueIds;
   }
 
-  let matchQuery = supabase
-    .from("matches")
-    .select("id,home_team,away_team,home_score,away_score")
-    .not("home_score", "is", null);
-  if (filterIds) matchQuery = matchQuery.in("league_id", filterIds);
-
-  const { data: matches } = await matchQuery.limit(10000);
-  if (!matches || matches.length === 0) return { players: [], teams: [] };
+  // Paginate matches (Supabase hard cap is 1000 rows per request)
+  const PAGE = 1000;
+  const matches: any[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let q = supabase
+      .from("matches")
+      .select("id,home_team,away_team,home_score,away_score")
+      .not("home_score", "is", null)
+      .range(from, from + PAGE - 1);
+    if (filterIds) q = q.in("league_id", filterIds);
+    const { data: page } = await q;
+    if (!page || page.length === 0) break;
+    matches.push(...page);
+    if (page.length < PAGE) break;
+  }
+  if (matches.length === 0) return { players: [], teams: [] };
 
   const matchIds = matches.map((m: any) => m.id);
 
-  const [{ data: statsData }, { data: allTeams }] = await Promise.all([
-    supabase
-      .from("match_player_stats")
-      .select("player_id,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
-      .in("match_id", matchIds)
-      .limit(20000),
-    supabase.from("teams").select("id,name"),
-  ]);
+  // Paginate player stats across all match IDs in chunks to avoid URL length limits
+  const statsData: any[] = [];
+  const MATCH_CHUNK = 200;
+  for (let i = 0; i < matchIds.length; i += MATCH_CHUNK) {
+    const chunk = matchIds.slice(i, i + MATCH_CHUNK);
+    for (let from = 0; ; from += PAGE) {
+      const { data: page } = await supabase
+        .from("match_player_stats")
+        .select("player_id,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
+        .in("match_id", chunk)
+        .range(from, from + PAGE - 1);
+      if (!page || page.length === 0) break;
+      statsData.push(...page);
+      if (page.length < PAGE) break;
+    }
+  }
+
+  const { data: allTeams } = await supabase.from("teams").select("id,name");
 
   const teamIdMap: Record<string, string> = Object.fromEntries(
     (allTeams ?? []).map((t: any) => [t.name, t.id])
