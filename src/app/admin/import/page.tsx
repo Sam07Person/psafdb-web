@@ -3,6 +3,37 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
+// Compress an image dataURL to stay under a max size (JPEG quality reduction + downscale)
+async function compressImage(dataUrl: string, maxBytes = 1_200_000): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      // Downscale if larger than 1920 on the longest side
+      const maxDim = 1920;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      // Try progressively lower quality until under maxBytes
+      let quality = 0.85;
+      let result = canvas.toDataURL("image/jpeg", quality);
+      while (result.length * 0.75 > maxBytes && quality > 0.3) {
+        quality -= 0.1;
+        result = canvas.toDataURL("image/jpeg", quality);
+      }
+      resolve(result);
+    };
+    img.src = dataUrl;
+  });
+}
+
 function levenshtein(a: string, b: string): number {
   const dp = Array.from({ length: a.length + 1 }, (_, i) =>
     Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
@@ -1082,8 +1113,9 @@ export default function AdminDashboardPage() {
     if (!files) return;
     Array.from(files).forEach((file) => {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
+      reader.onload = async (event) => {
+        const raw = event.target?.result as string;
+        const base64 = await compressImage(raw);
         setMatchGroups(prev => prev.map(g => {
           if (g.id === groupId) {
             return { ...g, images: [...g.images, base64], previews: [...g.previews, base64] };
@@ -1118,8 +1150,9 @@ export default function AdminDashboardPage() {
         const file = item.getAsFile();
         if (file) {
           const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+          reader.onload = async (event) => {
+            const raw = event.target?.result as string;
+            const base64 = await compressImage(raw);
             setMatchGroups(prev => prev.map(g => {
               if (g.id === groupId) {
                 return { ...g, images: [...g.images, base64], previews: [...g.previews, base64] };
@@ -1141,8 +1174,9 @@ export default function AdminDashboardPage() {
         if (imageType) {
           const blob = await item.getType(imageType);
           const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+          reader.onload = async (event) => {
+            const raw = event.target?.result as string;
+            const base64 = await compressImage(raw);
             setMatchGroups(prev => prev.map(g => {
               if (g.id === groupId) {
                 return { ...g, images: [...g.images, base64], previews: [...g.previews, base64] };
@@ -1552,8 +1586,8 @@ export default function AdminDashboardPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    reader.onload = async (event) => {
+      const base64 = await compressImage(event.target?.result as string);
       setTeamImportImage(base64);
       setTeamImportPreview(base64);
     };
@@ -1597,8 +1631,8 @@ export default function AdminDashboardPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    reader.onload = async (event) => {
+      const base64 = await compressImage(event.target?.result as string);
       setFixtureImportImage(base64);
       setFixtureImportPreview(base64);
     };
@@ -1648,8 +1682,8 @@ export default function AdminDashboardPage() {
         const file = item.getAsFile();
         if (file) {
           const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+          reader.onload = async (event) => {
+            const base64 = await compressImage(event.target?.result as string);
             setFixtureImportImage(base64);
             setFixtureImportPreview(base64);
           };
@@ -1670,8 +1704,8 @@ export default function AdminDashboardPage() {
         const file = item.getAsFile();
         if (file) {
           const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+          reader.onload = async (event) => {
+            const base64 = await compressImage(event.target?.result as string);
             setTeamImportImage(base64);
             setTeamImportPreview(base64);
           };
@@ -1690,8 +1724,8 @@ export default function AdminDashboardPage() {
         if (imageType) {
           const blob = await item.getType(imageType);
           const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+          reader.onload = async (event) => {
+            const base64 = await compressImage(event.target?.result as string);
             setFixtureImportImage(base64);
             setFixtureImportPreview(base64);
           };
@@ -1714,8 +1748,8 @@ export default function AdminDashboardPage() {
         if (imageType) {
           const blob = await item.getType(imageType);
           const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+          reader.onload = async (event) => {
+            const base64 = await compressImage(event.target?.result as string);
             setTeamImportImage(base64);
             setTeamImportPreview(base64);
           };
