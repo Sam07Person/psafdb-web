@@ -398,8 +398,13 @@ export async function POST(req: NextRequest) {
     let isUpdatedFixture = false;
     let teamsWereSwapped = false;
 
-    let homeTeamData = extractedData.home_team;
-    let awayTeamData = extractedData.away_team;
+    // Merge team_stats into home_team/away_team so stat fields are available on homeTeamData/awayTeamData.
+    // team_stats.home/away carries the detailed stats (passes, tackles, etc.) from the JSON import path.
+    const mergedHome = { ...extractedData.home_team, ...(extractedData.team_stats?.home || {}) };
+    const mergedAway = { ...extractedData.away_team, ...(extractedData.team_stats?.away || {}) };
+
+    let homeTeamData = mergedHome;
+    let awayTeamData = mergedAway;
 
     if (isAutoMode) {
       matchingFixture = await findMatchingFixture(
@@ -412,8 +417,8 @@ export async function POST(req: NextRequest) {
         finalLeagueId = matchingFixture.league_id;
         if (matchingFixture.swapped) {
           logs.push(`Swapping teams to match fixture`);
-          homeTeamData = extractedData.away_team;
-          awayTeamData = extractedData.home_team;
+          homeTeamData = mergedAway;
+          awayTeamData = mergedHome;
           teamsWereSwapped = true;
         }
       }
