@@ -172,12 +172,41 @@ function getLeagueLogo(image: string | null): { img: string; filter: string } | 
   return { img: `/${image}.png`, filter: filters[image] };
 }
 
-// Canonical knockout stage order (later rounds first)
-const KNOCKOUT_STAGE_ORDER = ["final", "third place", "semifinal", "semi-final", "quarterfinal", "quarter-final", "round of 16", "round of 32", "knockout"];
+// Canonical knockout stage order (later rounds first).
+// "final" MUST be last — it's a substring of "semi-final", "quarter-final" etc.
+// Each entry: [keyword, rank] where rank 0 = final (rightmost), higher = earlier round (leftmost).
+const KNOCKOUT_STAGE_RANKS: [string, number][] = [
+  ["third place", 1],
+  ["semifinal",   2],
+  ["semi-final",  2],
+  ["quarterfinal",3],
+  ["quarter-final",3],
+  ["round of 32", 5],
+  ["round of 16", 4],
+  ["knockout",    6],
+  ["final",       0], // must be last — substring of "semi-final" etc.
+];
 function knockoutStageRank(stage: string) {
-  const s = stage.toLowerCase();
-  const idx = KNOCKOUT_STAGE_ORDER.findIndex(k => s.includes(k));
-  return idx === -1 ? 999 : idx;
+  const s = stage.toLowerCase().trim();
+  for (const [key, rank] of KNOCKOUT_STAGE_RANKS) {
+    if (s.includes(key)) return rank;
+  }
+  return 999;
+}
+
+// Normalise a stage name so minor variants ("Quarter-Final" / "Quarter-Finals" / "Quarterfinal")
+// all collapse to the same canonical key used for bucketing.
+function normaliseStage(stage: string): string {
+  const s = stage.toLowerCase().trim();
+  if (s.includes("third")) return "Third Place";
+  if (s.includes("semifinal") || s.includes("semi-final") || s.includes("semi final")) return "Semi-Finals";
+  if (s.includes("quarterfinal") || s.includes("quarter-final") || s.includes("quarter final")) return "Quarter-Finals";
+  if (s.includes("round of 16")) return "Round of 16";
+  if (s.includes("round of 32")) return "Round of 32";
+  if (s.includes("final")) return "Final";
+  if (s.includes("knockout")) return "Knockout";
+  // Unknown stage — return title-cased original
+  return stage.trim();
 }
 
 // ── Two-leg tie merging ──────────────────────────────────────────────────────
@@ -385,10 +414,11 @@ export default async function LeagueDetailPage({
   const sortedKnockoutStages = Object.keys(knockoutByStage).sort((a, b) => knockoutStageRank(a) - knockoutStageRank(b));
 
   // Bracket data — all knockout matches (played + upcoming), sorted earliest-first for left→right display
-  // Merge two-leg ties into single entries with aggregate scores
+  // Merge two-leg ties into single entries with aggregate scores.
+  // Normalise stage names first so minor variants ("Quarter-Final" / "Quarter-Finals") share one bucket.
   const rawBracketByStage: Record<string, any[]> = {};
   for (const m of matches.filter((m: any) => !m.group_name)) {
-    const stage = m.stage || "Knockout";
+    const stage = normaliseStage(m.stage || "Knockout");
     if (!rawBracketByStage[stage]) rawBracketByStage[stage] = [];
     rawBracketByStage[stage].push(m);
   }
@@ -401,33 +431,78 @@ export default async function LeagueDetailPage({
   const bracketThirdStage = bracketStages.find(s => s.toLowerCase().includes("third"));
   const mainBracketStages = bracketStages.filter(s => !s.toLowerCase().includes("third"));
 
-  // Sort ties in each round so that teams coming from higher positions in the
-  // previous round appear higher, avoiding crossed connector lines.
-  for (let col = 1; col < mainBracketStages.length; col++) {
-    const prevTies = bracketByStage[mainBracketStages[col - 1]] || [];
-    const curTies  = bracketByStage[mainBracketStages[col]] || [];
-    if (curTies.length <= 1) continue;
-
-    // Map each team in the previous round to its vertical position (tie index)
-    const teamToPrevIdx: Record<string, number> = {};
-    for (let i = 0; i < prevTies.length; i++) {
-      const t = prevTies[i];
-      if (t.team1) teamToPrevIdx[t.team1] = i;
-      if (t.team2) teamToPrevIdx[t.team2] = i;
+  // Global crossing minimisation: try all permutation combinations across ALL columns
+  // simultaneously so that swapping an earlier round can unlock a better arrangement
+  // in later rounds. Brute-force with pruning is feasible for typical bracket sizes
+  // (4! × 4! × 2! × 1! = 1 152 combinations for a standard 4-round bracket).
+  {
+    function bracketPerms<T>(arr: T[]): T[][] {
+      if (arr.length <= 1) return [arr];
+      const out: T[][] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+        for (const p of bracketPerms(rest)) out.push([arr[i], ...p]);
+      }
+      return out;
     }
 
-    // Sort current round by the earliest previous-round index of their participants
-    bracketByStage[mainBracketStages[col]] = [...curTies].sort((a, b) => {
-      const aIdx = Math.min(
-        teamToPrevIdx[a.team1] ?? 9999,
-        teamToPrevIdx[a.team2] ?? 9999
-      );
-      const bIdx = Math.min(
-        teamToPrevIdx[b.team1] ?? 9999,
-        teamToPrevIdx[b.team2] ?? 9999
-      );
-      return aIdx - bIdx;
-    });
+    function pairCrossings(prevCol: MergedTie[], curCol: MergedTie[]): number {
+      const idx: Record<string, number> = {};
+      for (let i = 0; i < prevCol.length; i++) {
+        if (prevCol[i].team1) idx[prevCol[i].team1] = i;
+        if (prevCol[i].team2) idx[prevCol[i].team2] = i;
+      }
+      const conns: [number, number][] = [];
+      for (let ci = 0; ci < curCol.length; ci++)
+        for (const t of [curCol[ci].team1, curCol[ci].team2])
+          if (t && idx[t] !== undefined) conns.push([idx[t], ci]);
+      let c = 0;
+      for (let i = 0; i < conns.length; i++)
+        for (let j = i + 1; j < conns.length; j++) {
+          const [a1, b1] = conns[i], [a2, b2] = conns[j];
+          if ((a1 < a2 && b1 > b2) || (a1 > a2 && b1 < b2)) c++;
+        }
+      return c;
+    }
+
+    const cols = mainBracketStages.map(s => bracketByStage[s] || []);
+    // Generate permutations per column — cap at 6 ties to keep combos manageable
+    const permLists = cols.map(col => col.length <= 6 ? bracketPerms(col) : [col]);
+    const totalCombos = permLists.reduce((p, pl) => p * pl.length, 1);
+
+    let bestCols = cols;
+    let bestTotal = Infinity;
+
+    if (totalCombos <= 100_000) {
+      // Brute-force all column combinations with running-cost pruning
+      const search = (colIdx: number, current: MergedTie[][], runningCross: number) => {
+        if (runningCross >= bestTotal) return; // prune this branch
+        if (colIdx === cols.length) {
+          bestTotal = runningCross;
+          bestCols = current.map(c => [...c]);
+          return;
+        }
+        for (const perm of permLists[colIdx]) {
+          const extra = colIdx > 0 ? pairCrossings(current[colIdx - 1], perm) : 0;
+          search(colIdx + 1, [...current, perm], runningCross + extra);
+        }
+      };
+      search(0, [], 0);
+    } else {
+      // Fallback: greedy left-to-right optimisation
+      bestCols = [permLists[0][0]];
+      for (let i = 1; i < cols.length; i++) {
+        let bestCol = permLists[i][0], bestC = Infinity;
+        for (const perm of permLists[i]) {
+          const c = pairCrossings(bestCols[i - 1], perm);
+          if (c < bestC) { bestC = c; bestCol = perm; }
+        }
+        bestCols.push(bestCol);
+      }
+    }
+
+    for (let i = 0; i < mainBracketStages.length; i++)
+      bracketByStage[mainBracketStages[i]] = bestCols[i];
   }
 
   const playedMatches = matches.filter((m: any) => m.home_score !== null);

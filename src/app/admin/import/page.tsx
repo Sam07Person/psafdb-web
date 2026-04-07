@@ -2083,11 +2083,6 @@ export default function AdminDashboardPage() {
                             <div className="text-center text-gray-500 text-sm mt-1">
                               {group.editedData.home_team?.players?.length || 0} + {group.editedData.away_team?.players?.length || 0} players extracted
                             </div>
-                            {(group.editedData.group_name || group.editedData.stage) && (
-                              <div className="text-center text-yellow-400 text-xs font-semibold mt-1 tracking-wide uppercase">
-                                {group.editedData.group_name || group.editedData.stage}
-                              </div>
-                            )}
                           </div>
                         )}
                       </>
@@ -2158,29 +2153,6 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Group / Stage */}
-                    <div className="flex items-center gap-4 justify-center">
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm text-gray-400 whitespace-nowrap">Group:</label>
-                        <input
-                          type="text"
-                          value={editingGroup.editedData.group_name || ""}
-                          onChange={(e) => updateGroupPreviewMeta(editingGroupId, "group_name", e.target.value)}
-                          placeholder="e.g. Group A"
-                          className="bg-gray-700 text-white text-sm px-2 py-1 rounded w-36 focus:outline-none border border-gray-600 focus:border-yellow-500"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm text-gray-400 whitespace-nowrap">Stage:</label>
-                        <input
-                          type="text"
-                          value={editingGroup.editedData.stage || ""}
-                          onChange={(e) => updateGroupPreviewMeta(editingGroupId, "stage", e.target.value)}
-                          placeholder="e.g. Semifinal"
-                          className="bg-gray-700 text-white text-sm px-2 py-1 rounded w-36 focus:outline-none border border-gray-600 focus:border-yellow-500"
-                        />
-                      </div>
-                    </div>
 
                     {/* Players with Selection */}
                     <div className="grid md:grid-cols-2 gap-4">

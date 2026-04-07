@@ -33,9 +33,6 @@ function requireAuth(req: NextRequest) {
   return { ok: true as const };
 }
 
-function normalizeGroupName(raw: string): string {
-  return raw.replace(/^groups?\s+/i, "Group ").trim();
-}
 
 // Normalize team name for comparison
 function normalizeTeamName(name: string): string {
@@ -107,9 +104,8 @@ CRITICAL FOR PLAYER IDs:
 
 DO NOT assume which team is "home" or "away" based on screen position. Just label them as "team_1" and "team_2".
 
-Look for any text on screen indicating the group or stage, such as "Groups A", "Groups B", "Group C", "Round of 16", "Semifinal", "Final", etc.
-- "group_name": The specific group label if visible (e.g. "Group A"). Normalize "Groups C" → "Group C". Set to null if not a group stage match.
-- "stage": The round/stage label if visible for knockout matches (e.g. "Round of 16", "Semifinal", "Final"). Set to null if not visible or if it is a group stage match.
+Look for any text on screen indicating the stage, such as "Round of 16", "Semifinal", "Final", etc.
+- "stage": The round/stage label if visible for knockout matches (e.g. "Round of 16", "Semifinal", "Final"). Set to null if not visible.
 
 Return ONLY valid JSON with no markdown formatting.`,
         },
@@ -175,7 +171,6 @@ Return ONLY valid JSON with no markdown formatting.`,
   "team_2": { ... same structure ... },
   "match_time": "16:05",
   "half": "Second Half",
-  "group_name": "Group A",
   "stage": null
 }
 
@@ -215,7 +210,6 @@ IMPORTANT:
     away_team: parsed.team_2 || parsed.away_team,
     match_time: parsed.match_time,
     half: parsed.half,
-    group_name: parsed.group_name ? normalizeGroupName(parsed.group_name) : null,
     stage: parsed.stage || null,
     home_away_unconfirmed: true,
   };
@@ -437,7 +431,6 @@ export async function POST(req: NextRequest) {
           home_score: homeTeamData.goals,
           away_score: awayTeamData.goals,
           ...(!keepFixtureDate ? { played_at: new Date().toISOString() } : {}),
-          ...(extractedData.group_name != null ? { group_name: extractedData.group_name } : {}),
           ...(extractedData.stage != null ? { stage: extractedData.stage } : {}),
         })
         .eq("id", matchingFixture.id)
@@ -459,7 +452,6 @@ export async function POST(req: NextRequest) {
           away_team: finalAwayTeamName,
           home_score: homeTeamData.goals,
           away_score: awayTeamData.goals,
-          group_name: extractedData.group_name || null,
           stage: extractedData.stage || null,
         })
         .select()

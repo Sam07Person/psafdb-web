@@ -142,6 +142,20 @@ function normalizeGroupName(raw: string): string {
   return raw.replace(/^groups?\s+/i, "Group ").trim();
 }
 
+function normalizeStage(raw: string | null | undefined): string {
+  if (!raw) return "group";
+  const s = raw.toLowerCase().trim();
+  if (s === "group" || s === "groups" || s === "league") return "group";
+  if (s.includes("round of 32") || s === "r32") return "Round of 32";
+  if (s.includes("round of 16") || s === "r16") return "Round of 16";
+  if (s.includes("quarter") || s === "qf" || s === "quarters") return "Quarter-Finals";
+  if (s.includes("semi") || s === "sf" || s === "semis") return "Semi-Finals";
+  if (s === "final" || s === "finals" || s === "f") return "Final";
+  if (s.includes("knockout") || s === "ko") return "Knockout";
+  // Return title-cased original if nothing matched
+  return raw.trim();
+}
+
 async function extractFixturesWithOpenAI(base64Image: string) {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
@@ -203,7 +217,7 @@ Notes:
 - Remove @ symbols from team names
 - Date format: YYYY-MM-DD
 - Time format: HH:MM (24-hour, UK timezone)
-- Stage is usually "group" for league matches, or "knockout", "semi", "final" etc.
+- Stage is usually "group" for group/league matches. For knockout rounds use the full name: "Round of 32", "Round of 16", "Quarter-Finals", "Semi-Finals", "Final". Never abbreviate (not "semi", "quarter", "QF", "SF" etc.).
 - If score is shown (e.g., "? : ?"), it means the match hasn't been played yet
 - group_name: Look for group labels like "Groups A", "Groups B", "Group C" — they often appear as section headings above sets of fixtures. Normalize "Groups A" → "Group A". Set to null if no group label is visible for that fixture.`,
             },
@@ -420,7 +434,7 @@ export async function POST(req: NextRequest) {
           home_score: null,
           away_score: null,
           day: extractedData.day || null,
-          stage: fixture.stage || "group",
+          stage: normalizeStage(fixture.stage),
           group_name: fixture.group_name ? normalizeGroupName(fixture.group_name) : null,
         })
         .select()
