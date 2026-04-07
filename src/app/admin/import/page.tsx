@@ -463,6 +463,31 @@ export default function AdminDashboardPage() {
         // Custom format: { team1Stats, team2Stats, team1PlayerStats, team2PlayerStats }
         const t1 = parsed.team1Stats;
         const t2 = parsed.team2Stats;
+        // Normalise camelCase team stat fields to snake_case for the API
+        const normalizeTeamStats = (t: any) => ({
+          possession: t.possession ?? 0,
+          passes: t.passes ?? 0,
+          key_passes: t.keyPasses ?? t.key_passes ?? 0,
+          assists: t.assists ?? 0,
+          shots: t.shots ?? 0,
+          shots_on_target: t.shotsOnTarget ?? t.shots_on_target ?? 0,
+          goals: t.goals ?? 0,
+          tackles: t.tackles ?? 0,
+          key_tackles: t.keyTackles ?? t.key_tackles ?? 0,
+          interceptions: t.interceptions ?? 0,
+          key_interceptions: t.keyInterceptions ?? t.key_interceptions ?? 0,
+          possessions_lost: t.possessionsLost ?? t.possessions_lost ?? 0,
+          fouls: t.fouls ?? 0,
+          offsides: t.offsides ?? 0,
+          yellow_cards: t.yellowCards ?? t.yellow_cards ?? 0,
+          red_cards: t.redCards ?? t.red_cards ?? 0,
+          goal_kicks: t.goalKicks ?? t.goal_kicks ?? 0,
+          corner_kicks: t.cornerKicks ?? t.corner_kicks ?? 0,
+          throw_ins: t.throwIns ?? t.throw_ins ?? 0,
+          free_kicks: t.freeKicks ?? t.free_kicks ?? 0,
+          penalties: t.penalties ?? 0,
+          set_piece_timeouts: t.setPieceTimeouts ?? t.set_piece_timeouts ?? 0,
+        });
         extractedData = {
           home_team: {
             team_name: t1.teamName || "",
@@ -475,7 +500,7 @@ export default function AdminDashboardPage() {
             players: (parsed.team2PlayerStats || []).map((p: any) => convertPlayer(p, { n: 1 })),
           },
           league: null,
-          team_stats: { home: t1, away: t2 },
+          team_stats: { home: normalizeTeamStats(t1), away: normalizeTeamStats(t2) },
         };
       } else {
         // Generic format: { league, match, players, team_stats }
