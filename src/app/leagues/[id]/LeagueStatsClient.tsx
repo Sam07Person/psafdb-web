@@ -6,6 +6,7 @@ import Link from "next/link";
 export type PlayerStat = {
   playerId: string;
   name: string;
+  position?: string | null;
   games: number;
   goals: number;
   assists: number;
@@ -192,15 +193,34 @@ export function LeagueStatsClient({
   const [teamMinGames, setTeamMinGames] = useState(0);
   const [playerMinGames, setPlayerMinGames] = useState(0);
   const [activeOnly, setActiveOnly] = useState(true);
+  const [selectedPositions, setSelectedPositions] = useState<Set<string>>(new Set());
 
   const handleSection = (s: Section) => {
     setSection(s);
     onSectionChange?.(s);
   };
 
-  const filteredPlayers = showPlayerFilters && playerMinGames > 0
-    ? playerStats.filter(p => p.games >= playerMinGames)
-    : playerStats;
+  // All distinct positions present in the data, ordered by position role
+  const POSITION_ORDER = [
+    "GK",
+    "LB", "LWB", "CB", "RB", "RWB",
+    "CDM",
+    "CM", "CAM",
+    "LM", "LW", "RM", "RW",
+    "CF", "SS", "ST",
+    "SUB 1", "SUB 2", "SUB 3",
+  ];
+  const presentPositions = new Set(playerStats.map(p => p.position?.toUpperCase()).filter(Boolean) as string[]);
+  const availablePositions = [
+    ...POSITION_ORDER.filter(p => presentPositions.has(p)),
+    ...[...presentPositions].filter(p => !POSITION_ORDER.includes(p)).sort(),
+  ];
+
+  const filteredPlayers = playerStats.filter(p => {
+    if (showPlayerFilters && playerMinGames > 0 && p.games < playerMinGames) return false;
+    if (showPlayerFilters && selectedPositions.size > 0 && !selectedPositions.has(p.position?.toUpperCase() || "")) return false;
+    return true;
+  });
   const gkPlayers = filteredPlayers.filter(p => p.gk_saves > 0 || p.gk_catches > 0);
 
   const isPlayerSection = section === "attacking" || section === "passing" || section === "defending" || section === "gk";
@@ -230,22 +250,69 @@ export function LeagueStatsClient({
         ))}
       </div>}
 
-      {/* Player min games filter */}
+      {/* Player min games + position filter */}
       {showPlayerFilters && isPlayerSection && (
-        <div style={{ background: "var(--bg-card)", padding: "10px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>Min GP</span>
-          <select
-            value={playerMinGames}
-            onChange={e => setPlayerMinGames(Number(e.target.value))}
-            style={{
-              background: "var(--bg-base)", border: "1px solid var(--border-main)",
-              color: "var(--text-body)", padding: "3px 8px", fontSize: 11, cursor: "pointer",
-            }}
-          >
-            {[0, 1, 2, 3, 5, 8, 10, 15, 20].map(n => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+        <div style={{ background: "var(--bg-card)", padding: "10px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 16, marginBottom: 0, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>Min GP</span>
+            <select
+              value={playerMinGames}
+              onChange={e => setPlayerMinGames(Number(e.target.value))}
+              style={{
+                background: "var(--bg-base)", border: "1px solid var(--border-main)",
+                color: "var(--text-body)", padding: "3px 8px", fontSize: 11, cursor: "pointer",
+              }}
+            >
+              {[0, 1, 2, 3, 5, 8, 10, 15, 20].map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          {availablePositions.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>Position</span>
+              {availablePositions.map(pos => {
+                const active = selectedPositions.has(pos);
+                return (
+                  <button
+                    key={pos}
+                    onClick={() => {
+                      setSelectedPositions(prev => {
+                        const next = new Set(prev);
+                        if (next.has(pos)) next.delete(pos); else next.add(pos);
+                        return next;
+                      });
+                    }}
+                    style={{
+                      padding: "2px 8px",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      background: active ? "#7070f020" : "var(--bg-base)",
+                      border: `1px solid ${active ? "#7070f0" : "var(--border-main)"}`,
+                      color: active ? "#9090f8" : "var(--text-faint)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {pos}
+                  </button>
+                );
+              })}
+              {selectedPositions.size > 0 && (
+                <button
+                  onClick={() => setSelectedPositions(new Set())}
+                  style={{
+                    padding: "2px 8px", fontSize: 10, fontWeight: 700,
+                    background: "transparent", border: "1px solid var(--border-main)",
+                    color: "var(--text-faint)", cursor: "pointer",
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

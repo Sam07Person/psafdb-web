@@ -319,10 +319,11 @@ async function getLeagueStats(playedMatchIds: string[], playedMatches: any[], te
 
   const { data: statsData } = await supabase
     .from("match_player_stats")
-    .select("player_id,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
+    .select("player_id,position,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
     .in("match_id", playedMatchIds)
     .limit(5000);
 
+  const positionCounts: Record<string, Record<string, number>> = {};
   const byPlayer: Record<string, PlayerStat> = {};
   for (const s of statsData ?? []) {
     if (s.benched) continue;
@@ -336,6 +337,11 @@ async function getLeagueStats(playedMatchIds: string[], playedMatches: any[], te
         interceptions: 0, key_interceptions: 0, possessions_lost: 0,
         gk_saves: 0, gk_catches: 0,
       };
+    }
+    if (s.position) {
+      if (!positionCounts[s.player_id]) positionCounts[s.player_id] = {};
+      const pos = s.position.toUpperCase();
+      positionCounts[s.player_id][pos] = (positionCounts[s.player_id][pos] ?? 0) + 1;
     }
     const r = byPlayer[s.player_id];
     r.games++;
@@ -351,6 +357,13 @@ async function getLeagueStats(playedMatchIds: string[], playedMatches: any[], te
     r.possessions_lost += s.possessions_lost || 0;
     r.gk_saves += s.gk_saves || 0;
     r.gk_catches += s.gk_catches || 0;
+  }
+
+  // Assign most common position to each player
+  for (const [pid, counts] of Object.entries(positionCounts)) {
+    if (byPlayer[pid]) {
+      byPlayer[pid].position = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    }
   }
 
   const teamMap: Record<string, TeamStat> = {};
