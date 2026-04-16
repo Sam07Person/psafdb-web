@@ -29,6 +29,7 @@ type Match = {
   league_id: string | null;
   day: number | null;
   forfeited_by: string | null;
+  stage: string | null;
 };
 
 type StatRow = {
@@ -285,6 +286,47 @@ function generateNews(
         leagueName: league.name,
       });
     }
+  }
+
+  // ── 1b. Knockout / Group-Knockout Winner ─────────────────────────────────
+  for (const league of leagues) {
+    if (!league.ended) continue;
+    if (league.format !== "knockout" && league.format !== "group_knockout") continue;
+    const leagueMatches = (matchesByLeague.get(league.id) ?? [])
+      .filter(m => m.home_score !== null && m.away_score !== null);
+    if (leagueMatches.length === 0) continue;
+
+    // Find the Final match — accept "Final", "final", "F", and reject anything containing "semi"/"third"/"quarter"
+    const finals = leagueMatches.filter(m => {
+      const s = (m.stage ?? "").toLowerCase().trim();
+      if (!s) return false;
+      if (s.includes("semi") || s.includes("third") || s.includes("quarter") || s.includes("round of")) return false;
+      return s === "final" || s === "f" || s.endsWith(" final") || s === "finals";
+    });
+    if (finals.length === 0) continue;
+
+    // If multiple legs, pick the latest played
+    const final = [...finals].sort((a, b) => b.played_at.localeCompare(a.played_at))[0];
+    if (final.home_score === final.away_score) continue; // can't determine without tiebreaker info
+
+    const winner = final.home_score! > final.away_score! ? final.home_team : final.away_team;
+    const runnerUp = final.home_score! > final.away_score! ? final.away_team : final.home_team;
+    const score = `${final.home_score}–${final.away_score}`;
+    const suffix = league.season ? ` (Season ${league.season})` : "";
+
+    items.push({
+      id: `knockout_winner_${league.id}`,
+      type: "league_winner",
+      date: final.played_at,
+      title: `${winner} Crowned ${league.name} Champions`,
+      body: `${winner} have won ${league.name}${suffix}, defeating ${runnerUp} ${score} in the Final to lift the trophy.`,
+      accent: "#f4c430",
+      icon: "🏆",
+      tag: "Tournament Winner",
+      leagueId: league.id,
+      leagueName: league.name,
+      matchId: final.id,
+    });
   }
 
   // ── 2. Hattricks ─────────────────────────────────────────────────────────
@@ -1022,7 +1064,7 @@ export default function NewsPage() {
         ] = await Promise.all([
           supabase!.from("leagues").select("id,name,season,format,ended,zones,tier"),
           supabase!.from("matches")
-            .select("id,home_team,away_team,home_score,away_score,played_at,league_id,day,forfeited_by")
+            .select("id,home_team,away_team,home_score,away_score,played_at,league_id,day,forfeited_by,stage")
             .order("played_at", { ascending: false }),
           supabase!.from("teams").select("id,name,no_elo"),
         ]);
