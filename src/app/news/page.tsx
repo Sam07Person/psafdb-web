@@ -1102,7 +1102,7 @@ export default function NewsPage() {
         </div>
         <h1 style={{ fontSize: 28, fontWeight: 900, color: "var(--text-main)", margin: 0, letterSpacing: "-0.01em" }}>News</h1>
         <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>
-          Automated coverage of league results, standout performances, and standings movement.
+          Automated coverage of league results, tournament winners, standout performances, and standings movement.
         </p>
       </div>
 
