@@ -194,6 +194,7 @@ export function LeagueStatsClient({
   const [playerMinGames, setPlayerMinGames] = useState(0);
   const [activeOnly, setActiveOnly] = useState(true);
   const [selectedPositions, setSelectedPositions] = useState<Set<string>>(new Set());
+  const [defView, setDefView] = useState<"all" | "totals" | "pg">("all");
 
   const handleSection = (s: Section) => {
     setSection(s);
@@ -370,22 +371,49 @@ export function LeagueStatsClient({
           <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ade80", borderBottom: "1px solid var(--border-main)" }}>
             Defensive Stats
           </div>
-          <StatTable<PlayerStat & { total_tackles: number; total_ints: number }>
+          <div style={{ padding: "8px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)", marginRight: 2 }}>View</span>
+            {(["all", "totals", "pg"] as const).map(v => (
+              <button key={v} onClick={() => setDefView(v)} style={{
+                padding: "2px 10px", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer",
+                background: defView === v ? "#7070f020" : "var(--bg-base)",
+                border: `1px solid ${defView === v ? "#7070f0" : "var(--border-main)"}`,
+                color: defView === v ? "#9090f8" : "var(--text-faint)",
+              }}>
+                {v === "all" ? "All" : v === "totals" ? "Totals" : "Per Game"}
+              </button>
+            ))}
+          </div>
+          <StatTable<PlayerStat & { total_tackles: number; total_ints: number; tackles_pg: number; key_tackles_pg: number; ints_pg: number; key_ints_pg: number; poss_lost_pg: number }>
             rows={filteredPlayers.map(p => ({
               ...p,
               total_tackles: p.tackles + p.key_tackles,
               total_ints: p.interceptions + p.key_interceptions,
+              tackles_pg: p.games > 0 ? Math.round((p.tackles / p.games) * 10) / 10 : 0,
+              key_tackles_pg: p.games > 0 ? Math.round((p.key_tackles / p.games) * 10) / 10 : 0,
+              ints_pg: p.games > 0 ? Math.round((p.interceptions / p.games) * 10) / 10 : 0,
+              key_ints_pg: p.games > 0 ? Math.round((p.key_interceptions / p.games) * 10) / 10 : 0,
+              poss_lost_pg: p.games > 0 ? Math.round((p.possessions_lost / p.games) * 10) / 10 : 0,
             }))}
             defaultSort="total_tackles"
             rowKey={r => r.playerId}
             cols={[
               { key: "name", label: "Player", render: (_, r) => <PlayerLink stat={r} /> },
               { key: "games", label: "GP" },
-              { key: "total_tackles", label: "Tackles" },
-              { key: "key_tackles", label: "Key Tackles" },
-              { key: "total_ints", label: "Interceptions" },
-              { key: "key_interceptions", label: "Key Int" },
-              { key: "possessions_lost", label: "Poss. Lost", defaultAsc: true },
+              ...(defView !== "pg" ? [
+                { key: "total_tackles" as const, label: "Tackles" },
+                { key: "key_tackles" as const, label: "Key Tackles" },
+                { key: "total_ints" as const, label: "Interceptions" },
+                { key: "key_interceptions" as const, label: "Key Int" },
+                { key: "possessions_lost" as const, label: "Poss. Lost", defaultAsc: true },
+              ] : []),
+              ...(defView !== "totals" ? [
+                { key: "tackles_pg" as const, label: "Tkl/Game" },
+                { key: "key_tackles_pg" as const, label: "KTkl/Game" },
+                { key: "ints_pg" as const, label: "Int/Game" },
+                { key: "key_ints_pg" as const, label: "KInt/Game" },
+                { key: "poss_lost_pg" as const, label: "PL/Game", defaultAsc: true },
+              ] : []),
             ]}
           />
         </div>
