@@ -144,10 +144,29 @@ export default function LeaguesPage() {
         .order("created_at", { ascending: false });
       if (leaguesError) { setError(leaguesError); setLoading(false); return; }
 
-      const { data: matchesData, error: matchesError } = await supabase
-        .from("matches")
-        .select("league_id,home_team,away_team");
+      const [
+        { data: matchesData, error: matchesError },
+        { data: junctionData },
+        { data: directData },
+      ] = await Promise.all([
+        supabase.from("matches").select("league_id,home_team,away_team"),
+        supabase.from("team_leagues").select("league_id,team_id"),
+        supabase.from("teams").select("league_id,id").not("league_id", "is", null),
+      ]);
       if (matchesError) { setError(matchesError); setLoading(false); return; }
+
+      // Team counts from junction table and direct league_id
+      const teamCountMap = new Map<string, Set<string>>();
+      for (const row of junctionData ?? []) {
+        if (!row.league_id) continue;
+        if (!teamCountMap.has(row.league_id)) teamCountMap.set(row.league_id, new Set());
+        teamCountMap.get(row.league_id)!.add(row.team_id);
+      }
+      for (const row of directData ?? []) {
+        if (!row.league_id) continue;
+        if (!teamCountMap.has(row.league_id)) teamCountMap.set(row.league_id, new Set());
+        teamCountMap.get(row.league_id)!.add(row.id);
+      }
 
       const statsMap = new Map<string, { matches: number; teams: Set<string> }>();
       for (const match of matchesData ?? []) {
@@ -161,7 +180,8 @@ export default function LeaguesPage() {
 
       const combined: LeagueWithStats[] = (leaguesData ?? []).map((l) => {
         const stats = statsMap.get(l.id) || { matches: 0, teams: new Set<string>() };
-        return { ...l, match_count: stats.matches, team_count: stats.teams.size };
+        const registeredCount = teamCountMap.get(l.id)?.size ?? 0;
+        return { ...l, match_count: stats.matches, team_count: Math.max(stats.teams.size, registeredCount) };
       });
 
       setLeagues(combined);
