@@ -446,15 +446,19 @@ export default async function LeagueDetailPage({
   for (const t of teams) {
     if (t.group_name) teamGroupMap[t.name] = t.group_name;
   }
-  const groupMatches = matches.filter((m: any) =>
-    m.group_name ||
-    (teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team])
-  );
+  // A match counts as group-stage if it has a group_name, its stage says "group",
+  // or both teams are assigned to the same group via team_leagues
+  const isGroupMatch = (m: any) =>
+    !!m.group_name ||
+    (m.stage && m.stage.toLowerCase().trim() === "group") ||
+    (teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team]);
+
+  const groupMatches = matches.filter(isGroupMatch);
   const groupStandings = isGroupKnockout ? calculateGroupStandings(matches, teamGroupMap) : {};
   const sortedGroups = Object.keys(groupStandings).sort();
 
   // Knockout matches (for both knockout-only and group+knockout)
-  const knockoutMatchesPlayed = matches.filter((m: any) => m.home_score !== null && !m.group_name);
+  const knockoutMatchesPlayed = matches.filter((m: any) => m.home_score !== null && !isGroupMatch(m));
   const knockoutByStage: Record<string, any[]> = {};
   for (const m of knockoutMatchesPlayed) {
     const stage = m.stage || "Knockout";
@@ -467,7 +471,7 @@ export default async function LeagueDetailPage({
   // Merge two-leg ties into single entries with aggregate scores.
   // Normalise stage names first so minor variants ("Quarter-Final" / "Quarter-Finals") share one bucket.
   const rawBracketByStage: Record<string, any[]> = {};
-  for (const m of matches.filter((m: any) => !m.group_name)) {
+  for (const m of matches.filter((m: any) => !isGroupMatch(m))) {
     const stage = normaliseStage(m.stage || "Knockout");
     if (!rawBracketByStage[stage]) rawBracketByStage[stage] = [];
     rawBracketByStage[stage].push(m);
