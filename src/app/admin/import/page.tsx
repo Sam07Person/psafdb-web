@@ -1090,7 +1090,7 @@ export default function AdminDashboardPage() {
     setEditingPlayer(null);
     setEditingFixture(null);
     setLeagueForm({ id: "", name: "", season: "", format: "league", image: "", tier: 2, use_tier_bonus: true, award_champion: true, ended: false, zones: [] });
-    setTeamForm({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false });
+    setTeamForm({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false, group_assignments: {} });
     setMergingTeams({ source: null, target: null });
     setPlayerForm({ id: "", name: "", handle: "", game_user_id: "", discord_id: "" });
     setFixtureForm({ id: "", league_id: "", played_at: "", home_team: "", away_team: "", home_score: "", away_score: "", stage: "", group_name: "", day: "", forfeited_by: "" });
