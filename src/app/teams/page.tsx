@@ -14,29 +14,47 @@ type Team = {
     league_id: string | null;
     created_at: string;
     league: { id: string; name: string; season: string | null } | null;
+    allLeagueIds: string[];
 };
 
 async function getTeams(): Promise<Team[]> {
-    const { data, error } = await supabase
-        .from("teams")
-        .select(`
-      id,
-      name,
-      league_id,
-      created_at,
-      league:leagues!teams_league_id_fkey(id, name, season)
-    `)
-        .order("name", { ascending: true });
+    const [{ data, error }, { data: junctionData }] = await Promise.all([
+        supabase
+            .from("teams")
+            .select(`id, name, league_id, created_at, league:leagues!teams_league_id_fkey(id, name, season)`)
+            .order("name", { ascending: true }),
+        supabase
+            .from("team_leagues")
+            .select("team_id, league_id, league:leagues(id, name, season)"),
+    ]);
 
     if (error) {
         console.error("Error fetching teams:", error);
         return [];
     }
 
-    return (data || []).map((t: any) => ({
-        ...t,
-        league: Array.isArray(t.league) ? (t.league[0] ?? null) : (t.league ?? null),
-    }));
+    // Build map: team_id -> [{ id, name, season }]
+    const junctionLeagueMap = new Map<string, { id: string; name: string; season: string | null }[]>();
+    for (const row of junctionData || []) {
+        const league = Array.isArray((row as any).league) ? (row as any).league[0] : (row as any).league;
+        if (!league) continue;
+        const list = junctionLeagueMap.get((row as any).team_id) ?? [];
+        list.push(league);
+        junctionLeagueMap.set((row as any).team_id, list);
+    }
+
+    return (data || []).map((t: any) => {
+        const directLeague = Array.isArray(t.league) ? (t.league[0] ?? null) : (t.league ?? null);
+        const junctionLeagues = junctionLeagueMap.get(t.id) ?? [];
+        // Use direct league if set, otherwise first junction league
+        const league = directLeague ?? junctionLeagues[0] ?? null;
+        // All league IDs for filtering (direct + junction)
+        const allLeagueIds = Array.from(new Set([
+            ...(directLeague ? [directLeague.id] : []),
+            ...junctionLeagues.map((l: any) => l.id),
+        ]));
+        return { ...t, league, allLeagueIds };
+    });
 }
 
 // Get match stats for each team

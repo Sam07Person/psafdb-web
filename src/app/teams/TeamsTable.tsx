@@ -8,6 +8,7 @@ type TeamRow = {
   id: string;
   name: string;
   league: { id: string; name: string; season: string | null } | null;
+  allLeagueIds: string[];
   stats: { played: number; won: number; drawn: number; lost: number; gf: number; ga: number };
   rating: number | null;
 };
@@ -64,8 +65,8 @@ export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
     let list = teams;
 
     if (needle) list = list.filter((t) => t.name.toLowerCase().includes(needle));
-    if (leagueFilter === "__none__") list = list.filter((t) => !t.league);
-    else if (leagueFilter !== "all") list = list.filter((t) => t.league?.id === leagueFilter);
+    if (leagueFilter === "__none__") list = list.filter((t) => !t.league && t.allLeagueIds.length === 0);
+    else if (leagueFilter !== "all") list = list.filter((t) => t.allLeagueIds.includes(leagueFilter));
 
     const dir = sortDir === "desc" ? -1 : 1;
     return [...list].sort((a, b) => {
