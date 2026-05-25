@@ -56,18 +56,21 @@ export async function GET(req: NextRequest) {
     .select(`
       team_id,
       league_id,
+      group_name,
       league:leagues(id, name, season)
     `);
 
   // Build a map of team_id -> leagues
   const teamLeaguesMap: Record<string, any[]> = {};
+  // Build a map of team_id -> { league_id -> group_name }
+  const teamGroupMap: Record<string, Record<string, string | null>> = {};
   for (const tl of teamLeaguesData || []) {
-    if (!teamLeaguesMap[tl.team_id]) {
-      teamLeaguesMap[tl.team_id] = [];
-    }
+    if (!teamLeaguesMap[tl.team_id]) teamLeaguesMap[tl.team_id] = [];
+    if (!teamGroupMap[tl.team_id]) teamGroupMap[tl.team_id] = {};
     const league = Array.isArray(tl.league) ? tl.league[0] : tl.league;
     if (league) {
       teamLeaguesMap[tl.team_id].push(league);
+      teamGroupMap[tl.team_id][tl.league_id] = tl.group_name ?? null;
     }
   }
 
@@ -86,6 +89,7 @@ export async function GET(req: NextRequest) {
       league: primaryLeague,
       leagues: allLeagues,
       league_ids: allLeagues.map((l: any) => l.id),
+      group_assignments: teamGroupMap[t.id] ?? {},
     };
   });
 
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, league_id, league_ids, no_elo } = body;
+    const { name, league_id, league_ids, no_elo, group_assignments } = body;
 
     if (!name) {
       return json(400, { error: "Team name is required" });
@@ -126,6 +130,7 @@ export async function POST(req: NextRequest) {
       const teamLeagueInserts = leaguesToAdd.map((lid: string) => ({
         team_id: team.id,
         league_id: lid,
+        group_name: (group_assignments as Record<string, string> | undefined)?.[lid] || null,
       }));
 
       await supabaseAdmin
@@ -148,7 +153,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, name, league_id, league_ids, no_elo } = body;
+    const { id, name, league_id, league_ids, no_elo, group_assignments } = body;
 
     if (!id) {
       return json(400, { error: "Team ID is required" });
@@ -398,6 +403,7 @@ export async function PUT(req: NextRequest) {
         const teamLeagueInserts = league_ids.map((lid: string) => ({
           team_id: id,
           league_id: lid,
+          group_name: (group_assignments as Record<string, string> | undefined)?.[lid] || null,
         }));
 
         await supabaseAdmin

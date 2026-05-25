@@ -68,6 +68,7 @@ type Team = {
   league?: { name: string } | null;
   leagues?: { id: string; name: string; season: string | null }[];
   league_ids?: string[];
+  group_assignments?: Record<string, string | null>;
 };
 
 type Player = {
@@ -269,7 +270,8 @@ export default function AdminDashboardPage() {
   const [editingZoneIdx, setEditingZoneIdx] = useState<number | null>(null);
   const [editingLeague, setEditingLeague] = useState<string | null>(null);
 
-  const [teamForm, setTeamForm] = useState<{ id: string; name: string; league_ids: string[]; no_elo: boolean; disbanded: boolean }>({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false });
+  const [teamForm, setTeamForm] = useState<{ id: string; name: string; league_ids: string[]; no_elo: boolean; disbanded: boolean; group_assignments: Record<string, string> }>({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false, group_assignments: {} });
+  const [teamSearch, setTeamSearch] = useState("");
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [mergingTeams, setMergingTeams] = useState<{ source: string | null; target: string | null }>({ source: null, target: null });
 
@@ -674,6 +676,7 @@ export default function AdminDashboardPage() {
           league_ids: teamForm.league_ids,
           no_elo: teamForm.no_elo,
           disbanded: teamForm.disbanded,
+          group_assignments: teamForm.group_assignments,
         }),
       });
       const data = await res.json();
@@ -681,7 +684,7 @@ export default function AdminDashboardPage() {
         const dr = data.disbandResults;
         const extra = dr ? (dr.forfeited > 0 ? ` ${dr.forfeited} match(es) forfeited.` : dr.restored > 0 ? ` ${dr.restored} match(es) restored.` : "") : "";
         setMessage({ type: "success", text: (editingTeam ? "Team updated!" : "Team created!") + extra });
-        setTeamForm({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false });
+        setTeamForm({ id: "", name: "", league_ids: [], no_elo: false, disbanded: false, group_assignments: {} });
         setEditingTeam(null);
         loadTeams();
       } else {
@@ -695,12 +698,19 @@ export default function AdminDashboardPage() {
   };
 
   const handleEditTeam = (team: Team) => {
+    const ids = team.league_ids || (team.league_id ? [team.league_id] : []);
+    const groups: Record<string, string> = {};
+    for (const lid of ids) {
+      const g = team.group_assignments?.[lid];
+      if (g) groups[lid] = g;
+    }
     setTeamForm({
       id: team.id,
       name: team.name,
-      league_ids: team.league_ids || (team.league_id ? [team.league_id] : []),
+      league_ids: ids,
       no_elo: team.no_elo ?? false,
       disbanded: team.disbanded ?? false,
+      group_assignments: groups,
     });
     setEditingTeam(team.id);
   };
@@ -2666,12 +2676,31 @@ export default function AdminDashboardPage() {
                 <div>
                   <label className="block text-gray-300 mb-2 text-sm">Leagues</label>
                   <div className="space-y-2 max-h-40 overflow-y-auto p-2 rounded bg-gray-700 border border-gray-600">
-                    {leagues.map((l) => (
-                      <label key={l.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-600 p-1 rounded">
-                        <input type="checkbox" checked={teamForm.league_ids.includes(l.id)} onChange={(e) => { if (e.target.checked) { setTeamForm({ ...teamForm, league_ids: [...teamForm.league_ids, l.id] }); } else { setTeamForm({ ...teamForm, league_ids: teamForm.league_ids.filter(id => id !== l.id) }); } }} className="rounded bg-gray-600" />
-                        <span className="text-white text-sm">{l.name}</span>
-                      </label>
-                    ))}
+                    {leagues.map((l) => {
+                      const checked = teamForm.league_ids.includes(l.id);
+                      return (
+                        <div key={l.id} className="flex items-center gap-2 hover:bg-gray-600 p-1 rounded">
+                          <input type="checkbox" checked={checked} onChange={(e) => {
+                            if (e.target.checked) {
+                              setTeamForm({ ...teamForm, league_ids: [...teamForm.league_ids, l.id] });
+                            } else {
+                              const { [l.id]: _, ...rest } = teamForm.group_assignments;
+                              setTeamForm({ ...teamForm, league_ids: teamForm.league_ids.filter(id => id !== l.id), group_assignments: rest });
+                            }
+                          }} className="rounded bg-gray-600 cursor-pointer" />
+                          <span className="text-white text-sm flex-1">{l.name}</span>
+                          {checked && (
+                            <input
+                              type="text"
+                              value={teamForm.group_assignments[l.id] || ""}
+                              onChange={(e) => setTeamForm({ ...teamForm, group_assignments: { ...teamForm.group_assignments, [l.id]: e.target.value } })}
+                              placeholder="Group (e.g. A)"
+                              className="w-28 px-2 py-0.5 text-xs rounded bg-gray-600 text-white border border-gray-500 placeholder-gray-400"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -2718,10 +2747,19 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <div className="bg-gray-800 p-6 rounded-lg">
-              <h2 className="text-lg font-semibold text-white mb-4">Teams ({teams.length})</h2>
+              <div className="flex items-center justify-between mb-4 gap-4">
+                <h2 className="text-lg font-semibold text-white whitespace-nowrap">Teams ({teams.length})</h2>
+                <input
+                  type="text"
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                  placeholder="Search teams..."
+                  className="flex-1 max-w-xs px-3 py-1.5 text-sm rounded bg-gray-700 text-white border border-gray-600 placeholder-gray-400"
+                />
+              </div>
               {teams.length === 0 ? <p className="text-gray-400">No teams yet.</p> : (
                 <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {teams.map((t) => (
+                  {teams.filter(t => t.name.toLowerCase().includes(teamSearch.toLowerCase())).map((t) => (
                     <div key={t.id} className="flex items-center justify-between bg-gray-700 p-3 rounded">
                       <span className="text-white font-medium">{t.name}{t.disbanded && <span className="ml-2 text-xs text-red-400 font-semibold">[DISBANDED]</span>}</span>
                       <div className="flex gap-2"><button onClick={() => handleEditTeam(t)} className="text-blue-400 text-sm">Edit</button><button onClick={() => handleDeleteTeam(t.id)} className="text-red-400 text-sm">Delete</button></div>
