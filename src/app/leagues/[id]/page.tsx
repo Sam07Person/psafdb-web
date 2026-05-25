@@ -31,21 +31,30 @@ async function getLeagueTeams(leagueId: string) {
     .select("id, name")
     .eq("league_id", leagueId);
 
-  // Teams via junction table
+  // Teams via junction table (includes group_name assignment)
   const { data: junction } = await supabase
     .from("team_leagues")
-    .select("team_id, teams(id, name)")
+    .select("team_id, group_name, teams(id, name)")
     .eq("league_id", leagueId);
 
+  // Build group assignment map: team_id -> group_name
+  const groupByTeamId: Record<string, string | null> = {};
+  for (const j of junction || []) {
+    groupByTeamId[(j as any).team_id] = (j as any).group_name ?? null;
+  }
+
   const seen = new Set<string>();
-  const result: { id: string; name: string }[] = [];
+  const result: { id: string; name: string; group_name: string | null }[] = [];
 
   for (const t of direct || []) {
-    if (!seen.has(t.id)) { seen.add(t.id); result.push(t); }
+    if (!seen.has(t.id)) { seen.add(t.id); result.push({ ...t, group_name: groupByTeamId[t.id] ?? null }); }
   }
   for (const j of junction || []) {
     const t = (j as any).teams;
-    if (t && !seen.has(t.id)) { seen.add(t.id); result.push({ id: t.id, name: t.name }); }
+    if (t && !seen.has(t.id)) {
+      seen.add(t.id);
+      result.push({ id: t.id, name: t.name, group_name: (j as any).group_name ?? null });
+    }
   }
 
   return result.sort((a, b) => a.name.localeCompare(b.name));
@@ -146,15 +155,35 @@ function calculateStandings(teams: any[], matches: any[]): StandingRow[] {
   return sortRows(Object.values(s), matches);
 }
 
-function calculateGroupStandings(matches: any[]): Record<string, StandingRow[]> {
+function calculateGroupStandings(
+  matches: any[],
+  teamGroupMap: Record<string, string>, // teamName -> groupName
+): Record<string, StandingRow[]> {
   const byGroup: Record<string, Record<string, StandingRow>> = {};
   const matchesByGroup: Record<string, any[]> = {};
-  for (const m of matches.filter((m: any) => m.group_name)) {
-    const g = m.group_name;
+
+  // Seed all assigned teams into their groups with zero stats
+  for (const [teamName, groupName] of Object.entries(teamGroupMap)) {
+    if (!byGroup[groupName]) { byGroup[groupName] = {}; matchesByGroup[groupName] = []; }
+    if (!byGroup[groupName][teamName]) {
+      byGroup[groupName][teamName] = { team: teamName, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0, forfeit_deductions: 0 };
+    }
+  }
+
+  // Apply matches: use match's group_name if set, otherwise derive from team assignments
+  for (const m of matches) {
+    if (m.home_score === null && m.away_score === null) continue;
+    const g = m.group_name || (
+      teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team]
+        ? teamGroupMap[m.home_team]
+        : null
+    );
+    if (!g) continue;
     if (!byGroup[g]) { byGroup[g] = {}; matchesByGroup[g] = []; }
     applyMatchToStandings(byGroup[g], m);
     matchesByGroup[g].push(m);
   }
+
   const result: Record<string, StandingRow[]> = {};
   for (const [g, s] of Object.entries(byGroup)) result[g] = sortRows(Object.values(s), matchesByGroup[g], "group");
   return result;
@@ -412,8 +441,16 @@ export default async function LeagueDetailPage({
   const standings = isLeague ? calculateStandings(teams, matches) : [];
 
   // Group + knockout format
-  const groupMatches = matches.filter((m: any) => m.group_name);
-  const groupStandings = isGroupKnockout ? calculateGroupStandings(matches) : {};
+  // Build teamGroupMap from team assignments (teamName -> groupName)
+  const teamGroupMap: Record<string, string> = {};
+  for (const t of teams) {
+    if (t.group_name) teamGroupMap[t.name] = t.group_name;
+  }
+  const groupMatches = matches.filter((m: any) =>
+    m.group_name ||
+    (teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team])
+  );
+  const groupStandings = isGroupKnockout ? calculateGroupStandings(matches, teamGroupMap) : {};
   const sortedGroups = Object.keys(groupStandings).sort();
 
   // Knockout matches (for both knockout-only and group+knockout)
