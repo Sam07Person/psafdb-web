@@ -2688,7 +2688,7 @@ export default function AdminDashboardPage() {
                               setTeamForm({ ...teamForm, league_ids: teamForm.league_ids.filter(id => id !== l.id), group_assignments: rest });
                             }
                           }} className="rounded bg-gray-600 cursor-pointer" />
-                          <span className="text-white text-sm flex-1">{l.name}</span>
+                          <span className="text-white text-sm flex-1">{l.name}{l.season ? <span className="text-gray-400 ml-1">({l.season})</span> : null}</span>
                           {checked && (
                             <input
                               type="text"
