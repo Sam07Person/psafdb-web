@@ -98,24 +98,32 @@ function findBestTeamMatch(
 }
 
 // Find best matching league
-function findBestLeagueMatch(searchName: string, leagues: { id: string; name: string; season: string | null }[]): { id: string; name: string; season: string | null; score: number } | null {
+function findBestLeagueMatch(searchName: string, leagues: { id: string; name: string; season: string | null; ended: boolean | null }[]): { id: string; name: string; season: string | null; ended: boolean | null; score: number } | null {
   if (!searchName || leagues.length === 0) return null;
 
   const normalizedSearch = searchName.toLowerCase().trim();
 
-  let bestMatch: { id: string; name: string; season: string | null; score: number } | null = null;
+  let bestMatch: { id: string; name: string; season: string | null; ended: boolean | null; score: number } | null = null;
 
   for (const league of leagues) {
     const normalizedLeague = league.name.toLowerCase().trim();
 
-    // Exact match
+    // Score multiplier: prefer active leagues (ended=false) over ended ones
+    // Active leagues get a bonus that effectively makes them rank higher for equal name matches
+    const endedPenalty = league.ended ? 1000 : 0;
+
+    // Exact match — still prefer active over ended
     if (normalizedSearch === normalizedLeague) {
-      return { ...league, score: 0 };
+      const score = endedPenalty;
+      if (!bestMatch || score < bestMatch.score) {
+        bestMatch = { ...league, score };
+      }
+      continue;
     }
 
     // Check if one contains the other
     if (normalizedSearch.includes(normalizedLeague) || normalizedLeague.includes(normalizedSearch)) {
-      const score = Math.abs(normalizedSearch.length - normalizedLeague.length);
+      const score = Math.abs(normalizedSearch.length - normalizedLeague.length) + endedPenalty;
       if (!bestMatch || score < bestMatch.score) {
         bestMatch = { ...league, score };
       }
@@ -128,7 +136,7 @@ function findBestLeagueMatch(searchName: string, leagues: { id: string; name: st
     const similarity = 1 - (distance / maxLen);
 
     if (similarity > 0.5) {
-      const score = distance;
+      const score = distance + endedPenalty;
       if (!bestMatch || score < bestMatch.score) {
         bestMatch = { ...league, score };
       }
@@ -284,7 +292,7 @@ export async function POST(req: NextRequest) {
     // Fetch all leagues for matching
     const { data: allLeagues } = await supabaseAdmin
       .from("leagues")
-      .select("id, name, season");
+      .select("id, name, season, ended");
 
     const leagues = allLeagues || [];
     logs.push(`Loaded ${leagues.length} leagues for matching`);
