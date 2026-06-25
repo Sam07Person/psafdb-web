@@ -2815,6 +2815,9 @@ export default function AdminDashboardPage() {
                 <div>
                   <h2 className="text-lg font-semibold text-yellow-400">🧪 TEST VERSION — Import Match Results from Screenshots (AI)</h2>
                   <p className="text-gray-400 text-sm mt-1">Uses <code className="text-yellow-300 bg-gray-800 px-1 rounded">/api/admin/extract-match-test</code> — modify that file to experiment. Import still goes through the normal route.</p>
+                  <p className="text-gray-400 text-sm mt-1">
+                    ✂️ <Link href="/admin/cut-test" className="text-sky-400 hover:underline">Open Row Cutter</Link> — auto-slice each player's stats into separate strips (preview only, no AI yet).
+                  </p>
                 </div>
                 <button
                   onClick={addTestMatchGroup}
