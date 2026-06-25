@@ -212,25 +212,35 @@ export default function CutTestPage() {
                               style={{ background: `rgb(${panel.color.r},${panel.color.g},${panel.color.b})` }}
                             />
                             <span className="text-xs text-gray-400">
-                              Panel {panel.index + 1} · {panel.rows.length} rows ·{" "}
-                              {panel.autoDetected ? "auto-detected" : "even split"}
+                              {panel.rows.filter((r) => !r.isSub).length} starter(s)
+                              {panel.rows.some((r) => r.isSub) &&
+                                ` · ${panel.rows.filter((r) => r.isSub).length} sub(s)`}{" "}
+                              · {panel.autoDetected ? "auto-detected" : "even split"}
                             </span>
                           </div>
                           <div className="space-y-1.5">
                             {panel.rows.map((row) => (
                               <div key={row.index} className="flex items-center gap-2">
-                                <span className="text-[10px] text-gray-600 w-5 shrink-0 text-right">
-                                  {row.index + 1}
+                                <span
+                                  className={
+                                    "text-[10px] w-10 shrink-0 text-right " +
+                                    (row.isSub ? "text-yellow-500" : "text-gray-500")
+                                  }
+                                >
+                                  {row.label}
                                 </span>
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={row.dataUrl}
-                                  alt={`row ${row.index + 1}`}
-                                  className="flex-1 rounded border border-gray-700 bg-black/20"
+                                  alt={row.label}
+                                  className={
+                                    "flex-1 rounded border bg-black/20 " +
+                                    (row.isSub ? "border-yellow-700/60" : "border-gray-700")
+                                  }
                                 />
                                 <a
                                   href={row.dataUrl}
-                                  download={`panel${panel.index + 1}-row${row.index + 1}.png`}
+                                  download={`${row.isSub ? "sub" : "row"}-${row.label.replace(/\s+/g, "")}.png`}
                                   className="text-[10px] text-sky-400 hover:underline shrink-0"
                                 >
                                   save
@@ -242,8 +252,8 @@ export default function CutTestPage() {
                       ))}
                       {job.result.panels.length === 0 && (
                         <p className="text-sm text-gray-500">
-                          No coloured team panel detected. Try setting a fixed row count, or the
-                          image may not contain a detailed stats panel.
+                          No player rows detected. Try setting a fixed row count, or the image may
+                          not contain a detailed stats panel.
                         </p>
                       )}
                     </div>

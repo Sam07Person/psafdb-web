@@ -1,86 +1,56 @@
 // ============================================================
-// imageRowSplitter — automated, size-agnostic cutting tool for
-// match-result screenshots.
+// imageRowSplitter — theme-agnostic cutting tool for match-result
+// screenshots.
 //
-// Given a screenshot data URL, it:
-//   1. Detects the coloured team panel(s) (e.g. green / tan blocks)
-//      regardless of zoom / resolution.
-//   2. Splits each panel into individual horizontal player-row
-//      strips so each player's stats can be processed in isolation.
-//   3. Returns the crops + a debug overlay for previewing the cuts.
+// Works on ANY colour scheme (green / tan / white / dark) because it
+// does NOT key on a specific panel colour. Pipeline:
+//   1. Per-scanline signals: text/edge activity, brightness, saturation.
+//   2. Bound the UI region(s): a scanline belongs to the UI if it is
+//      bright (light panels) OR busy with text (any panel). This isolates
+//      the lineup block and any sub boxes from the blurry background.
+//   3. The tallest region = starting lineup; boxes below it = substitutes.
+//   4. Trim the column-header strip off the lineup using the first row's
+//      rating badge (the first saturated content from the top).
+//   5. Even-divide the lineup into the player count (default 6 = 6v6),
+//      and cut each sub box. Subs are tagged separately.
 //
 // Pure client-side (uses <canvas>). No AI, no network.
 // ============================================================
 
 export type RowStrip = {
-  /** 0-based index of the row within its panel */
   index: number;
-  /** y-range (in original image pixels) of this row */
   y0: number;
   y1: number;
-  /** cropped strip as a PNG data URL */
   dataUrl: string;
   width: number;
   height: number;
+  isSub: boolean;
+  label: string; // "1".."6" or "Sub 1"
 };
 
 export type DetectedPanel = {
-  /** 0-based index of the panel within the image (left→right, top→bottom) */
   index: number;
-  /** bounding box of the panel in original image pixels */
   box: { x: number; y: number; w: number; h: number };
-  /** dominant panel colour, for debugging */
   color: { r: number; g: number; b: number };
-  /** whether row boundaries were auto-detected (true) or evenly divided (false) */
   autoDetected: boolean;
   rows: RowStrip[];
 };
 
 export type SplitResult = {
-  /** original image dimensions */
   width: number;
   height: number;
   panels: DetectedPanel[];
-  /** original image with detected boxes + cut lines drawn on top (PNG data URL) */
   overlayDataUrl: string;
 };
 
 export type SplitOptions = {
-  /**
-   * Force a specific number of rows per panel instead of auto-detecting.
-   * Useful as a reliable fallback when auto-detection mis-counts.
-   */
+  /** Force a fixed number of STARTER rows instead of auto-detecting. */
   forcedRowCount?: number;
-  /** Extra vertical padding (px, scaled to image) added to each crop. Default 2. */
+  /** Extra vertical padding (px) added to each crop. */
   rowPadding?: number;
 };
 
-// ---------- small colour helpers ----------
-
-function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
-  const rr = r / 255, gg = g / 255, bb = b / 255;
-  const max = Math.max(rr, gg, bb);
-  const min = Math.min(rr, gg, bb);
-  const v = max;
-  const s = max === 0 ? 0 : (max - min) / max;
-  let h = 0;
-  const d = max - min;
-  if (d !== 0) {
-    if (max === rr) h = ((gg - bb) / d) % 6;
-    else if (max === gg) h = (bb - rr) / d + 2;
-    else h = (rr - gg) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  return [h, s, v];
-}
-
-function isVivid(r: number, g: number, b: number): boolean {
-  const [, s, v] = rgbToHsv(r, g, b);
-  // saturated and bright enough — excludes the blurry desaturated
-  // background and the near-black centre/sub panels.
-  return s >= 0.28 && v >= 0.3;
-}
+// ---------- helpers ----------
 
 function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -91,36 +61,53 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-// ---------- generic 1-D run / smoothing helpers ----------
-
 function smooth(arr: number[], radius: number): number[] {
   if (radius <= 0) return arr.slice();
   const out = new Array(arr.length).fill(0);
   for (let i = 0; i < arr.length; i++) {
-    let sum = 0, n = 0;
+    let s = 0, n = 0;
     for (let k = -radius; k <= radius; k++) {
       const j = i + k;
-      if (j >= 0 && j < arr.length) { sum += arr[j]; n++; }
+      if (j >= 0 && j < arr.length) { s += arr[j]; n++; }
     }
-    out[i] = sum / n;
+    out[i] = s / n;
   }
   return out;
 }
 
-/** Contiguous runs of indices where value > threshold and run length >= minLen. */
-function findRuns(values: number[], threshold: number, minLen: number): Array<[number, number]> {
-  const runs: Array<[number, number]> = [];
+function percentile(values: number[], p: number): number {
+  const s = [...values].sort((a, b) => a - b);
+  const idx = Math.min(s.length - 1, Math.max(0, Math.floor((p / 100) * s.length)));
+  return s[idx];
+}
+
+type Band = { y0: number; y1: number };
+
+function findBands(flags: boolean[], minLen: number): Band[] {
+  const bands: Band[] = [];
   let start = -1;
-  for (let i = 0; i < values.length; i++) {
-    if (values[i] > threshold) {
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i]) {
       if (start === -1) start = i;
     } else if (start !== -1) {
-      if (i - start >= minLen) runs.push([start, i - 1]);
+      if (i - start >= minLen) bands.push({ y0: start, y1: i - 1 });
       start = -1;
     }
   }
-  if (start !== -1 && values.length - start >= minLen) runs.push([start, values.length - 1]);
-  return runs;
+  if (start !== -1 && flags.length - start >= minLen) bands.push({ y0: start, y1: flags.length - 1 });
+  return bands;
+}
+
+function evenSplit(top: number, bottom: number, count: number): Band[] {
+  const out: Band[] = [];
+  const h = bottom - top;
+  for (let i = 0; i < count; i++) {
+    out.push({
+      y0: Math.round(top + (h * i) / count),
+      y1: Math.round(top + (h * (i + 1)) / count) - 1,
+    });
+  }
+  return out;
 }
 
 // ---------- core ----------
@@ -140,260 +127,262 @@ export async function splitMatchImage(
   ctx.drawImage(img, 0, 0);
   const { data } = ctx.getImageData(0, 0, W, H);
 
-  // sampling step keeps it fast on large images while staying size-agnostic
-  const step = Math.max(1, Math.floor(Math.min(W, H) / 500));
-  const px = (x: number, y: number) => {
-    const i = (y * W + x) * 4;
-    return [data[i], data[i + 1], data[i + 2]] as const;
-  };
+  const step = Math.max(1, Math.floor(Math.min(W, H) / 600));
 
-  // --- 1. vertical bands: rows of the image that are mostly "vivid" ---
-  const rowVivid: number[] = new Array(H).fill(0);
+  // --- 1. per-scanline signals ---
+  const act: number[] = new Array(H).fill(0);     // text/edge density
+  const lumRow: number[] = new Array(H).fill(0);  // mean brightness
+  const satRow: number[] = new Array(H).fill(0);  // # saturated pixels (badges/fills)
   for (let y = 0; y < H; y++) {
-    let vivid = 0, total = 0;
+    let edge = 0, lsum = 0, sat = 0, n = 0;
+    let prev = -1;
     for (let x = 0; x < W; x += step) {
-      const [r, g, b] = px(x, y);
-      if (isVivid(r, g, b)) vivid++;
-      total++;
+      const i = (y * W + x) * 4;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const l = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (prev >= 0) edge += Math.abs(l - prev);
+      prev = l;
+      lsum += l;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const s = max === 0 ? 0 : (max - min) / max;
+      if (s > 0.45 && max > 100) sat++;
+      n++;
     }
-    rowVivid[y] = total ? vivid / total : 0;
+    act[y] = n > 1 ? edge / (n - 1) : 0;
+    lumRow[y] = n ? lsum / n : 0;
+    satRow[y] = sat;
   }
-  const rowVividS = smooth(rowVivid, Math.max(1, Math.floor(H / 300)));
-  // bands must be at least ~4% of image height to count as a panel
-  const yBands = findRuns(rowVividS, 0.4, Math.max(4, Math.floor(H * 0.04)));
+  const actS = smooth(act, Math.max(1, Math.floor(H / 400)));
+  const lumS = smooth(lumRow, Math.max(1, Math.floor(H / 400)));
 
-  const padding = opts.rowPadding ?? Math.max(1, Math.round(H * 0.002));
+  // --- 2. bound UI region(s): bright OR busy with text ---
+  const bgAct = percentile(actS, 30);
+  const maxAct = Math.max(...actS);
+  const actThr = bgAct + 0.16 * (maxAct - bgAct);
+  const bgLum = percentile(lumS, 30);
+  const maxLum = Math.max(...lumS);
+  const brightThr = bgLum + 0.45 * (maxLum - bgLum);
 
-  // --- 2. collect candidate panel boxes ---
-  type Cand = {
-    box: { x: number; y: number; w: number; h: number };
-    color: { r: number; g: number; b: number };
-    density: number; // fraction of box that is vivid panel colour
-  };
-  const candidates: Cand[] = [];
+  const ui: boolean[] = new Array(H);
+  for (let y = 0; y < H; y++) ui[y] = actS[y] > actThr || lumS[y] > brightThr;
 
-  for (const [yTop, yBottom] of yBands) {
-    const colVivid: number[] = new Array(W).fill(0);
-    for (let x = 0; x < W; x++) {
-      let vivid = 0, total = 0;
-      for (let y = yTop; y <= yBottom; y += step) {
-        const [r, g, b] = px(x, y);
-        if (isVivid(r, g, b)) vivid++;
-        total++;
+  // Bridge thin internal gaps (row dividers dip below threshold) so a single
+  // panel doesn't fragment into one region per row. The large gap between the
+  // lineup and the sub boxes is wider than this and stays intact.
+  const closeLen = Math.max(2, Math.floor(H * 0.03));
+  let gapStart = -1;
+  for (let y = 0; y < H; y++) {
+    if (!ui[y]) {
+      if (gapStart === -1) gapStart = y;
+    } else if (gapStart !== -1) {
+      if (gapStart > 0 && y - gapStart <= closeLen) {
+        for (let k = gapStart; k < y; k++) ui[k] = true;
       }
-      colVivid[x] = total ? vivid / total : 0;
+      gapStart = -1;
     }
-    const colVividS = smooth(colVivid, Math.max(1, Math.floor(W / 300)));
-    const xRuns = findRuns(colVividS, 0.5, Math.max(8, Math.floor(W * 0.05)));
+  }
 
-    for (const [xLeft, xRight] of xRuns) {
-      const box = { x: xLeft, y: yTop, w: xRight - xLeft + 1, h: yBottom - yTop + 1 };
+  const regions = findBands(ui, Math.max(2, Math.floor(H * 0.012)));
 
-      // dominant panel colour = average of vivid pixels in box
-      let sr = 0, sg = 0, sb = 0, n = 0, sampled = 0;
-      for (let y = box.y; y < box.y + box.h; y += step) {
-        for (let x = box.x; x < box.x + box.w; x += step) {
-          const [r, g, b] = px(x, y);
-          sampled++;
-          if (isVivid(r, g, b)) { sr += r; sg += g; sb += b; n++; }
+  if (regions.length === 0) {
+    // nothing found — fall back to an even 6-way split of the whole image
+    return buildResult(img, W, H, evenSplit(0, H - 1, opts.forcedRowCount || 6), opts.forcedRowCount || 6, data, step, opts);
+  }
+
+  // tallest region = main lineup container
+  let lineup = regions[0];
+  for (const r of regions) if (r.y1 - r.y0 > lineup.y1 - lineup.y0) lineup = r;
+
+  // --- 3. detect theme: a saturated colour fill vs a light/neutral panel ---
+  const sampledPerRow = Math.ceil(W / step);
+  let satSum = 0, cnt = 0;
+  for (let y = lineup.y0; y <= lineup.y1; y++) { satSum += satRow[y]; cnt++; }
+  const colored = cnt > 0 && satSum / cnt / sampledPerRow > 0.2;
+
+  const forced = opts.forcedRowCount && opts.forcedRowCount > 0 ? opts.forcedRowCount : 0;
+  const autoDetected = forced === 0;
+  let starterBands: Band[] = [];
+  const subBands: Band[] = [];
+
+  if (colored) {
+    // ---- COLORED panel: the whole region is the lineup; even-divide it ----
+    // Trim a header strip if the first saturated row is well below the top.
+    const provRowH = (lineup.y1 - lineup.y0 + 1) / (forced || 6);
+    let firstSat = lineup.y0;
+    for (let y = lineup.y0; y <= lineup.y1; y++) if (satRow[y] >= 2) { firstSat = y; break; }
+    if (firstSat - lineup.y0 > provRowH * 0.55) {
+      lineup = { y0: Math.max(lineup.y0, Math.round(firstSat - provRowH * 0.45)), y1: lineup.y1 };
+    }
+    const count = forced || chooseCount(actS, lineup.y0, lineup.y1);
+    starterBands = evenSplit(lineup.y0, lineup.y1, count);
+    const estRowH = (lineup.y1 - lineup.y0 + 1) / count;
+    for (const sr of regions.filter((r) => r.y0 > lineup.y1)) {
+      const h = sr.y1 - sr.y0 + 1;
+      if (h < estRowH * 0.5) continue;
+      subBands.push(...evenSplit(sr.y0, sr.y1, Math.max(1, Math.round(h / estRowH))));
+    }
+  } else {
+    // ---- LIGHT panel: anchor rows on the per-player rating badges ----
+    // Each player row has one saturated rating shield; the header has none and
+    // sub boxes are separated from the lineup by extra spacing. Anchoring on the
+    // badges gives the true row pitch and cleanly separates starters from subs.
+    const satThr = Math.max(6, Math.floor(W * 0.006));
+    const runs: Array<[number, number]> = [];
+    let rs = -1;
+    for (let y = 0; y < H; y++) {
+      if (ui[y] && satRow[y] > satThr) { if (rs === -1) rs = y; }
+      else if (rs !== -1) { runs.push([rs, y - 1]); rs = -1; }
+    }
+    if (rs !== -1) runs.push([rs, H - 1]);
+
+    // Merge runs belonging to the SAME badge (a shield can dip below threshold
+    // for a scan-line, splitting into two runs → doubled centers → tiny rowH).
+    // The gap inside a badge is tiny; the gap to the next row's badge is ~rowH.
+    const mergeDist = Math.max(4, Math.floor(H * 0.025));
+    const merged: Array<[number, number]> = [];
+    for (const r of runs) {
+      const last = merged[merged.length - 1];
+      if (last && r[0] - last[1] <= mergeDist) last[1] = r[1];
+      else merged.push([r[0], r[1]]);
+    }
+    const minRun = Math.max(2, Math.floor(H * 0.006));
+    const centers = merged
+      .filter(([a, b]) => b - a + 1 >= minRun)
+      .map(([a, b]) => (a + b) / 2);
+
+    if (centers.length >= 3) {
+      const gaps: number[] = [];
+      for (let i = 1; i < centers.length; i++) gaps.push(centers[i] - centers[i - 1]);
+      const minGap = Math.min(...gaps);
+      const small = gaps.filter((g) => g <= minGap * 1.4);
+      const rowH = small.length ? small.reduce((a, b) => a + b, 0) / small.length : minGap;
+      const count = forced || 6;
+      const starterTop = Math.max(0, Math.round(centers[0] - rowH / 2));
+      const starterBottom = Math.min(H - 1, Math.round(starterTop + rowH * count));
+      starterBands = evenSplit(starterTop, starterBottom, count);
+      for (const c of centers) {
+        if (c >= starterBottom - rowH * 0.3) {
+          subBands.push({
+            y0: Math.max(0, Math.round(c - rowH / 2)),
+            y1: Math.min(H - 1, Math.round(c + rowH / 2)),
+          });
         }
       }
-      const color = n
-        ? { r: Math.round(sr / n), g: Math.round(sg / n), b: Math.round(sb / n) }
-        : { r: 0, g: 0, b: 0 };
-      candidates.push({ box, color, density: sampled ? n / sampled : 0 });
-    }
-  }
-
-  // --- 3. drop junk panels (dark "Sub" strip, background blobs) ---
-  // A real team-stats panel is a large, vivid-filled block. The biggest panel
-  // is the reference; keep only panels that are a meaningful fraction of it.
-  const maxArea = candidates.reduce((m, c) => Math.max(m, c.box.w * c.box.h), 1);
-  const kept = candidates.filter((c) => {
-    const area = c.box.w * c.box.h;
-    return (
-      c.density >= 0.55 &&
-      c.box.h >= H * 0.05 &&
-      c.box.w >= W * 0.12 &&
-      area >= 0.3 * maxArea
-    );
-  });
-
-  // --- 4. split each real panel into rows and crop ---
-  const panels: DetectedPanel[] = [];
-  let panelIdx = 0;
-  for (const cand of kept) {
-    const { box, color } = cand;
-    const { boundaries, autoDetected } = detectRowBoundaries(
-      px, box, color, step, opts.forcedRowCount
-    );
-
-    const rows: RowStrip[] = [];
-    for (let i = 0; i < boundaries.length - 1; i++) {
-      const ry0 = Math.max(box.y, boundaries[i] - padding);
-      const ry1 = Math.min(box.y + box.h, boundaries[i + 1] + padding);
-      const rh = ry1 - ry0;
-      if (rh <= 2) continue;
-      const c = document.createElement("canvas");
-      c.width = box.w;
-      c.height = rh;
-      const cctx = c.getContext("2d")!;
-      cctx.drawImage(img, box.x, ry0, box.w, rh, 0, 0, box.w, rh);
-      rows.push({
-        index: rows.length,
-        y0: ry0,
-        y1: ry1,
-        dataUrl: c.toDataURL("image/png"),
-        width: box.w,
-        height: rh,
-      });
-    }
-
-    panels.push({ index: panelIdx++, box, color, autoDetected, rows });
-  }
-
-  const overlayDataUrl = drawOverlay(img, W, H, panels);
-  return { width: W, height: H, panels, overlayDataUrl };
-}
-
-/**
- * Find horizontal cut lines inside a panel.
- * Strategy: compute, per scan-line, how "pure" the panel colour is.
- * Player-row interiors are dominated by the base colour → high purity.
- * The thin dividers between rows are darker → dips (local minima).
- * If the detected minima are sane and roughly evenly spaced we use them,
- * otherwise (or when forcedRowCount is given) we fall back to even division.
- */
-function detectRowBoundaries(
-  px: (x: number, y: number) => readonly [number, number, number],
-  box: { x: number; y: number; w: number; h: number },
-  color: { r: number; g: number; b: number },
-  step: number,
-  forcedRowCount?: number
-): { boundaries: number[]; autoDetected: boolean } {
-  const top = box.y;
-  const bottom = box.y + box.h - 1;
-
-  if (forcedRowCount && forcedRowCount > 0) {
-    return { boundaries: evenDivide(top, bottom, forcedRowCount), autoDetected: false };
-  }
-
-  // purity per scan-line: fraction of pixels close to the base colour
-  const purity: number[] = new Array(box.h).fill(0);
-  const TOL = 60; // RGB euclidean-ish tolerance
-  for (let y = 0; y < box.h; y++) {
-    let close = 0, total = 0;
-    for (let x = box.x; x < box.x + box.w; x += step) {
-      const [r, g, b] = px(x, top + y);
-      const dr = r - color.r, dg = g - color.g, db = b - color.b;
-      if (Math.sqrt(dr * dr + dg * dg + db * db) < TOL) close++;
-      total++;
-    }
-    purity[y] = total ? close / total : 0;
-  }
-  const sm = smooth(purity, Math.max(1, Math.floor(box.h / 150)));
-
-  // Candidate divider positions = local minima of purity (the dark gaps that
-  // separate player rows). Text/badges also dip, but for the CORRECT row count
-  // the evenly-spaced cut lines all land on real dividers; for a wrong count
-  // they land in row interiors. We exploit that with template matching below.
-  const minima = findLocalMinima(sm, Math.max(2, Math.floor(box.h / 40)));
-  const at = (idx: number) => sm[Math.min(box.h - 1, Math.max(0, Math.round(idx)))];
-
-  // Score each candidate row count: place evenly-spaced cuts, snap to nearby
-  // minima, and measure how "divider-like" (dark + well-aligned) they are.
-  // Lower is better. A gentle prior favours 6 (6v6) to break harmonic ties
-  // (e.g. 3 vs 6, since 3's cuts also fall on a subset of real dividers).
-  const PRIOR = 6;
-  const evalCount = (C: number): { score: number; boundaries: number[] } => {
-    const period = box.h / C;
-    const snapWin = period * 0.35;
-    let purSum = 0, distSum = 0;
-    const interior: number[] = [];
-    for (let i = 1; i < C; i++) {
-      const even = (box.h * i) / C;
-      let nearest = even, best = snapWin + 1;
-      for (const m of minima) {
-        const d = Math.abs(m - even);
-        if (d <= snapWin && d < best) { best = d; nearest = m; }
-      }
-      purSum += at(nearest);
-      distSum += Math.min(best, snapWin) / snapWin;
-      interior.push(Math.round(nearest));
-    }
-    const align = purSum / (C - 1) + 0.3 * (distSum / (C - 1));
-    const score = align * (1 + 0.05 * Math.abs(C - PRIOR));
-    const boundaries = [top, ...interior.map((p) => top + p), bottom];
-    return { score, boundaries };
-  };
-
-  let best = evalCount(PRIOR);
-  let bestCount = PRIOR;
-  for (let C = 4; C <= 8; C++) {
-    const r = evalCount(C);
-    if (r.score < best.score) { best = r; bestCount = C; }
-  }
-
-  const boundaries = best.boundaries;
-  // guarantee strictly increasing boundaries
-  for (let i = 1; i < boundaries.length; i++) {
-    if (boundaries[i] <= boundaries[i - 1]) boundaries[i] = boundaries[i - 1] + 1;
-  }
-
-  return { boundaries, autoDetected: bestCount === PRIOR || best.score < Infinity };
-}
-
-/** Local minima of a 1-D signal, de-duplicated within `win` of each other. */
-function findLocalMinima(sig: number[], win: number): number[] {
-  const out: number[] = [];
-  for (let i = win; i < sig.length - win; i++) {
-    let isMin = true;
-    for (let k = -win; k <= win; k++) {
-      if (sig[i + k] < sig[i]) { isMin = false; break; }
-    }
-    if (!isMin) continue;
-    if (out.length && i - out[out.length - 1] <= win) {
-      if (sig[i] < sig[out[out.length - 1]]) out[out.length - 1] = i;
     } else {
-      out.push(i);
+      starterBands = evenSplit(lineup.y0, lineup.y1, forced || 6);
     }
   }
-  return out;
+
+  const allBands = [...starterBands, ...subBands];
+  const splitAt = starterBands.length;
+  return buildResult(img, W, H, allBands, splitAt, data, step, opts, autoDetected);
 }
 
-function evenDivide(top: number, bottom: number, count: number): number[] {
-  const out: number[] = [];
+/** Pick the starter count by how well evenly-spaced cuts fall on activity gaps
+ *  (low-activity valleys between rows), with a gentle prior toward 6 (6v6). */
+function chooseCount(actS: number[], top: number, bottom: number): number {
   const h = bottom - top;
-  for (let i = 0; i <= count; i++) out.push(Math.round(top + (h * i) / count));
-  return out;
+  if (h <= 4) return 6;
+  const PRIOR = 6;
+  const score = (C: number): number => {
+    let sum = 0;
+    for (let i = 1; i < C; i++) {
+      const y = Math.round(top + (h * i) / C);
+      sum += actS[Math.min(actS.length - 1, Math.max(0, y))];
+    }
+    const meanActAtCuts = sum / (C - 1);
+    return meanActAtCuts * (1 + 0.05 * Math.abs(C - PRIOR));
+  };
+  let best = PRIOR, bestScore = score(PRIOR);
+  for (let C = 4; C <= 8; C++) {
+    const s = score(C);
+    if (s < bestScore) { bestScore = s; best = C; }
+  }
+  return best;
 }
 
-function drawOverlay(
+function buildResult(
   img: HTMLImageElement,
   W: number,
   H: number,
-  panels: DetectedPanel[]
-): string {
+  bands: Band[],
+  splitAt: number,
+  data: Uint8ClampedArray,
+  step: number,
+  opts: SplitOptions,
+  autoDetected = true
+): SplitResult {
+  const padding = opts.rowPadding ?? Math.max(1, Math.round(H * 0.0015));
+  const rows: RowStrip[] = [];
+  let starterNo = 0, subNo = 0;
+  bands.forEach((b, i) => {
+    const isSub = i >= splitAt;
+    const ry0 = Math.max(0, b.y0 - padding);
+    const ry1 = Math.min(H, b.y1 + padding);
+    const rh = ry1 - ry0;
+    if (rh <= 2) return;
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = rh;
+    const cctx = c.getContext("2d")!;
+    cctx.drawImage(img, 0, ry0, W, rh, 0, 0, W, rh);
+    rows.push({
+      index: rows.length,
+      y0: ry0,
+      y1: ry1,
+      dataUrl: c.toDataURL("image/png"),
+      width: W,
+      height: rh,
+      isSub,
+      label: isSub ? `Sub ${++subNo}` : `${++starterNo}`,
+    });
+  });
+
+  const panels: DetectedPanel[] = [];
+  if (rows.length > 0) {
+    const top = rows[0].y0;
+    const bottom = rows[rows.length - 1].y1;
+    panels.push({
+      index: 0,
+      box: { x: 0, y: top, w: W, h: bottom - top },
+      color: avgColor(data, W, top, bottom, step),
+      autoDetected,
+      rows,
+    });
+  }
+
+  const overlayDataUrl = drawOverlay(img, W, H, rows);
+  return { width: W, height: H, panels, overlayDataUrl };
+}
+
+function avgColor(
+  data: Uint8ClampedArray,
+  W: number,
+  top: number,
+  bottom: number,
+  step: number
+): { r: number; g: number; b: number } {
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let y = top; y <= bottom; y += step) {
+    for (let x = 0; x < W; x += step) {
+      const i = (y * W + x) * 4;
+      r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+    }
+  }
+  return n ? { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) } : { r: 0, g: 0, b: 0 };
+}
+
+function drawOverlay(img: HTMLImageElement, W: number, H: number, rows: RowStrip[]): string {
   const c = document.createElement("canvas");
   c.width = W;
   c.height = H;
   const ctx = c.getContext("2d")!;
   ctx.drawImage(img, 0, 0);
   const lw = Math.max(1, Math.round(Math.min(W, H) / 400));
-
-  for (const p of panels) {
-    ctx.strokeStyle = "rgba(56,189,248,0.95)"; // panel box (sky)
-    ctx.lineWidth = lw * 2;
-    ctx.strokeRect(p.box.x, p.box.y, p.box.w, p.box.h);
-
-    ctx.strokeStyle = "rgba(244,63,94,0.95)"; // cut lines (rose)
+  for (const row of rows) {
+    ctx.strokeStyle = row.isSub ? "rgba(250,204,21,0.95)" : "rgba(244,63,94,0.95)";
     ctx.lineWidth = lw;
-    for (const row of p.rows) {
-      ctx.beginPath();
-      ctx.moveTo(p.box.x, row.y1);
-      ctx.lineTo(p.box.x + p.box.w, row.y1);
-      ctx.stroke();
-    }
+    ctx.strokeRect(1, row.y0, W - 2, row.y1 - row.y0);
   }
   return c.toDataURL("image/png");
 }
