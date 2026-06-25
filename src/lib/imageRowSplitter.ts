@@ -266,56 +266,94 @@ function detectRowBoundaries(
     }
     purity[y] = total ? close / total : 0;
   }
-  const sm = smooth(purity, Math.max(1, Math.floor(box.h / 120)));
+  const sm = smooth(purity, Math.max(1, Math.floor(box.h / 150)));
 
-  const mean = sm.reduce((a, b) => a + b, 0) / sm.length;
-  const variance = sm.reduce((a, b) => a + (b - mean) * (b - mean), 0) / sm.length;
-  const std = Math.sqrt(variance);
+  // Rows are a uniform height, so instead of counting every dip in the signal
+  // (text / badges create false dividers → over-segmentation) we find the one
+  // dominant row period via autocorrelation and derive the count from it.
+  const n = sm.length;
+  const mean = sm.reduce((a, b) => a + b, 0) / n;
+  const s = sm.map((v) => v - mean);
+  const denom = s.reduce((a, b) => a + b * b, 0) || 1;
 
-  // local minima below (mean - 0.4*std) = candidate dividers
-  const minWin = Math.max(2, Math.floor(box.h / 60));
-  const candidates: number[] = [];
-  for (let y = minWin; y < box.h - minWin; y++) {
-    if (sm[y] >= mean - 0.35 * std) continue;
+  const lagMin = Math.max(5, Math.floor(box.h / 12)); // allow up to ~12 rows
+  const lagMax = Math.max(lagMin + 1, Math.floor(box.h / 3)); // down to ~3 rows
+  const scores: number[] = new Array(lagMax + 1).fill(-Infinity);
+  let globalMax = -Infinity;
+  for (let lag = lagMin; lag <= lagMax; lag++) {
+    let sum = 0;
+    for (let i = 0; i + lag < n; i++) sum += s[i] * s[i + lag];
+    scores[lag] = sum / denom;
+    if (scores[lag] > globalMax) globalMax = scores[lag];
+  }
+
+  // Weak / no periodicity → safe even split.
+  if (globalMax < 0.08) {
+    return { boundaries: evenDivide(top, bottom, 6), autoDetected: false };
+  }
+
+  // Each cell stacks a label line above a value line, so the strongest peak can
+  // be a half-row harmonic (→ too many strips). Prefer the LONGEST period that
+  // still scores near the max and is a local peak: this collapses harmonics back
+  // to the true per-player row height.
+  let bestLag = 0;
+  for (let lag = lagMax; lag >= lagMin; lag--) {
+    if (scores[lag] < 0.72 * globalMax) continue;
+    const lo = scores[lag - 1] ?? -Infinity;
+    const hi = scores[lag + 1] ?? -Infinity;
+    if (scores[lag] >= lo && scores[lag] >= hi) { bestLag = lag; break; }
+  }
+  if (bestLag === 0) {
+    // no qualifying peak — fall back to the global argmax
+    for (let lag = lagMin; lag <= lagMax; lag++) {
+      if (scores[lag] === globalMax) { bestLag = lag; break; }
+    }
+  }
+
+  const count = Math.min(11, Math.max(3, Math.round(box.h / bestLag)));
+
+  // Space the cuts evenly by the detected count, then snap each interior line
+  // onto the nearest real divider (local minimum of the purity signal) so cuts
+  // land between rows rather than through text.
+  const minima = findLocalMinima(sm, Math.max(2, Math.floor(bestLag / 4)));
+  const snapWin = bestLag * 0.3;
+  const boundaries: number[] = [top];
+  for (let i = 1; i < count; i++) {
+    const even = Math.round((box.h * i) / count);
+    let snap = even;
+    let bestDist = snapWin + 1;
+    for (const m of minima) {
+      const d = Math.abs(m - even);
+      if (d <= snapWin && d < bestDist) { bestDist = d; snap = m; }
+    }
+    boundaries.push(top + snap);
+  }
+  boundaries.push(bottom);
+
+  // guarantee strictly increasing boundaries
+  for (let i = 1; i < boundaries.length; i++) {
+    if (boundaries[i] <= boundaries[i - 1]) boundaries[i] = boundaries[i - 1] + 1;
+  }
+
+  return { boundaries, autoDetected: true };
+}
+
+/** Local minima of a 1-D signal, de-duplicated within `win` of each other. */
+function findLocalMinima(sig: number[], win: number): number[] {
+  const out: number[] = [];
+  for (let i = win; i < sig.length - win; i++) {
     let isMin = true;
-    for (let k = -minWin; k <= minWin; k++) {
-      if (sm[y + k] < sm[y]) { isMin = false; break; }
+    for (let k = -win; k <= win; k++) {
+      if (sig[i + k] < sig[i]) { isMin = false; break; }
     }
-    if (isMin) candidates.push(y);
-  }
-
-  // merge candidates closer than ~5% of panel height
-  const mergeDist = Math.max(3, Math.floor(box.h * 0.05));
-  const merged: number[] = [];
-  for (const c of candidates) {
-    if (merged.length && c - merged[merged.length - 1] < mergeDist) {
-      // keep the deeper minimum
-      if (sm[c] < sm[merged[merged.length - 1]]) merged[merged.length - 1] = c;
+    if (!isMin) continue;
+    if (out.length && i - out[out.length - 1] <= win) {
+      if (sig[i] < sig[out[out.length - 1]]) out[out.length - 1] = i;
     } else {
-      merged.push(c);
+      out.push(i);
     }
   }
-
-  // sanity check: do the implied rows look evenly spaced & reasonable in count?
-  if (merged.length >= 2 && merged.length <= 11) {
-    const bounds = [0, ...merged, box.h - 1];
-    const gaps: number[] = [];
-    for (let i = 0; i < bounds.length - 1; i++) gaps.push(bounds[i + 1] - bounds[i]);
-    const minGap = Math.min(...gaps);
-    const maxGap = Math.max(...gaps);
-    // accept if rows are not wildly uneven (largest <= 2.4× smallest)
-    if (minGap > box.h * 0.04 && maxGap <= minGap * 2.4) {
-      return { boundaries: bounds.map((b) => top + b), autoDetected: true };
-    }
-    // otherwise infer a count from the median gap and divide evenly
-    const sorted = [...gaps].sort((a, b) => a - b);
-    const medGap = sorted[Math.floor(sorted.length / 2)];
-    const guess = Math.max(1, Math.round(box.h / medGap));
-    return { boundaries: evenDivide(top, bottom, guess), autoDetected: false };
-  }
-
-  // last resort: assume 6 rows (typical 6v6 starting lineup)
-  return { boundaries: evenDivide(top, bottom, 6), autoDetected: false };
+  return out;
 }
 
 function evenDivide(top: number, bottom: number, count: number): number[] {
