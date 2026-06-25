@@ -232,6 +232,12 @@ export default function AdminDashboardPage() {
   ]);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
+  // TEST version — separate match groups state
+  const [testMatchGroups, setTestMatchGroups] = useState<MatchGroup[]>([
+    { id: generateGroupId(), images: [], previews: [], leagueId: "auto", extractedData: null, editedData: null, status: "idle", importResult: null, error: null, teamRosters: null, validationStats: null }
+  ]);
+  const [testEditingGroupId, setTestEditingGroupId] = useState<string | null>(null);
+
   // Team import state
   const [teamImportImage, setTeamImportImage] = useState<string | null>(null);
   const [teamImportPreview, setTeamImportPreview] = useState<string | null>(null);
@@ -1615,6 +1621,323 @@ export default function AdminDashboardPage() {
     }));
   };
 
+  // ==================== TEST VERSION MATCH GROUP HANDLERS ====================
+  // Mirror of all match-group handlers, using testMatchGroups state and
+  // calling /api/admin/extract-match-test instead of /api/admin/extract-match.
+  // Modify the test API route freely without affecting the production flow.
+
+  const updateTestGroup = (groupId: string, updates: Partial<MatchGroup>) => {
+    setTestMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...updates } : g));
+  };
+
+  const addTestMatchGroup = () => {
+    setTestMatchGroups(prev => [...prev, {
+      id: generateGroupId(),
+      images: [],
+      previews: [],
+      leagueId: "auto",
+      extractedData: null,
+      editedData: null,
+      status: "idle",
+      importResult: null,
+      error: null,
+      teamRosters: null,
+      validationStats: null,
+    }]);
+  };
+
+  const removeTestMatchGroup = (groupId: string) => {
+    if (testMatchGroups.length === 1) {
+      updateTestGroup(groupId, { images: [], previews: [], leagueId: "auto", extractedData: null, editedData: null, status: "idle", importResult: null, error: null, teamRosters: null, validationStats: null });
+    } else {
+      setTestMatchGroups(prev => prev.filter(g => g.id !== groupId));
+    }
+  };
+
+  const handleTestGroupImageChange = (groupId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const raw = event.target?.result as string;
+        const base64 = await compressImage(raw);
+        setTestMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, images: [...g.images, base64], previews: [...g.previews, base64] } : g));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeTestGroupImage = (groupId: string, index: number) => {
+    setTestMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, images: g.images.filter((_, i) => i !== index), previews: g.previews.filter((_, i) => i !== index) } : g));
+  };
+
+  const handleTestPasteGroupImages = (groupId: string, e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const raw = event.target?.result as string;
+            const base64 = await compressImage(raw);
+            setTestMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, images: [...g.images, base64], previews: [...g.previews, base64] } : g));
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  };
+
+  const pasteTestGroupImageFromClipboard = async (groupId: string) => {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(type => type.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const raw = event.target?.result as string;
+            const base64 = await compressImage(raw);
+            setTestMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, images: [...g.images, base64], previews: [...g.previews, base64] } : g));
+          };
+          reader.readAsDataURL(blob);
+          setMessage({ type: "success", text: "Image pasted successfully!" });
+          return;
+        }
+      }
+      setMessage({ type: "error", text: "No image found in clipboard" });
+    } catch {
+      setMessage({ type: "error", text: "Clipboard access denied. Try Ctrl+V instead." });
+    }
+  };
+
+  const handleTestExtractGroup = async (groupId: string) => {
+    const group = testMatchGroups.find(g => g.id === groupId);
+    if (!group || group.images.length === 0) {
+      setMessage({ type: "error", text: "Please upload at least one image" });
+      return;
+    }
+    updateTestGroup(groupId, { status: "extracting", error: null });
+    try {
+      // Calls the TEST extraction endpoint — modify /api/admin/extract-match-test/route.ts to experiment
+      const extractRes = await fetch("/api/admin/extract-match-test", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ images: group.images }),
+      });
+      const extractData = await extractRes.json();
+      if (!extractRes.ok) throw new Error(extractData.error || "Extraction failed");
+
+      updateTestGroup(groupId, { status: "validating" });
+
+      const validateRes = await fetch("/api/admin/validate-players", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ extractedData: extractData.extracted }),
+      });
+      const validateData = await validateRes.json();
+      if (!validateRes.ok) throw new Error(validateData.error || "Validation failed");
+
+      updateTestGroup(groupId, {
+        extractedData: extractData.extracted,
+        editedData: JSON.parse(JSON.stringify(validateData.validatedData)),
+        status: "validated",
+        teamRosters: validateData.teamRosters,
+        validationStats: validateData.stats,
+      });
+
+      const reviewCount = validateData.stats?.playersNeedingReview || 0;
+      setMessage({ type: "success", text: reviewCount > 0 ? `[TEST] Extracted! ${reviewCount} player(s) need review.` : "[TEST] Extracted! All players matched." });
+    } catch (err: any) {
+      updateTestGroup(groupId, { status: "error", error: err.message });
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const handleTestImportGroup = async (groupId: string) => {
+    const group = testMatchGroups.find(g => g.id === groupId);
+    if (!group || !group.editedData) return;
+    updateTestGroup(groupId, { status: "importing", error: null });
+    try {
+      const res = await fetch("/api/admin/import-images", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ images: [], league_id: group.leagueId || "auto", extractedData: group.editedData, keepFixtureDate }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      updateTestGroup(groupId, { status: "imported", importResult: data });
+      setMessage({ type: "success", text: data.fixtureUpdated ? "Fixture updated!" : "Match imported!" });
+      loadFixtures();
+      loadPlayers();
+    } catch (err: any) {
+      updateTestGroup(groupId, { status: "error", error: err.message });
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const handleTestDirectImportGroup = async (groupId: string) => {
+    const group = testMatchGroups.find(g => g.id === groupId);
+    if (!group || group.images.length === 0) {
+      setMessage({ type: "error", text: "Please upload at least one image" });
+      return;
+    }
+    updateTestGroup(groupId, { status: "importing", error: null });
+    try {
+      const res = await fetch("/api/admin/import-images", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ images: group.images, league_id: group.leagueId || null, keepFixtureDate }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      updateTestGroup(groupId, { status: "imported", importResult: data, images: [], previews: [] });
+      setMessage({ type: "success", text: "Match imported successfully!" });
+      loadFixtures();
+      loadPlayers();
+    } catch (err: any) {
+      updateTestGroup(groupId, { status: "error", error: err.message });
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const updateTestGroupPreviewPlayer = (groupId: string, teamSide: "home" | "away", playerIndex: number, field: string, value: any) => {
+    setTestMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = [...updated[team].players];
+        const currentPlayer = { ...updated[team].players[playerIndex], [field]: value };
+
+        if (field === "user_id" && typeof value === "string" && value.length >= 2) {
+          const val = value.trim().toLowerCase();
+          const exact = players.find(p => p.game_user_id?.toLowerCase() === val);
+          if (exact) {
+            currentPlayer.matchResult = { playerId: exact.id, confidence: 100, matchMethod: "user_id_exact", needsUserReview: false, suggestions: [{ id: exact.id, name: exact.name, game_user_id: exact.game_user_id, confidence: 100, matchReasons: ["Exact ID match"] }] };
+          } else {
+            const scored = players.map(p => {
+              const gid = p.game_user_id?.toLowerCase() || "";
+              const nm = p.name?.toLowerCase() || "";
+              const hdl = p.handle?.toLowerCase() || "";
+              if (gid === val) return { p, score: 100, reason: "Exact ID" };
+              if (gid && gid.includes(val)) return { p, score: 82, reason: "ID contains search" };
+              if (gid && val.includes(gid)) return { p, score: 78, reason: "Search contains ID" };
+              const dist = gid ? levenshtein(val, gid) : 99;
+              if (dist === 1) return { p, score: 90, reason: "ID off by 1 char" };
+              if (dist === 2) return { p, score: 75, reason: "ID off by 2 chars" };
+              if (nm.includes(val) || val.includes(nm)) return { p, score: 55, reason: "Name match" };
+              if (hdl.includes(val)) return { p, score: 50, reason: "Handle match" };
+              return null;
+            }).filter((x): x is NonNullable<typeof x> => x !== null).sort((a, b) => b.score - a.score).slice(0, 8);
+            currentPlayer.matchResult = { playerId: null, confidence: 0, matchMethod: "user_id_search", needsUserReview: true, suggestions: scored.map(({ p, score, reason }) => ({ id: p.id, name: p.name, game_user_id: p.game_user_id, confidence: score, matchReasons: [reason] })) };
+          }
+        } else if (field === "user_id" && (typeof value !== "string" || value.length < 2)) {
+          currentPlayer.matchResult = { playerId: null, confidence: 0, matchMethod: "none", needsUserReview: true, suggestions: [] };
+        }
+
+        if (field === "name" && typeof value === "string" && value.length >= 2) {
+          const val = value.trim().toLowerCase();
+          const exactByName = players.find(p => p.name?.toLowerCase() === val);
+          if (exactByName) {
+            currentPlayer.matchResult = { playerId: exactByName.id, confidence: 100, matchMethod: "name_exact", needsUserReview: false, suggestions: [{ id: exactByName.id, name: exactByName.name, game_user_id: exactByName.game_user_id, confidence: 100, matchReasons: ["Exact name match"] }] };
+          } else {
+            const scored = players.map(p => {
+              const nm = p.name?.toLowerCase() || "";
+              if (!nm) return null;
+              if (nm === val) return { p, score: 100, reason: "Exact name" };
+              if (nm.includes(val) || val.includes(nm)) return { p, score: 75, reason: "Name contains search" };
+              const dist = levenshtein(val, nm);
+              if (dist === 1) return { p, score: 85, reason: "Name off by 1 char" };
+              if (dist === 2) return { p, score: 65, reason: "Name off by 2 chars" };
+              return null;
+            }).filter((x): x is NonNullable<typeof x> => x !== null).sort((a, b) => b.score - a.score).slice(0, 8);
+            if (scored.length > 0) {
+              currentPlayer.matchResult = { ...(currentPlayer.matchResult || {}), needsUserReview: true, suggestions: scored.map(({ p, score, reason }) => ({ id: p.id, name: p.name, game_user_id: p.game_user_id, confidence: score, matchReasons: [reason] })) };
+            }
+          }
+        }
+
+        updated[team].players[playerIndex] = currentPlayer;
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  const selectTestPlayerForMatch = (groupId: string, teamSide: "home" | "away", playerIndex: number, selectedPlayer: Player) => {
+    setTestMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = [...updated[team].players];
+        updated[team].players[playerIndex] = { ...updated[team].players[playerIndex], matchResult: { ...updated[team].players[playerIndex].matchResult, playerId: selectedPlayer.id, confidence: 100, matchMethod: "user_selected", needsUserReview: false } };
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  const updateTestGroupPreviewMeta = (groupId: string, field: string, value: any) => {
+    setTestMatchGroups(prev => prev.map(g => g.id === groupId && g.editedData ? { ...g, editedData: { ...g.editedData, [field]: value || null } } : g));
+  };
+
+  const refreshTestTeamRoster = async (groupId: string, side: "home" | "away", teamName: string) => {
+    try {
+      const res = await fetch(`/api/admin/team-roster?team=${encodeURIComponent(teamName)}`, { headers: authHeaders });
+      if (!res.ok) return;
+      const data = await res.json();
+      setTestMatchGroups(prev => prev.map(g => g.id === groupId ? { ...g, teamRosters: { home: g.teamRosters?.home || [], away: g.teamRosters?.away || [], [side]: data.players || [] } } : g));
+    } catch {}
+  };
+
+  const updateTestGroupPreviewTeam = (groupId: string, teamSide: "home" | "away", field: string, value: any) => {
+    setTestMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team], [field]: value };
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+    if (field === "team_name" && typeof value === "string" && value.length >= 2) {
+      refreshTestTeamRoster(groupId, teamSide, value);
+    }
+  };
+
+  const removeTestGroupPreviewPlayer = (groupId: string, teamSide: "home" | "away", playerIndex: number) => {
+    setTestMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = updated[team].players.filter((_: any, i: number) => i !== playerIndex);
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
+  const addTestGroupPreviewPlayer = (groupId: string, teamSide: "home" | "away") => {
+    setTestMatchGroups(prev => prev.map(g => {
+      if (g.id === groupId && g.editedData) {
+        const updated = { ...g.editedData };
+        const team = teamSide === "home" ? "home_team" : "away_team";
+        updated[team] = { ...updated[team] };
+        updated[team].players = [...updated[team].players, { name: "New Player", user_id: "", position: "CM", score: 0, goals: 0, assists: 0, shots: 0, shots_on_target: 0, passes: 0, key_passes: 0, tackles: 0, key_tackles: 0, interceptions: 0, key_interceptions: 0, possessions_lost: 0, gk_saves: 0, gk_catches: 0, is_starter: false, sub_number: updated[team].players.filter((p: any) => !p.is_starter).length + 1, matchResult: { playerId: null, confidence: 0, matchMethod: "new", needsUserReview: true, suggestions: [] } }];
+        return { ...g, editedData: updated };
+      }
+      return g;
+    }));
+  };
+
   // ==================== TEAM & FIXTURE IMAGE HANDLERS ====================
 
   const handleTeamImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1801,6 +2124,7 @@ export default function AdminDashboardPage() {
 
   // Get the currently editing group
   const editingGroup = editingGroupId ? matchGroups.find(g => g.id === editingGroupId) : null;
+  const testEditingGroup = testEditingGroupId ? testMatchGroups.find(g => g.id === testEditingGroupId) : null;
 
   if (!authenticated) {
     return (
@@ -2480,6 +2804,314 @@ export default function AdminDashboardPage() {
                     >
                       ✓ Save & Import
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ===== TEST VERSION: Match Screenshot Import ===== */}
+            <div className="bg-gray-900 border-2 border-yellow-500/40 p-6 rounded-lg">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-yellow-400">🧪 TEST VERSION — Import Match Results from Screenshots (AI)</h2>
+                  <p className="text-gray-400 text-sm mt-1">Uses <code className="text-yellow-300 bg-gray-800 px-1 rounded">/api/admin/extract-match-test</code> — modify that file to experiment. Import still goes through the normal route.</p>
+                </div>
+                <button
+                  onClick={addTestMatchGroup}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-lg transition flex items-center gap-2"
+                >
+                  <span className="text-lg">+</span> Add Match Group
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {testMatchGroups.map((group, groupIndex) => (
+                  <div
+                    key={group.id}
+                    className={cx(
+                      "border-2 rounded-lg p-4 transition",
+                      group.status === "imported" ? "border-emerald-500/50 bg-emerald-500/5" :
+                        group.status === "validated" ? "border-amber-500/50 bg-amber-500/5" :
+                          group.status === "error" ? "border-red-500/50 bg-red-500/5" :
+                            "border-gray-700 bg-gray-900/50"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="bg-yellow-700 text-white font-bold px-3 py-1 rounded-full text-sm">Match {groupIndex + 1}</span>
+                        {group.status === "extracting" && <span className="text-amber-400 text-sm flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>Extracting (TEST)...</span>}
+                        {group.status === "validating" && <span className="text-purple-400 text-sm flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>Validating players...</span>}
+                        {group.status === "importing" && <span className="text-blue-400 text-sm flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>Importing...</span>}
+                        {group.status === "validated" && group.validationStats && <span className="text-amber-400 text-sm">✓ Extracted - {group.validationStats.playersNeedingReview > 0 ? <span className="text-red-400">{group.validationStats.playersNeedingReview} player(s) need review</span> : "All players matched"}</span>}
+                        {group.status === "imported" && <span className="text-emerald-400 text-sm">✓ Imported successfully</span>}
+                        {group.status === "error" && <span className="text-red-400 text-sm">⚠ Error: {group.error}</span>}
+                      </div>
+                      <button onClick={() => removeTestMatchGroup(group.id)} className="text-gray-500 hover:text-red-400 transition p-1" title="Remove group">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+
+                    {group.status === "imported" && group.importResult && (
+                      <div className={`mb-4 p-4 rounded-lg ${group.importResult.fixtureUpdated ? "bg-purple-500/20 border border-purple-500/30" : "bg-emerald-500/20 border border-emerald-500/30"}`}>
+                        <h4 className={`${group.importResult.fixtureUpdated ? "text-purple-300" : "text-emerald-300"} font-semibold mb-2`}>{group.importResult.fixtureUpdated ? "✅ Fixture Updated!" : "✅ Match Imported!"}</h4>
+                        <p className="text-white text-lg font-medium">{group.importResult.match?.home_team} {group.importResult.match?.home_score} - {group.importResult.match?.away_score} {group.importResult.match?.away_team}</p>
+                        {group.importResult.league && <p className="text-blue-300 text-sm mt-1">League: {group.importResult.league.name}</p>}
+                        <p className="text-gray-400 text-sm mt-1">Players: {group.importResult.stats?.playerStatsCount || 0} • Matched: {group.importResult.stats?.playersMatched?.length || 0} • Created: {group.importResult.stats?.playersCreated?.length || 0}</p>
+                        {group.importResult.stats?.playersNeedingReview?.length > 0 && <p className="text-amber-400 text-sm mt-1">⚠️ Low-confidence auto-matches: {group.importResult.stats.playersNeedingReview.join(", ")}</p>}
+                      </div>
+                    )}
+
+                    {group.status !== "imported" && (
+                      <>
+                        <div className="mb-4">
+                          <label className="block text-gray-300 mb-2 text-sm">League</label>
+                          <select value={group.leagueId} onChange={(e) => updateTestGroup(group.id, { leagueId: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                            <option value="auto">🔍 Auto (find fixture)</option>
+                            <option value="">No league (create new match)</option>
+                            {leagues.map((l) => <option key={l.id} value={l.id}>{l.name} {l.season ? `(${l.season})` : ""}</option>)}
+                          </select>
+                        </div>
+
+                        <div className="mb-4">
+                          <label className="block text-gray-300 mb-2 text-sm">Match Screenshots</label>
+                          <button type="button" onClick={() => pasteTestGroupImageFromClipboard(group.id)} className="mb-3 w-full flex items-center justify-center gap-2 bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-500/30 text-yellow-300 font-medium py-3 px-4 rounded-lg transition">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                            Paste Image from Clipboard
+                          </button>
+                          <div className="rounded-lg border-2 border-dashed border-yellow-600/40 p-6 text-center hover:border-yellow-500/60 focus-within:border-yellow-500 transition cursor-pointer" onPaste={(e) => handleTestPasteGroupImages(group.id, e)} tabIndex={0}>
+                            <input type="file" accept="image/*" multiple onChange={(e) => handleTestGroupImageChange(group.id, e)} className="hidden" id={`test-match-image-upload-${group.id}`} />
+                            <label htmlFor={`test-match-image-upload-${group.id}`} className="cursor-pointer">
+                              <div className="text-3xl mb-2">🧪</div>
+                              <p className="text-gray-400">Click to browse files</p>
+                              <p className="text-xs text-gray-500 mt-1">Or focus here and press Ctrl+V</p>
+                            </label>
+                          </div>
+                        </div>
+
+                        {group.previews.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm text-gray-400">{group.previews.length} image(s) ready</span>
+                              <button onClick={() => updateTestGroup(group.id, { images: [], previews: [] })} className="text-xs text-red-400 hover:text-red-300">Clear all</button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {group.previews.map((preview, index) => (
+                                <div key={index} className="relative inline-block">
+                                  <img src={preview} alt={`Preview ${index + 1}`} className="h-20 rounded-lg border border-gray-600" />
+                                  <button onClick={() => removeTestGroupImage(group.id, index)} className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-400 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">×</button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 flex-wrap">
+                          {(group.status === "idle" || group.status === "error") && (
+                            <>
+                              <button onClick={() => handleTestExtractGroup(group.id)} disabled={group.images.length === 0} className="flex-1 min-w-[150px] bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-2.5 px-4 rounded transition">Extract & Validate (TEST)</button>
+                              <button onClick={() => handleTestDirectImportGroup(group.id)} disabled={group.images.length === 0} className="flex-1 min-w-[150px] bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-2.5 px-4 rounded transition">Direct Import</button>
+                            </>
+                          )}
+                          {group.status === "validated" && (
+                            <>
+                              <label className="w-full flex items-center gap-2 cursor-pointer select-none text-sm text-gray-300">
+                                <input type="checkbox" checked={keepFixtureDate} onChange={e => setKeepFixtureDate(e.target.checked)} className="w-4 h-4 rounded accent-yellow-500" />
+                                Keep original fixture date <span className="text-gray-500 font-normal">(uncheck to set date to now)</span>
+                              </label>
+                              <button onClick={() => setTestEditingGroupId(group.id)} className="flex-1 min-w-[150px] bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-4 rounded transition flex items-center justify-center gap-2">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                Review & Edit
+                              </button>
+                              <button onClick={() => handleTestImportGroup(group.id)} className="flex-1 min-w-[150px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded transition">Import Match</button>
+                              <button onClick={() => updateTestGroup(group.id, { status: "idle", extractedData: null, editedData: null, teamRosters: null, validationStats: null })} className="bg-gray-700 hover:bg-gray-600 text-gray-300 py-2.5 px-4 rounded transition">Reset</button>
+                            </>
+                          )}
+                        </div>
+
+                        {group.status === "validated" && group.editedData && (
+                          <div className="mt-4 p-3 bg-gray-800 rounded-lg">
+                            <div className="flex items-center justify-center gap-4 text-lg font-bold">
+                              <span className="text-blue-400">{group.editedData.home_team?.team_name}</span>
+                              <span className="text-white">{group.editedData.home_team?.goals ?? 0} - {group.editedData.away_team?.goals ?? 0}</span>
+                              <span className="text-red-400">{group.editedData.away_team?.team_name}</span>
+                            </div>
+                            <div className="text-center text-gray-500 text-sm mt-1">{group.editedData.home_team?.players?.length || 0} + {group.editedData.away_team?.players?.length || 0} players extracted</div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* TEST Edit Modal */}
+            {testEditingGroupId && testEditingGroup && testEditingGroup.editedData && (
+              <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-gray-800 rounded-lg w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+                  <div className="sticky top-0 bg-gray-800 border-b border-yellow-700/50 p-4 flex items-center justify-between z-10">
+                    <div>
+                      <h3 className="text-lg font-semibold text-yellow-400">🧪 TEST — Review & Edit Players</h3>
+                      {testEditingGroup.validationStats && testEditingGroup.validationStats.playersNeedingReview > 0 && <p className="text-sm text-red-400 mt-1">⚠️ {testEditingGroup.validationStats.playersNeedingReview} player(s) need manual selection</p>}
+                    </div>
+                    <button onClick={() => setTestEditingGroupId(null)} className="text-gray-400 hover:text-white p-2">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+
+                  <div className="p-4 space-y-6">
+                    <div className="bg-gray-900 p-4 rounded-lg">
+                      <div className="flex items-center justify-center gap-4 text-2xl font-bold">
+                        <div className="text-right flex-1">
+                          <input type="text" value={testEditingGroup.editedData.home_team?.team_name || ""} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "home", "team_name", e.target.value)} className="bg-transparent border-b border-gray-600 text-white text-right w-full focus:border-yellow-500 focus:outline-none" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="number" value={testEditingGroup.editedData.home_team?.goals ?? 0} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "home", "goals", parseInt(e.target.value) || 0)} className="w-12 bg-gray-700 text-white text-center rounded p-1" />
+                          <span className="text-gray-400">-</span>
+                          <input type="number" value={testEditingGroup.editedData.away_team?.goals ?? 0} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "away", "goals", parseInt(e.target.value) || 0)} className="w-12 bg-gray-700 text-white text-center rounded p-1" />
+                        </div>
+                        <div className="text-left flex-1">
+                          <input type="text" value={testEditingGroup.editedData.away_team?.team_name || ""} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "away", "team_name", e.target.value)} className="bg-transparent border-b border-gray-600 text-white w-full focus:border-yellow-500 focus:outline-none" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {(["home", "away"] as const).map((side) => {
+                        const team = side === "home" ? testEditingGroup.editedData.home_team : testEditingGroup.editedData.away_team;
+                        const players2 = team?.players || [];
+                        const roster = side === "home" ? testEditingGroup.teamRosters?.home : testEditingGroup.teamRosters?.away;
+
+                        return (
+                          <div key={side} className="bg-gray-900 p-4 rounded-lg">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className={`font-semibold ${side === "home" ? "text-blue-400" : "text-red-400"}`}>{team?.team_name || (side === "home" ? "Home" : "Away")} Players ({players2.length})</h4>
+                              <button onClick={() => addTestGroupPreviewPlayer(testEditingGroupId, side)} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded">+ Add</button>
+                            </div>
+
+                            <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                              {players2.map((player: any, idx: number) => {
+                                const matchResult = player.matchResult;
+                                const needsReview = matchResult?.needsUserReview;
+                                const suggestions = matchResult?.suggestions || [];
+                                const isBenched = !player.is_starter && player.sub_number !== null && (player.score === 0 || player.score === undefined);
+
+                                return (
+                                  <div key={idx} className={cx("p-3 rounded-lg border", needsReview ? "bg-red-900/20 border-red-500/50" : isBenched ? "bg-gray-800/50 border-gray-700" : "bg-gray-800 border-gray-700")}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <select value={player.position || ""} onChange={(e) => updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "position", e.target.value)} className="bg-gray-700 text-white text-xs rounded px-2 py-1 w-16">
+                                        {["GK", "LB", "CB", "RB", "LWB", "RWB", "CDM", "CM", "CAM", "LM", "RM", "LW", "RW", "LF", "RF", "CF", "ST"].map(pos => <option key={pos} value={pos}>{pos}</option>)}
+                                      </select>
+                                      <input type="text" value={player.name || ""} onChange={(e) => updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "name", e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 flex-1" placeholder="Player name" />
+                                      <ConfidenceBadge confidence={matchResult?.confidence || 0} />
+                                      <button onClick={() => removeTestGroupPreviewPlayer(testEditingGroupId, side, idx)} className="text-red-400 hover:text-red-300 text-sm px-2">✕</button>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <span className="text-xs text-gray-500">ID:</span>
+                                      <input type="text" value={player.user_id || ""} onChange={(e) => updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "user_id", e.target.value)} className="bg-gray-700 text-white text-xs rounded px-2 py-1 flex-1 font-mono" placeholder="Player ID (8 chars)" />
+                                      {matchResult?.matchMethod && <span className="text-xs text-gray-500">{matchResult.matchMethod}</span>}
+                                    </div>
+
+                                    {(needsReview || suggestions.length > 0) && (
+                                      <div className="mb-2 p-2 bg-gray-900 rounded">
+                                        <label className="block text-xs text-amber-400 mb-1">{needsReview ? "⚠️ Select correct player:" : "Suggestions:"}</label>
+                                        <select value={matchResult?.playerId || ""} onChange={(e) => {
+                                          const selectedId = e.target.value;
+                                          if (selectedId === "__new__") {
+                                            updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "matchResult", { ...matchResult, playerId: null, confidence: 0, matchMethod: "create_new", needsUserReview: false });
+                                          } else if (selectedId) {
+                                            const allOptions = [...suggestions, ...(roster || [])];
+                                            const selected = allOptions.find((p: any) => (p.id || p.player?.id) === selectedId);
+                                            if (selected) selectTestPlayerForMatch(testEditingGroupId, side, idx, selected.player || selected);
+                                          }
+                                        }} className="w-full bg-gray-700 text-white text-xs rounded p-2">
+                                          <option value="">-- Select player --</option>
+                                          {suggestions.length > 0 && <optgroup label="Suggestions">{suggestions.map((s: any) => <option key={s.id} value={s.id}>{s.name || 'Unknown'} ({s.game_user_id}) - {s.confidence}%</option>)}</optgroup>}
+                                          {roster && roster.length > 0 && <optgroup label="Team Roster (recent)">{roster.filter((p: Player) => !suggestions.some((s: any) => s.id === p.id)).slice(0, 15).map((p: Player) => <option key={p.id} value={p.id}>{p.name || 'Unknown'} ({p.game_user_id || '—'})</option>)}</optgroup>}
+                                          <optgroup label="Other"><option value="__new__">➕ Create new player</option></optgroup>
+                                        </select>
+                                      </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <label className="flex items-center gap-1 text-xs text-gray-400">
+                                        <input type="checkbox" checked={player.is_starter ?? true} onChange={(e) => { updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "is_starter", e.target.checked); if (e.target.checked) updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "sub_number", null); }} className="rounded bg-gray-600" />
+                                        Starter
+                                      </label>
+                                      {!player.is_starter && <input type="number" value={player.sub_number || ""} onChange={(e) => updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "sub_number", parseInt(e.target.value) || null)} className="bg-gray-700 text-white text-xs rounded px-2 py-1 w-16" placeholder="Sub#" />}
+                                    </div>
+
+                                    {(() => {
+                                      const expected = calculateExpectedScore(player);
+                                      const actual = player.score ?? 0;
+                                      const diff = actual - expected;
+                                      const mismatch = !player.stats_incomplete && diff !== 0;
+                                      return mismatch ? <div className={`text-xs px-2 py-1 rounded mb-1 ${Math.abs(diff) > 50 ? "bg-red-500/20 text-red-400" : "bg-yellow-500/20 text-yellow-400"}`}>Score mismatch: actual {actual} vs expected {expected} (diff {diff > 0 ? "+" : ""}{diff})</div> : null;
+                                    })()}
+
+                                    <div className="grid grid-cols-5 gap-1 text-xs">
+                                      {[{ key: "score", label: "Score", color: "text-amber-400" }, { key: "goals", label: "Goals", color: "text-emerald-400" }, { key: "assists", label: "Assists", color: "text-sky-400" }, { key: "shots", label: "Shots", color: "" }, { key: "shots_on_target", label: "On Target", color: "" }, { key: "passes", label: "Passes", color: "" }, { key: "key_passes", label: "Key Pass", color: "" }, { key: "tackles", label: "Tackles", color: "" }, { key: "key_tackles", label: "Key Tack", color: "" }, { key: "interceptions", label: "Int.", color: "" }, { key: "key_interceptions", label: "Key Int.", color: "" }, { key: "possessions_lost", label: "Poss Lost", color: "text-red-400" }, { key: "gk_saves", label: "Saves", color: "text-yellow-400" }, { key: "gk_catches", label: "Catches", color: "text-yellow-400" }].map(({ key, label, color }) => (
+                                        <div key={key} className="flex flex-col">
+                                          <span className={`text-gray-500 ${color}`}>{label}</span>
+                                          <input type="number" value={player[key] ?? 0} onChange={(e) => updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, key, parseInt(e.target.value) || 0)} className="bg-gray-700 text-white rounded px-1 py-0.5 text-xs w-full" />
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    {isBenched && <div className="mt-2 text-xs text-gray-500 flex items-center gap-1"><span className="bg-gray-700 px-2 py-0.5 rounded">Benched</span></div>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const ed = testEditingGroup?.editedData;
+                    if (!ed) return null;
+                    const mismatches: { name: string; actual: number; expected: number }[] = [];
+                    for (const side of ["home_team", "away_team"] as const) {
+                      for (const p of ed[side]?.players ?? []) {
+                        if (p.stats_incomplete) continue;
+                        const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
+                        if (isBenched) continue;
+                        const actual = p.score ?? 0;
+                        const expected = calculateExpectedScore(p);
+                        if (actual !== expected) mismatches.push({ name: p.name || p.user_id || "Unknown", actual, expected });
+                      }
+                    }
+                    return mismatches.length > 0 ? (
+                      <div className="mx-4 mb-2 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+                        <div className="text-red-400 text-sm font-semibold mb-1">⚠️ Score Mismatch — Import Blocked</div>
+                        {mismatches.map((m, i) => <div key={i} className="text-red-300 text-xs">{m.name}: actual {m.actual} vs expected {m.expected} (diff {m.actual - m.expected > 0 ? "+" : ""}{m.actual - m.expected})</div>)}
+                        <div className="text-red-400/70 text-xs mt-1">Fix the player stats so scores add up before importing.</div>
+                      </div>
+                    ) : null;
+                  })()}
+
+                  <div className="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex gap-3">
+                    <button onClick={() => setTestEditingGroupId(null)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded transition">Save & Close</button>
+                    <button onClick={() => {
+                      const ed = testEditingGroup?.editedData;
+                      if (ed) {
+                        for (const side of ["home_team", "away_team"] as const) {
+                          for (const p of ed[side]?.players ?? []) {
+                            if (p.stats_incomplete) continue;
+                            const isBenched = !p.is_starter && p.sub_number !== null && (p.score === 0 || p.score === undefined);
+                            if (isBenched) continue;
+                            const actual = p.score ?? 0;
+                            const expected = calculateExpectedScore(p);
+                            if (actual !== expected) { alert(`⚠️ Score mismatch for ${p.name || p.user_id || "Unknown"}: actual ${actual} vs expected ${expected}. Fix player stats before importing.`); return; }
+                          }
+                        }
+                      }
+                      handleTestImportGroup(testEditingGroupId);
+                      setTestEditingGroupId(null);
+                    }} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-4 rounded transition">✓ Save & Import</button>
                   </div>
                 </div>
               </div>
