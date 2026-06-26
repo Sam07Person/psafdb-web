@@ -34,13 +34,20 @@ function requireAuth(req: NextRequest) {
 }
 
 
-// Normalize team name for comparison
+// Normalize team name for comparison (strips accents so "Sénmurw FC" matches
+// the extracted "SenmurWFC")
 function normalizeTeamName(name: string): string {
   return name.toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/\s+fc$/i, '')
     .replace(/^fc\s+/i, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// alphanumeric-only form — ignores spaces/punctuation
+function alnumTeamName(name: string): string {
+  return normalizeTeamName(name).replace(/[^a-z0-9]/g, "");
 }
 
 // Check if team names match (fuzzy)
@@ -50,6 +57,11 @@ function doTeamNamesMatch(name1: string, name2: string): boolean {
 
   if (n1 === n2) return true;
   if (n1.includes(n2) || n2.includes(n1)) return true;
+
+  // compare ignoring all spaces/punctuation ("Paris Saint GE" ~ "ParisSaintGE")
+  const a1 = alnumTeamName(name1);
+  const a2 = alnumTeamName(name2);
+  if (a1 && a2 && (a1 === a2 || a1.includes(a2) || a2.includes(a1))) return true;
 
   const distance = levenshteinDistance(n1, n2);
   const maxLen = Math.max(n1.length, n2.length);
@@ -407,11 +419,12 @@ export async function POST(req: NextRequest) {
     let awayTeamData = mergedAway;
 
     if (isAutoMode) {
-      matchingFixture = await findMatchingFixture(
-        extractedData.home_team.team_name,
-        extractedData.away_team.team_name,
-        logs
-      );
+      // Prefer the DB team resolved during validation (_team_match) — it's the
+      // canonical name and matches the fixture's stored team name far more
+      // reliably than the raw extracted/abbreviated name (e.g. "Paris Saint GE").
+      const homeLookupName = extractedData.home_team?._team_match?.name || extractedData.home_team.team_name;
+      const awayLookupName = extractedData.away_team?._team_match?.name || extractedData.away_team.team_name;
+      matchingFixture = await findMatchingFixture(homeLookupName, awayLookupName, logs);
 
       if (matchingFixture) {
         finalLeagueId = matchingFixture.league_id;

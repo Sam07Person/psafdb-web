@@ -257,6 +257,8 @@ For each image extract that single player's data. Be precise with numbers and na
 - Stats shown as "X (Y)": X is the total, Y is the parenthetical (key / on-target). Extract X and Y separately.
 - Use 0 for a blank/zero numeric stat. Use null only when a field is genuinely unreadable.
 
+IMPORTANT — validity check: set "is_player_row": true ONLY if the image shows exactly ONE player's full stat row (one name on the left followed by that player's stat columns). Set "is_player_row": false if the image instead shows: a match-summary / team-totals box (e.g. "Possession %", a centre score panel), a column-header strip, MULTIPLE players, or otherwise is not a single clean player row. When false, still return the object but you may leave fields null/0.
+
 Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image, in the SAME ORDER as the images.`,
         },
         {
@@ -285,7 +287,8 @@ Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image,
   "key_interceptions": 1,
   "possessions_lost": 10,
   "gk_saves": 5,
-  "gk_catches": 2
+  "gk_catches": 2,
+  "is_player_row": true
 }`,
             },
             ...imageContents,
@@ -340,6 +343,7 @@ Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image,
       sub_number: subNumber,
       stats_incomplete: false,
       _strip: meta.dataUrl, // source row image, for the review UI
+      _isPlayerRow: p.is_player_row !== false, // false ⇒ overview/summary/mixed crop
     };
   });
 }
@@ -490,38 +494,51 @@ export async function POST(req: NextRequest) {
       const away = extractedData.away_team?.players || [];
 
       // extract players for each set (one GPT-4o call per set / per team)
-      const sets: any[][] = [];
+      const rawSets: any[][] = [];
       for (const set of stripSets) {
         const strips: StripMeta[] = (set?.strips || []).filter((s: any) => s?.dataUrl);
         if (strips.length === 0) continue;
         try {
-          sets.push(await extractTeamPlayersFromStrips(strips));
+          rawSets.push(await extractTeamPlayersFromStrips(strips));
         } catch (e) {
           console.error("Strip extraction failed for a set:", e);
         }
       }
 
-      // keep the two richest sets (drops a basic-overview set if one slipped in)
-      sets.sort((a, b) => statRichness(b) - statRichness(a));
-      const chosen = sets.slice(0, 2);
+      // Keep only sets that are a real single-team panel. The model flags each
+      // crop as is_player_row, so a match-summary/overview image (mixed rows /
+      // team-totals box → most rows flagged false) is rejected. Lenient: a real
+      // panel just needs enough named rows and a player-row majority (so AI noise
+      // on one or two rows doesn't drop a whole team).
+      const sets = rawSets
+        .filter((s) => {
+          const named = s.filter((p) => p.name && String(p.name).trim()).length;
+          const playerRows = s.filter((p) => p._isPlayerRow !== false).length;
+          return named >= 4 && playerRows >= Math.ceil(s.length / 2);
+        })
+        .sort((a, b) => statRichness(b) - statRichness(a));
 
-      if (chosen.length === 1) {
-        const s = chosen[0];
+      // Assign sets to teams. With TWO valid panels (the usual case) assign BOTH
+      // by whichever orientation best matches the skeleton names — by elimination,
+      // so a team still gets its strips even if its name match is weak. With one,
+      // assign it to the better-matching team.
+      if (sets.length >= 2) {
+        const a = sets[0], b = sets[1];
+        const orientAB = nameOverlap(a, home) + nameOverlap(b, away);
+        const orientBA = nameOverlap(b, home) + nameOverlap(a, away);
+        const homeSet = orientAB >= orientBA ? a : b;
+        const awaySet = orientAB >= orientBA ? b : a;
+        if (extractedData.home_team) extractedData.home_team.players = homeSet;
+        if (extractedData.away_team) extractedData.away_team.players = awaySet;
+        strippedTeams = 2;
+      } else if (sets.length === 1) {
+        const s = sets[0];
         if (nameOverlap(s, home) >= nameOverlap(s, away)) {
           if (extractedData.home_team) extractedData.home_team.players = s;
         } else if (extractedData.away_team) {
           extractedData.away_team.players = s;
         }
         strippedTeams = 1;
-      } else if (chosen.length >= 2) {
-        const [s0, s1] = chosen;
-        const s0Home = nameOverlap(s0, home);
-        const s1Home = nameOverlap(s1, home);
-        const homeSet = s0Home >= s1Home ? s0 : s1;
-        const awaySet = s0Home >= s1Home ? s1 : s0;
-        if (extractedData.home_team) extractedData.home_team.players = homeSet;
-        if (extractedData.away_team) extractedData.away_team.players = awaySet;
-        strippedTeams = 2;
       }
     }
 

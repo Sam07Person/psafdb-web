@@ -32,22 +32,33 @@ function requireAuth(req: NextRequest) {
   return { ok: true as const };
 }
 
-// Normalize team name for comparison
+// Normalize team name for comparison (strips accents/diacritics so e.g.
+// "Sénmurw FC" matches the extracted "SenmurWFC").
 function normalizeTeamName(name: string): string {
   return name.toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // strip accents: é→e, ü→u
     .replace(/\s+fc$/i, '')
     .replace(/^fc\s+/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+// alphanumeric-only form — ignores spaces/punctuation ("Senmurw FC" ~ "SenmurWFC")
+function alnumTeamName(name: string): string {
+  return normalizeTeamName(name).replace(/[^a-z0-9]/g, "");
+}
+
 // Check if team names match (fuzzy)
 function doTeamNamesMatch(name1: string, name2: string): boolean {
   const n1 = normalizeTeamName(name1);
   const n2 = normalizeTeamName(name2);
-
   if (n1 === n2) return true;
   if (n1.includes(n2) || n2.includes(n1)) return true;
+
+  // compare ignoring all spaces/punctuation
+  const a1 = alnumTeamName(name1);
+  const a2 = alnumTeamName(name2);
+  if (a1 && a2 && (a1 === a2 || a1.includes(a2) || a2.includes(a1))) return true;
 
   return false;
 }

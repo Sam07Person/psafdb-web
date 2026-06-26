@@ -336,9 +336,8 @@ export default function AdminDashboardPage() {
     try {
       const ok = await verifyAuth(password, token);
       if (ok) {
-        setAuthenticated(true);
         try { localStorage.setItem("psafdb_admin_auth", JSON.stringify({ password, token })); } catch {}
-        loadAllData();
+        setAuthenticated(true); // data loads via the effect below, once creds are in state
       } else {
         setLoginError("Invalid admin password or Invalid Token");
       }
@@ -371,8 +370,7 @@ export default function AdminDashboardPage() {
       setToken(tok);
       (async () => {
         if (await verifyAuth(pw, tok)) {
-          setAuthenticated(true);
-          loadAllData();
+          setAuthenticated(true); // data loads via the effect below
         } else {
           try { localStorage.removeItem("psafdb_admin_auth"); } catch {}
         }
@@ -382,6 +380,14 @@ export default function AdminDashboardPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load all admin data once authenticated AND credentials are in state, so the
+  // request headers (built from password/token) are populated. Calling
+  // loadAllData() right after setPassword/setToken would use stale empty headers.
+  useEffect(() => {
+    if (authenticated && password && token) loadAllData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, password, token]);
 
   const loadTierSettings = async () => {
     try {
@@ -1291,6 +1297,8 @@ export default function AdminDashboardPage() {
     try {
       // Cut each image into per-player row strips (client-side) so each player's
       // stats are read from their own isolated row — same enhanced flow as TEST.
+      // A single team is at most 9 rows (6 starters + 3 subs); skip larger sets
+      // (the overview's centre stats-box or both lineups) so they aren't sent.
       const stripSets: { strips: { dataUrl: string; isSub: boolean; label: string }[] }[] = [];
       for (const img of group.images) {
         try {
@@ -1298,7 +1306,7 @@ export default function AdminDashboardPage() {
           const strips = result.panels.flatMap((p) =>
             p.rows.map((r) => ({ dataUrl: r.dataUrl, isSub: r.isSub, label: r.label }))
           );
-          if (strips.length > 0) stripSets.push({ strips });
+          if (strips.length > 0 && strips.length <= 10) stripSets.push({ strips });
         } catch (e) {
           console.error("Row cut failed for an image:", e);
         }
@@ -1796,7 +1804,7 @@ export default function AdminDashboardPage() {
           const strips = result.panels.flatMap((p) =>
             p.rows.map((r) => ({ dataUrl: r.dataUrl, isSub: r.isSub, label: r.label }))
           );
-          if (strips.length > 0) stripSets.push({ strips });
+          if (strips.length > 0 && strips.length <= 10) stripSets.push({ strips });
         } catch (e) {
           console.error("Row cut failed for an image:", e);
         }
