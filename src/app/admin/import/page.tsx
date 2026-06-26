@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { splitMatchImage } from "@/lib/imageRowSplitter";
 
 // Compress an image dataURL to stay under a max size (JPEG quality reduction + downscale)
 async function compressImage(dataUrl: string, maxBytes = 1_200_000): Promise<string> {
@@ -237,6 +238,7 @@ export default function AdminDashboardPage() {
     { id: generateGroupId(), images: [], previews: [], leagueId: "auto", extractedData: null, editedData: null, status: "idle", importResult: null, error: null, teamRosters: null, validationStats: null }
   ]);
   const [testEditingGroupId, setTestEditingGroupId] = useState<string | null>(null);
+  const [zoomedStrip, setZoomedStrip] = useState<string | null>(null);
 
   // Team import state
   const [teamImportImage, setTeamImportImage] = useState<string | null>(null);
@@ -315,17 +317,27 @@ export default function AdminDashboardPage() {
     Authorization: `Bearer ${token}`,
   };
 
+  const verifyAuth = async (pw: string, tok: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/admin/import", {
+        method: "GET",
+        headers: { "x-admin-password": pw, Authorization: `Bearer ${tok}` },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/import", {
-        method: "GET",
-        headers: { "x-admin-password": password, Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
+      const ok = await verifyAuth(password, token);
+      if (ok) {
         setAuthenticated(true);
+        try { localStorage.setItem("psafdb_admin_auth", JSON.stringify({ password, token })); } catch {}
         loadAllData();
       } else {
         setLoginError("Invalid admin password or Invalid Token");
@@ -337,9 +349,39 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleLogout = () => {
+    try { localStorage.removeItem("psafdb_admin_auth"); } catch {}
+    setAuthenticated(false);
+    setPassword("");
+    setToken("");
+  };
+
   const loadAllData = async () => {
     await Promise.all([loadLeagues(), loadTeams(), loadPlayers(), loadFixtures(), loadTierSettings()]);
   };
+
+  // Restore session on refresh: re-use saved credentials and re-verify them.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("psafdb_admin_auth");
+      if (!saved) return;
+      const { password: pw, token: tok } = JSON.parse(saved);
+      if (!pw || !tok) return;
+      setPassword(pw);
+      setToken(tok);
+      (async () => {
+        if (await verifyAuth(pw, tok)) {
+          setAuthenticated(true);
+          loadAllData();
+        } else {
+          try { localStorage.removeItem("psafdb_admin_auth"); } catch {}
+        }
+      })();
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadTierSettings = async () => {
     try {
@@ -1247,11 +1289,26 @@ export default function AdminDashboardPage() {
     updateGroup(groupId, { status: "extracting", error: null });
 
     try {
-      // Step 1: Extract data from images
-      const extractRes = await fetch("/api/admin/extract-match", {
+      // Cut each image into per-player row strips (client-side) so each player's
+      // stats are read from their own isolated row — same enhanced flow as TEST.
+      const stripSets: { strips: { dataUrl: string; isSub: boolean; label: string }[] }[] = [];
+      for (const img of group.images) {
+        try {
+          const result = await splitMatchImage(img);
+          const strips = result.panels.flatMap((p) =>
+            p.rows.map((r) => ({ dataUrl: r.dataUrl, isSub: r.isSub, label: r.label }))
+          );
+          if (strips.length > 0) stripSets.push({ strips });
+        } catch (e) {
+          console.error("Row cut failed for an image:", e);
+        }
+      }
+
+      // Step 1: Extract data (enhanced strip-based route)
+      const extractRes = await fetch("/api/admin/extract-match-test", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ images: group.images }),
+        body: JSON.stringify({ images: group.images, stripSets }),
       });
       const extractData = await extractRes.json();
       if (!extractRes.ok) throw new Error(extractData.error || "Extraction failed");
@@ -1312,13 +1369,18 @@ export default function AdminDashboardPage() {
     updateGroup(groupId, { status: "importing", error: null });
 
     try {
+      // drop the heavy _strip preview images before importing
+      const cleaned = JSON.parse(JSON.stringify(group.editedData));
+      for (const t of ["home_team", "away_team"]) {
+        for (const p of cleaned?.[t]?.players || []) delete p._strip;
+      }
       const res = await fetch("/api/admin/import-images", {
         method: "POST",
         headers: authHeaders,
         body: JSON.stringify({
           images: [],
           league_id: group.leagueId || "auto",
-          extractedData: group.editedData,
+          extractedData: cleaned,
           keepFixtureDate,
         }),
       });
@@ -1724,11 +1786,27 @@ export default function AdminDashboardPage() {
     }
     updateTestGroup(groupId, { status: "extracting", error: null });
     try {
+      // Cut each uploaded image into per-player row strips (client-side). Each
+      // detailed team panel → one stripSet; the server runs one GPT-4o call per
+      // set so each player's stats come from their own isolated row.
+      const stripSets: { strips: { dataUrl: string; isSub: boolean; label: string }[] }[] = [];
+      for (const img of group.images) {
+        try {
+          const result = await splitMatchImage(img);
+          const strips = result.panels.flatMap((p) =>
+            p.rows.map((r) => ({ dataUrl: r.dataUrl, isSub: r.isSub, label: r.label }))
+          );
+          if (strips.length > 0) stripSets.push({ strips });
+        } catch (e) {
+          console.error("Row cut failed for an image:", e);
+        }
+      }
+
       // Calls the TEST extraction endpoint — modify /api/admin/extract-match-test/route.ts to experiment
       const extractRes = await fetch("/api/admin/extract-match-test", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ images: group.images }),
+        body: JSON.stringify({ images: group.images, stripSets }),
       });
       const extractData = await extractRes.json();
       if (!extractRes.ok) throw new Error(extractData.error || "Extraction failed");
@@ -1752,7 +1830,8 @@ export default function AdminDashboardPage() {
       });
 
       const reviewCount = validateData.stats?.playersNeedingReview || 0;
-      setMessage({ type: "success", text: reviewCount > 0 ? `[TEST] Extracted! ${reviewCount} player(s) need review.` : "[TEST] Extracted! All players matched." });
+      const stripNote = extractData.strippedTeams ? ` (per-player strips: ${extractData.strippedTeams} team${extractData.strippedTeams > 1 ? "s" : ""})` : "";
+      setMessage({ type: "success", text: (reviewCount > 0 ? `[TEST] Extracted! ${reviewCount} player(s) need review.` : "[TEST] Extracted! All players matched.") + stripNote });
     } catch (err: any) {
       updateTestGroup(groupId, { status: "error", error: err.message });
       setMessage({ type: "error", text: err.message });
@@ -1764,10 +1843,15 @@ export default function AdminDashboardPage() {
     if (!group || !group.editedData) return;
     updateTestGroup(groupId, { status: "importing", error: null });
     try {
+      // drop the heavy _strip preview images before importing
+      const cleaned = JSON.parse(JSON.stringify(group.editedData));
+      for (const t of ["home_team", "away_team"]) {
+        for (const p of cleaned?.[t]?.players || []) delete p._strip;
+      }
       const res = await fetch("/api/admin/import-images", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ images: [], league_id: group.leagueId || "auto", extractedData: group.editedData, keepFixtureDate }),
+        body: JSON.stringify({ images: [], league_id: group.leagueId || "auto", extractedData: cleaned, keepFixtureDate }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
@@ -2152,13 +2236,30 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="admin-dark min-h-screen bg-gray-900 p-4 md:p-8">
+      {zoomedStrip && (
+        <div
+          onClick={() => setZoomedStrip(null)}
+          className="fixed inset-0 z-[9999] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out overflow-auto"
+        >
+          <div className="max-w-[98vw] max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoomedStrip}
+              alt="zoomed player row"
+              className="rounded border border-gray-600"
+              style={{ minWidth: "1600px", width: "100%" }}
+            />
+            <p className="text-center text-gray-400 text-xs mt-2">Click outside the image to close</p>
+          </div>
+        </div>
+      )}
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <div>
             <Link href="/" className="text-sm text-gray-400 hover:text-white transition">← Back to Site</Link>
             <h1 className="text-2xl font-bold text-white mt-2">Admin Dashboard</h1>
           </div>
-          <button onClick={() => { setAuthenticated(false); setPassword(""); setToken(""); }} className="text-gray-400 hover:text-white text-sm">Logout</button>
+          <button onClick={handleLogout} className="text-gray-400 hover:text-white text-sm">Logout</button>
         </div>
 
         {message && (
@@ -2551,6 +2652,10 @@ export default function AdminDashboardPage() {
                                           "bg-gray-800 border-gray-700"
                                     )}
                                   >
+                                    {player._strip && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={player._strip} alt={`source row for ${player.name || idx + 1}`} title="Click to zoom — source row this player's stats were read from" onClick={() => setZoomedStrip(player._strip)} className="w-full rounded mb-2 border border-gray-700 bg-black/20 cursor-zoom-in hover:border-yellow-500/60 transition" />
+                                    )}
                                     {/* Player Header */}
                                     <div className="flex items-center gap-2 mb-2">
                                       <select
@@ -3001,6 +3106,10 @@ export default function AdminDashboardPage() {
 
                                 return (
                                   <div key={idx} className={cx("p-3 rounded-lg border", needsReview ? "bg-red-900/20 border-red-500/50" : isBenched ? "bg-gray-800/50 border-gray-700" : "bg-gray-800 border-gray-700")}>
+                                    {player._strip && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={player._strip} alt={`source row for ${player.name || idx + 1}`} title="Click to zoom — source row this player's stats were read from" onClick={() => setZoomedStrip(player._strip)} className="w-full rounded mb-2 border border-gray-700 bg-black/20 cursor-zoom-in hover:border-yellow-500/60 transition" />
+                                    )}
                                     <div className="flex items-center gap-2 mb-2">
                                       <select value={player.position || ""} onChange={(e) => updateTestGroupPreviewPlayer(testEditingGroupId, side, idx, "position", e.target.value)} className="bg-gray-700 text-white text-xs rounded px-2 py-1 w-16">
                                         {["GK", "LB", "CB", "RB", "LWB", "RWB", "CDM", "CM", "CAM", "LM", "RM", "LW", "RW", "LF", "RF", "CF", "ST"].map(pos => <option key={pos} value={pos}>{pos}</option>)}

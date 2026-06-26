@@ -223,6 +223,153 @@ IMPORTANT:
   };
 }
 
+type StripMeta = { dataUrl: string; isSub: boolean; label: string };
+
+// One GPT-4o call for ONE team: every player's cropped row strip is sent as a
+// separate, ordered image so the model can never mix one player's stats with
+// another's. Returns that team's players in lineup order.
+async function extractTeamPlayersFromStrips(strips: StripMeta[]) {
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
+
+  const imageContents = strips.map((s) => ({
+    type: "image_url" as const,
+    image_url: { url: s.dataUrl },
+  }));
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You extract football/soccer player statistics. You are given a SEQUENCE of cropped images. Each image shows EXACTLY ONE player's stat row. Treat every image independently — never carry a value from one image to another.
+
+For each image extract that single player's data. Be precise with numbers and names.
+- Player NAMES are the primary key — read them very carefully.
+- For user IDs (alphanumeric codes), they are case-sensitive and prone to OCR errors (0/O, 1/l/I, S/5, etc.). Give your best guess.
+- Ratings are shown as a coloured shield with a number; extract the number. A grey "-" shield means no rating (null).
+- Stats shown as "X (Y)": X is the total, Y is the parenthetical (key / on-target). Extract X and Y separately.
+- Use 0 for a blank/zero numeric stat. Use null only when a field is genuinely unreadable.
+
+Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image, in the SAME ORDER as the images.`,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Here are ${strips.length} cropped player rows for ONE team, top-to-bottom. Return a JSON array of exactly ${strips.length} objects in the same order, each:
+{
+  "name": "Player Name",
+  "user_id": "abc123",
+  "position": "GK",
+  "level": 70,
+  "overall_rating": 85,
+  "ping": 50,
+  "score": 500,
+  "passes": 20,
+  "key_passes": 2,
+  "assists": 0,
+  "shots": 0,
+  "shots_on_target": 0,
+  "goals": 0,
+  "tackles": 5,
+  "key_tackles": 1,
+  "interceptions": 3,
+  "key_interceptions": 1,
+  "possessions_lost": 10,
+  "gk_saves": 5,
+  "gk_catches": 2
+}`,
+            },
+            ...imageContents,
+          ],
+        },
+      ],
+      max_tokens: 4000,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`OpenAI API error: ${err}`);
+  }
+
+  const data = await response.json();
+  let jsonStr = (data.choices?.[0]?.message?.content || "").trim();
+  if (jsonStr.startsWith("```json")) jsonStr = jsonStr.slice(7);
+  else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
+  if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
+
+  let arr: any = JSON.parse(jsonStr.trim());
+  if (!Array.isArray(arr)) arr = arr.players || arr.rows || [];
+
+  const num = (v: any) => (typeof v === "number" ? v : v == null ? 0 : (parseInt(String(v).replace(/[^0-9-]/g, "")) || 0));
+
+  return (arr as any[]).map((p, i) => {
+    const meta = strips[i] || { isSub: false, label: String(i + 1) };
+    const subNumber = meta.isSub ? (parseInt(meta.label.replace(/\D/g, "")) || i + 1) : null;
+    return {
+      position: meta.isSub ? "" : (p.position ?? ""),
+      name: p.name ?? "",
+      user_id: p.user_id ?? null,
+      level: p.level ?? null,
+      overall_rating: p.overall_rating ?? null,
+      ping: p.ping ?? null,
+      score: num(p.score),
+      passes: num(p.passes),
+      key_passes: num(p.key_passes),
+      assists: num(p.assists),
+      shots: num(p.shots),
+      shots_on_target: num(p.shots_on_target),
+      goals: num(p.goals),
+      tackles: num(p.tackles),
+      key_tackles: num(p.key_tackles),
+      interceptions: num(p.interceptions),
+      key_interceptions: num(p.key_interceptions),
+      possessions_lost: num(p.possessions_lost),
+      gk_saves: num(p.gk_saves),
+      gk_catches: num(p.gk_catches),
+      is_starter: !meta.isSub,
+      sub_number: subNumber,
+      stats_incomplete: false,
+      _strip: meta.dataUrl, // source row image, for the review UI
+    };
+  });
+}
+
+function normName(s: any): string {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// how many strip players' names appear in a team's skeleton player list
+function nameOverlap(stripPlayers: any[], teamPlayers: any[]): number {
+  const set = new Set(teamPlayers.map((p) => normName(p.name)).filter(Boolean));
+  let m = 0;
+  for (const p of stripPlayers) {
+    const n = normName(p.name);
+    if (n && set.has(n)) m++;
+  }
+  return m;
+}
+
+// sum of non-zero detailed stats — distinguishes a real detailed panel from a
+// basic overview lineup (which has no per-player detailed stats)
+function statRichness(players: any[]): number {
+  let s = 0;
+  for (const p of players) {
+    s += [p.passes, p.tackles, p.interceptions, p.possessions_lost, p.shots, p.gk_saves]
+      .reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+  }
+  return s;
+}
+
 async function validateExtractedPlayers(extractedData: any): Promise<{
   validated: any;
   matchingSummary: ReturnType<typeof getMatchingSummary>;
@@ -324,13 +471,59 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { images } = body;
+    const { images, stripSets } = body;
 
     if (!images || !Array.isArray(images) || images.length === 0) {
       return json(400, { error: "No images provided" });
     }
 
+    // 1) Whole-image call: team-level stats, score, metadata, home/away identity
+    //    and skeleton player names (used to assign strips to the right team).
     const extractedData = await extractDataWithOpenAI(images);
+
+    // 2) Per-team strip calls: each cut player row is a separate image so the
+    //    model can't mix one player's stats with another's. Overrides player
+    //    stats; team-level stats stay from the whole-image call above.
+    let strippedTeams = 0;
+    if (Array.isArray(stripSets) && stripSets.length > 0) {
+      const home = extractedData.home_team?.players || [];
+      const away = extractedData.away_team?.players || [];
+
+      // extract players for each set (one GPT-4o call per set / per team)
+      const sets: any[][] = [];
+      for (const set of stripSets) {
+        const strips: StripMeta[] = (set?.strips || []).filter((s: any) => s?.dataUrl);
+        if (strips.length === 0) continue;
+        try {
+          sets.push(await extractTeamPlayersFromStrips(strips));
+        } catch (e) {
+          console.error("Strip extraction failed for a set:", e);
+        }
+      }
+
+      // keep the two richest sets (drops a basic-overview set if one slipped in)
+      sets.sort((a, b) => statRichness(b) - statRichness(a));
+      const chosen = sets.slice(0, 2);
+
+      if (chosen.length === 1) {
+        const s = chosen[0];
+        if (nameOverlap(s, home) >= nameOverlap(s, away)) {
+          if (extractedData.home_team) extractedData.home_team.players = s;
+        } else if (extractedData.away_team) {
+          extractedData.away_team.players = s;
+        }
+        strippedTeams = 1;
+      } else if (chosen.length >= 2) {
+        const [s0, s1] = chosen;
+        const s0Home = nameOverlap(s0, home);
+        const s1Home = nameOverlap(s1, home);
+        const homeSet = s0Home >= s1Home ? s0 : s1;
+        const awaySet = s0Home >= s1Home ? s1 : s0;
+        if (extractedData.home_team) extractedData.home_team.players = homeSet;
+        if (extractedData.away_team) extractedData.away_team.players = awaySet;
+        strippedTeams = 2;
+      }
+    }
 
     const { validated, matchingSummary, homeValidation, awayValidation } =
       await validateExtractedPlayers(extractedData);
@@ -344,6 +537,7 @@ export async function POST(req: NextRequest) {
       success: true,
       extracted: validated,
       imageCount: images.length,
+      strippedTeams,
       hasDetailedStats: extractedData.has_detailed_stats,
       validation: {
         summary: matchingSummary,
