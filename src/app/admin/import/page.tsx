@@ -1631,6 +1631,38 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Mark a whole team as "scores only" (no individual stats). Nulls the detailed
+  // stats and sets stats_incomplete, which bypasses the score-mismatch block.
+  const DETAIL_STAT_KEYS = [
+    "passes", "key_passes", "assists", "shots", "shots_on_target", "goals",
+    "tackles", "key_tackles", "interceptions", "key_interceptions",
+    "possessions_lost", "gk_saves", "gk_catches",
+  ] as const;
+  const applyTeamIncomplete = (p: any, incomplete: boolean) => {
+    if (!incomplete) return { ...p, stats_incomplete: false };
+    const cleared: any = { ...p, stats_incomplete: true };
+    for (const k of DETAIL_STAT_KEYS) cleared[k] = null;
+    return cleared;
+  };
+  const setGroupTeamIncomplete = (groupId: string, teamSide: "home" | "away", incomplete: boolean) => {
+    setMatchGroups(prev => prev.map(g => {
+      if (g.id !== groupId || !g.editedData) return g;
+      const team = teamSide === "home" ? "home_team" : "away_team";
+      const ed = { ...g.editedData };
+      ed[team] = { ...ed[team], players: (ed[team].players || []).map((p: any) => applyTeamIncomplete(p, incomplete)) };
+      return { ...g, editedData: ed };
+    }));
+  };
+  const setTestGroupTeamIncomplete = (groupId: string, teamSide: "home" | "away", incomplete: boolean) => {
+    setTestMatchGroups(prev => prev.map(g => {
+      if (g.id !== groupId || !g.editedData) return g;
+      const team = teamSide === "home" ? "home_team" : "away_team";
+      const ed = { ...g.editedData };
+      ed[team] = { ...ed[team], players: (ed[team].players || []).map((p: any) => applyTeamIncomplete(p, incomplete)) };
+      return { ...g, editedData: ed };
+    }));
+  };
+
   const refreshTeamRoster = async (groupId: string, side: "home" | "away", teamName: string) => {
     try {
       const res = await fetch(`/api/admin/team-roster?team=${encodeURIComponent(teamName)}`, {
@@ -2663,12 +2695,23 @@ export default function AdminDashboardPage() {
                               <h4 className={`font-semibold ${side === "home" ? "text-blue-400" : "text-red-400"}`}>
                                 {team?.team_name || (side === "home" ? "Home" : "Away")} Players ({players.length})
                               </h4>
-                              <button
-                                onClick={() => addGroupPreviewPlayer(editingGroupId, side)}
-                                className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded"
-                              >
-                                + Add
-                              </button>
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer" title="This team has no individual player stats — only scores. Skips the score-mismatch check.">
+                                  <input
+                                    type="checkbox"
+                                    checked={players.length > 0 && players.every((p: any) => p.stats_incomplete)}
+                                    onChange={(e) => setGroupTeamIncomplete(editingGroupId, side, e.target.checked)}
+                                    className="rounded bg-gray-600"
+                                  />
+                                  Scores only
+                                </label>
+                                <button
+                                  onClick={() => addGroupPreviewPlayer(editingGroupId, side)}
+                                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded"
+                                >
+                                  + Add
+                                </button>
+                              </div>
                             </div>
 
                             <div className="space-y-3 max-h-[500px] overflow-y-auto">
@@ -3136,7 +3179,18 @@ export default function AdminDashboardPage() {
                           <div key={side} className="bg-gray-900 p-4 rounded-lg">
                             <div className="flex items-center justify-between mb-3">
                               <h4 className={`font-semibold ${side === "home" ? "text-blue-400" : "text-red-400"}`}>{team?.team_name || (side === "home" ? "Home" : "Away")} Players ({players2.length})</h4>
-                              <button onClick={() => addTestGroupPreviewPlayer(testEditingGroupId, side)} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded">+ Add</button>
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer" title="This team has no individual player stats — only scores. Skips the score-mismatch check.">
+                                  <input
+                                    type="checkbox"
+                                    checked={players2.length > 0 && players2.every((p: any) => p.stats_incomplete)}
+                                    onChange={(e) => setTestGroupTeamIncomplete(testEditingGroupId, side, e.target.checked)}
+                                    className="rounded bg-gray-600"
+                                  />
+                                  Scores only
+                                </label>
+                                <button onClick={() => addTestGroupPreviewPlayer(testEditingGroupId, side)} className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded">+ Add</button>
+                              </div>
                             </div>
 
                             <div className="space-y-3 max-h-[500px] overflow-y-auto">
