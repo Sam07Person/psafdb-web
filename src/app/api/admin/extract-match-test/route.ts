@@ -42,6 +42,19 @@ function normalizeGroupName(raw: string): string {
   return raw.replace(/^groups?\s+/i, "Group ").trim();
 }
 
+// Parse JSON from the model, repairing thousands separators inside numbers
+// (e.g. a score "1,165" emitted as `"score": 1,165` is invalid JSON). Strips the
+// comma between a digit and a following group of exactly 3 digits.
+function parseLooseJson(s: string): any {
+  let t = s.trim();
+  for (let i = 0; i < 4; i++) {
+    const next = t.replace(/(\d),(\d{3})(?!\d)/g, "$1$2");
+    if (next === t) break;
+    t = next;
+  }
+  return JSON.parse(t);
+}
+
 async function extractDataWithOpenAI(base64Images: string[]) {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
@@ -189,6 +202,7 @@ IMPORTANT:
         },
       ],
       max_tokens: 8000,
+      response_format: { type: "json_object" }, // guarantees syntactically valid JSON
     }),
   });
 
@@ -207,7 +221,7 @@ IMPORTANT:
   else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
   if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
 
-  const parsed = JSON.parse(jsonStr.trim());
+  const parsed = parseLooseJson(jsonStr.trim());
 
   return {
     home_team: parsed.team_1 || parsed.home_team,
@@ -256,17 +270,18 @@ For each image extract that single player's data. Be precise with numbers and na
 - Ratings are shown as a coloured shield with a number; extract the number. A grey "-" shield means no rating (null).
 - Stats shown as "X (Y)": X is the total, Y is the parenthetical (key / on-target). Extract X and Y separately.
 - Use 0 for a blank/zero numeric stat. Use null only when a field is genuinely unreadable.
+- Write every number as a plain integer with NO thousands separators (e.g. 1165, never "1,165").
 
 IMPORTANT — validity check: set "is_player_row": true ONLY if the image shows exactly ONE player's full stat row (one name on the left followed by that player's stat columns). Set "is_player_row": false if the image instead shows: a match-summary / team-totals box (e.g. "Possession %", a centre score panel), a column-header strip, MULTIPLE players, or otherwise is not a single clean player row. When false, still return the object but you may leave fields null/0.
 
-Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image, in the SAME ORDER as the images.`,
+Return a JSON object of the form {"players": [ ... ]} whose array has EXACTLY one object per image, in the SAME ORDER as the images.`,
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `Here are ${strips.length} cropped player rows for ONE team, top-to-bottom. Return a JSON array of exactly ${strips.length} objects in the same order, each:
+              text: `Here are ${strips.length} cropped player rows for ONE team, top-to-bottom. Return a JSON object {"players": [ ... ]} whose array has exactly ${strips.length} objects in the same order, each:
 {
   "name": "Player Name",
   "user_id": "abc123",
@@ -296,6 +311,7 @@ Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image,
         },
       ],
       max_tokens: 4000,
+      response_format: { type: "json_object" }, // guarantees syntactically valid JSON
     }),
   });
 
@@ -310,7 +326,7 @@ Return ONLY a valid JSON array (no markdown), with EXACTLY one object per image,
   else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
   if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
 
-  let arr: any = JSON.parse(jsonStr.trim());
+  let arr: any = parseLooseJson(jsonStr.trim());
   if (!Array.isArray(arr)) arr = arr.players || arr.rows || [];
 
   const num = (v: any) => (typeof v === "number" ? v : v == null ? 0 : (parseInt(String(v).replace(/[^0-9-]/g, "")) || 0));
@@ -514,7 +530,9 @@ export async function POST(req: NextRequest) {
         .filter((s) => {
           const named = s.filter((p) => p.name && String(p.name).trim()).length;
           const playerRows = s.filter((p) => p._isPlayerRow !== false).length;
-          return named >= 4 && playerRows >= Math.ceil(s.length / 2);
+          // named lineup + player-row majority + actual detailed stats present
+          // (a score-only overview lineup has zero richness → rejected)
+          return named >= 4 && playerRows >= Math.ceil(s.length / 2) && statRichness(s) > 0;
         })
         .sort((a, b) => statRichness(b) - statRichness(a));
 
@@ -522,23 +540,42 @@ export async function POST(req: NextRequest) {
       // by whichever orientation best matches the skeleton names — by elimination,
       // so a team still gets its strips even if its name match is weak. With one,
       // assign it to the better-matching team.
+      let homeStripped = false, awayStripped = false;
       if (sets.length >= 2) {
         const a = sets[0], b = sets[1];
         const orientAB = nameOverlap(a, home) + nameOverlap(b, away);
         const orientBA = nameOverlap(b, home) + nameOverlap(a, away);
         const homeSet = orientAB >= orientBA ? a : b;
         const awaySet = orientAB >= orientBA ? b : a;
-        if (extractedData.home_team) extractedData.home_team.players = homeSet;
-        if (extractedData.away_team) extractedData.away_team.players = awaySet;
-        strippedTeams = 2;
+        if (extractedData.home_team) { extractedData.home_team.players = homeSet; homeStripped = true; }
+        if (extractedData.away_team) { extractedData.away_team.players = awaySet; awayStripped = true; }
       } else if (sets.length === 1) {
         const s = sets[0];
         if (nameOverlap(s, home) >= nameOverlap(s, away)) {
-          if (extractedData.home_team) extractedData.home_team.players = s;
+          if (extractedData.home_team) { extractedData.home_team.players = s; homeStripped = true; }
         } else if (extractedData.away_team) {
-          extractedData.away_team.players = s;
+          extractedData.away_team.players = s; awayStripped = true;
         }
-        strippedTeams = 1;
+      }
+      strippedTeams = (homeStripped ? 1 : 0) + (awayStripped ? 1 : 0);
+
+      // Detailed stats come ONLY from a real strip panel. A team WITHOUT one (e.g.
+      // only the overview was uploaded for it) must be marked stats-incomplete so
+      // the overview's score-only rows aren't imported as real zero stats.
+      const markIncomplete = (players: any[]): any[] =>
+        (players || []).map((p) => ({
+          ...p,
+          passes: null, key_passes: null, assists: null, shots: null,
+          shots_on_target: null, goals: null, tackles: null, key_tackles: null,
+          interceptions: null, key_interceptions: null, possessions_lost: null,
+          gk_saves: null, gk_catches: null,
+          stats_incomplete: true,
+        }));
+      if (!homeStripped && extractedData.home_team) {
+        extractedData.home_team.players = markIncomplete(extractedData.home_team.players);
+      }
+      if (!awayStripped && extractedData.away_team) {
+        extractedData.away_team.players = markIncomplete(extractedData.away_team.players);
       }
     }
 

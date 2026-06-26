@@ -197,6 +197,7 @@ IMPORTANT:
         },
       ],
       max_tokens: 8000,
+      response_format: { type: "json_object" }, // guarantees valid JSON
     }),
   });
 
@@ -215,7 +216,14 @@ IMPORTANT:
   else if (jsonStr.startsWith("```")) jsonStr = jsonStr.slice(3);
   if (jsonStr.endsWith("```")) jsonStr = jsonStr.slice(0, -3);
 
-  const parsed = JSON.parse(jsonStr.trim());
+  // repair thousands separators inside numbers (e.g. "score": 1,165 → 1165)
+  let cleaned = jsonStr.trim();
+  for (let i = 0; i < 4; i++) {
+    const next = cleaned.replace(/(\d),(\d{3})(?!\d)/g, "$1$2");
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+  const parsed = JSON.parse(cleaned);
 
   return {
     home_team: parsed.team_1 || parsed.home_team,

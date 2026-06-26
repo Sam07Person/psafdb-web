@@ -45,6 +45,26 @@ function levenshtein(a: string, b: string): number {
   return dp[a.length][b.length];
 }
 
+// Client-side team-name matching (mirrors the server) so editing a team name in
+// the review re-checks it against the loaded DB teams live.
+function normTeam(name: string): string {
+  return (name || "").toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/\s+fc$/i, "").replace(/^fc\s+/i, "")
+    .replace(/\s+/g, " ").trim();
+}
+function alnumTeam(name: string): string {
+  return normTeam(name).replace(/[^a-z0-9]/g, "");
+}
+function matchDbTeam(name: string, teams: { id: string; name: string }[]): { id: string; name: string } | null {
+  if (!name || !teams?.length) return null;
+  const n = normTeam(name), a = alnumTeam(name);
+  let best = teams.find((t) => normTeam(t.name) === n);
+  if (!best) best = teams.find((t) => { const tn = normTeam(t.name); return !!tn && (tn.includes(n) || n.includes(tn)); });
+  if (!best) best = teams.find((t) => { const ta = alnumTeam(t.name); return !!ta && !!a && (ta === a || ta.includes(a) || a.includes(ta)); });
+  return best ? { id: best.id, name: best.name } : null;
+}
+
 type Zone = { name: string; color: string; spots: number; type: "top" | "bottom" };
 
 type League = {
@@ -1600,6 +1620,7 @@ export default function AdminDashboardPage() {
         const updated = { ...g.editedData };
         const team = teamSide === "home" ? "home_team" : "away_team";
         updated[team] = { ...updated[team], [field]: value };
+        if (field === "team_name") updated[team]._team_match = matchDbTeam(value, teams);
         return { ...g, editedData: updated };
       }
       return g;
@@ -1995,6 +2016,7 @@ export default function AdminDashboardPage() {
         const updated = { ...g.editedData };
         const team = teamSide === "home" ? "home_team" : "away_team";
         updated[team] = { ...updated[team], [field]: value };
+        if (field === "team_name") updated[team]._team_match = matchDbTeam(value, teams);
         return { ...g, editedData: updated };
       }
       return g;
