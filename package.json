@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:cutter": "node --experimental-strip-types scripts/test-row-cutter.mts",
+    "debug:cutter": "node --experimental-strip-types scripts/debug-row-cutter.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
@@ -19,10 +21,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

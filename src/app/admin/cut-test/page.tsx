@@ -73,6 +73,26 @@ export default function CutTestPage() {
     jobs.forEach((j) => runSplit(j, forcedRows));
   };
 
+  const loadTestImages = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/test-images");
+      const data = await res.json();
+      if (!res.ok || !data.images) throw new Error(data.error || "Failed to load");
+      const newJobs: Job[] = data.images.map((img: { name: string; dataUrl: string }) => ({
+        id: uid(),
+        src: img.dataUrl,
+        name: img.name,
+        result: null,
+        error: null,
+        busy: false,
+      }));
+      setJobs(newJobs);
+      newJobs.forEach((j) => runSplit(j, forcedRows));
+    } catch (err) {
+      console.error(err);
+    }
+  }, [forcedRows, runSplit]);
+
   const removeJob = (id: string) => setJobs((prev) => prev.filter((j) => j.id !== id));
   const clearAll = () => setJobs([]);
 
@@ -111,6 +131,12 @@ export default function CutTestPage() {
               onChange={(e) => e.target.files && addFiles(e.target.files)}
             />
           </label>
+          <button
+            onClick={loadTestImages}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2 px-4 rounded transition"
+          >
+            Load all 15 test images
+          </button>
           <span className="text-gray-500 text-sm">or paste (Ctrl/Cmd+V) anywhere on this page</span>
 
           <div className="ml-auto flex items-center gap-2">
