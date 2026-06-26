@@ -2586,6 +2586,9 @@ export default function AdminDashboardPage() {
                             onChange={(e) => updateGroupPreviewTeam(editingGroupId, "home", "team_name", e.target.value)}
                             className="bg-transparent border-b border-gray-600 text-white text-right w-full focus:border-blue-500 focus:outline-none"
                           />
+                          {editingGroup.editedData.home_team?._team_match
+                            ? <p className="text-xs font-normal text-emerald-400 text-right mt-1">✓ detected: {editingGroup.editedData.home_team._team_match.name}</p>
+                            : <p className="text-xs font-normal text-amber-400 text-right mt-1">⚠ no matching team — a new one will be created</p>}
                         </div>
                         <div className="flex items-center gap-2">
                           <input
@@ -2609,6 +2612,9 @@ export default function AdminDashboardPage() {
                             onChange={(e) => updateGroupPreviewTeam(editingGroupId, "away", "team_name", e.target.value)}
                             className="bg-transparent border-b border-gray-600 text-white w-full focus:border-blue-500 focus:outline-none"
                           />
+                          {editingGroup.editedData.away_team?._team_match
+                            ? <p className="text-xs font-normal text-emerald-400 text-left mt-1">✓ detected: {editingGroup.editedData.away_team._team_match.name}</p>
+                            : <p className="text-xs font-normal text-amber-400 text-left mt-1">⚠ no matching team — a new one will be created</p>}
                         </div>
                       </div>
                     </div>
@@ -3072,6 +3078,9 @@ export default function AdminDashboardPage() {
                       <div className="flex items-center justify-center gap-4 text-2xl font-bold">
                         <div className="text-right flex-1">
                           <input type="text" value={testEditingGroup.editedData.home_team?.team_name || ""} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "home", "team_name", e.target.value)} className="bg-transparent border-b border-gray-600 text-white text-right w-full focus:border-yellow-500 focus:outline-none" />
+                          {testEditingGroup.editedData.home_team?._team_match
+                            ? <p className="text-xs font-normal text-emerald-400 text-right mt-1">✓ detected: {testEditingGroup.editedData.home_team._team_match.name}</p>
+                            : <p className="text-xs font-normal text-amber-400 text-right mt-1">⚠ no matching team — a new one will be created</p>}
                         </div>
                         <div className="flex items-center gap-2">
                           <input type="number" value={testEditingGroup.editedData.home_team?.goals ?? 0} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "home", "goals", parseInt(e.target.value) || 0)} className="w-12 bg-gray-700 text-white text-center rounded p-1" />
@@ -3080,6 +3089,9 @@ export default function AdminDashboardPage() {
                         </div>
                         <div className="text-left flex-1">
                           <input type="text" value={testEditingGroup.editedData.away_team?.team_name || ""} onChange={(e) => updateTestGroupPreviewTeam(testEditingGroupId, "away", "team_name", e.target.value)} className="bg-transparent border-b border-gray-600 text-white w-full focus:border-yellow-500 focus:outline-none" />
+                          {testEditingGroup.editedData.away_team?._team_match
+                            ? <p className="text-xs font-normal text-emerald-400 text-left mt-1">✓ detected: {testEditingGroup.editedData.away_team._team_match.name}</p>
+                            : <p className="text-xs font-normal text-amber-400 text-left mt-1">⚠ no matching team — a new one will be created</p>}
                         </div>
                       </div>
                     </div>

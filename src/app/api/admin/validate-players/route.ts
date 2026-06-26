@@ -96,6 +96,22 @@ export async function POST(req: NextRequest) {
     const homeTeamName = extractedData.home_team?.team_name || "";
     const awayTeamName = extractedData.away_team?.team_name || "";
 
+    // Match the extracted team names to existing DB teams so the review UI can
+    // show which team each name was detected as.
+    const { data: allTeamsData } = await supabaseAdmin
+      .from("teams")
+      .select("id, name");
+    const allTeams = allTeamsData || [];
+    const matchTeam = (name: string): { id: string; name: string } | null => {
+      if (!name) return null;
+      const norm = normalizeTeamName(name);
+      let best = allTeams.find((t) => normalizeTeamName(t.name) === norm);
+      if (!best) best = allTeams.find((t) => doTeamNamesMatch(t.name, name));
+      return best ? { id: best.id, name: best.name } : null;
+    };
+    const homeTeamMatch = matchTeam(homeTeamName);
+    const awayTeamMatch = matchTeam(awayTeamName);
+
     // Fetch recent matches for both teams to build roster context
     const getTeamRoster = async (teamName: string): Promise<TeamRosterContext | null> => {
       if (!teamName || !supabaseAdmin) return null;
@@ -218,10 +234,12 @@ export async function POST(req: NextRequest) {
       home_team: {
         ...extractedData.home_team,
         players: homePlayersValidated,
+        _team_match: homeTeamMatch,
       },
       away_team: {
         ...extractedData.away_team,
         players: awayPlayersValidated,
+        _team_match: awayTeamMatch,
       },
     };
 
