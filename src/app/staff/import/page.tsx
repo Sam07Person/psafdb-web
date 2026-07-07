@@ -2272,6 +2272,9 @@ export default function StaffImportPage() {
   // Get the currently editing group
   const editingGroup = editingGroupId ? matchGroups.find(g => g.id === editingGroupId) : null;
   const testEditingGroup = testEditingGroupId ? testMatchGroups.find(g => g.id === testEditingGroupId) : null;
+  // Dev-only TEST importer is hidden on the staff page. Typed as boolean (not the
+  // literal `false`) so TypeScript still narrows types inside the gated JSX.
+  const SHOW_TEST_IMPORTER: boolean = false;
 
   if (!authenticated) {
     return (
@@ -2994,7 +2997,7 @@ export default function StaffImportPage() {
             )}
 
             {/* TEST VERSION importer is a dev-only tool — not shown on the staff page. */}
-            {false && (<>
+            {SHOW_TEST_IMPORTER && (<>
             <div className="bg-gray-900 border-2 border-yellow-500/40 p-6 rounded-lg">
               <div className="flex items-center justify-between mb-4">
                 <div>
