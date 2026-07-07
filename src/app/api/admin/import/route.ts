@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireImportAuth } from "@/lib/importAuth";
 
 // -------- Types --------
 
@@ -90,24 +91,8 @@ function json(status: number, body: unknown) {
 }
 
 function requireAuth(req: NextRequest) {
-  // Check admin password
-  const adminPassword = req.headers.get("x-admin-password");
-  if (!process.env.ADMIN_IMPORT_PASSWORD) {
-    return { ok: false as const, error: "Missing ADMIN_IMPORT_PASSWORD on server" };
-  }
-  if (adminPassword !== process.env.ADMIN_IMPORT_PASSWORD) {
-    return { ok: false as const, error: "Invalid admin password" };
-  }
-
-  // Check token
-  const expected = process.env.ADMIN_IMPORT_TOKEN;
-  if (!expected) return { ok: false as const, error: "Missing ADMIN_IMPORT_TOKEN on server" };
-
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (!token || token !== expected) return { ok: false as const, error: "Invalid token" };
-
-  return { ok: true as const };
+  // Accept full admin creds OR the dedicated staff import username+password.
+  return requireImportAuth(req);
 }
 
 function isNonEmptyString(v: unknown): v is string {

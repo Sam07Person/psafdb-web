@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireImportAuth } from "@/lib/importAuth";
 
 function json(status: number, body: unknown) {
   return NextResponse.json(body, { status });
@@ -26,7 +27,8 @@ function requireAuth(req: NextRequest) {
 
 // GET - List all leagues
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  // Staff (match-import) may read leagues for the import dropdown; mutations stay admin-only.
+  const auth = requireImportAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
 
   if (!supabaseAdmin) return json(500, { error: "Server missing SUPABASE_SERVICE_ROLE_KEY" });

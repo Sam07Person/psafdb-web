@@ -19,23 +19,11 @@ function json(status: number, body: unknown) {
   return NextResponse.json(body, { status });
 }
 
+import { requireImportAuth } from "@/lib/importAuth";
+
 function requireAuth(req: NextRequest) {
-  const adminPassword = req.headers.get("x-admin-password");
-  if (!process.env.ADMIN_IMPORT_PASSWORD) {
-    return { ok: false as const, error: "Server configuration error" };
-  }
-  if (adminPassword !== process.env.ADMIN_IMPORT_PASSWORD) {
-    return { ok: false as const, error: "Invalid admin password" };
-  }
-
-  const expected = process.env.ADMIN_IMPORT_TOKEN;
-  if (!expected) return { ok: false as const, error: "Server configuration error" };
-
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (!token || token !== expected) return { ok: false as const, error: "Invalid token" };
-
-  return { ok: true as const };
+  // Accept full admin creds OR the dedicated staff import username+password.
+  return requireImportAuth(req);
 }
 
 function normalizeGroupName(raw: string): string {
