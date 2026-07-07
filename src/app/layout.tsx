@@ -22,9 +22,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <header style={{ borderBottom: "1px solid var(--border-main)", background: "var(--bg-nav)" }}>
             <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
               {/* Logo + Brand */}
-              <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
+              <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
                 <Image src="/psaf.png" alt="PSAF" width={32} height={32} unoptimized />
-                <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: "0.15em", color: "var(--text-main)", textTransform: "uppercase" }}>PSAFDB</span>
+                <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: "0.15em", color: "var(--text-main)", textTransform: "uppercase", whiteSpace: "nowrap" }}>PSAFDB</span>
               </Link>
 
               {/* Search */}
@@ -62,6 +62,22 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                     {label}
                   </Link>
                 ))}
+                <Link
+                  href="/staff/import"
+                  style={{
+                    marginLeft: 8,
+                    padding: "6px 14px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: "#3b82f6",
+                    textDecoration: "none",
+                    border: "1px solid #3b82f640",
+                  }}
+                >
+                  Staff
+                </Link>
                 <Link
                   href="/admin/import"
                   style={{
