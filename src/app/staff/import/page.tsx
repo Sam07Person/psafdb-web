@@ -288,6 +288,9 @@ export default function StaffImportPage() {
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [playerSearch, setPlayerSearch] = useState("");
   const [fixtureSearch, setFixtureSearch] = useState("");
+  // Staff fixtures panel filters
+  const [staffFixtureStatus, setStaffFixtureStatus] = useState<"all" | "imported" | "pending">("all");
+  const [staffFixtureLeague, setStaffFixtureLeague] = useState<string>("all");
 
   const [keepFixtureDate, setKeepFixtureDate] = useState(true);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -376,8 +379,9 @@ export default function StaffImportPage() {
   };
 
   const loadAllData = async () => {
-    // Staff only needs read access to leagues/teams/players for match-result matching.
-    await Promise.all([loadLeagues(), loadTeams(), loadPlayers()]);
+    // Staff gets read access to leagues/teams/players (for match-result matching)
+    // and fixtures (view-only import status). No settings/mutations.
+    await Promise.all([loadLeagues(), loadTeams(), loadPlayers(), loadFixtures()]);
   };
 
   // Restore session on refresh: re-use saved credentials and re-verify them.
@@ -3331,6 +3335,101 @@ export default function StaffImportPage() {
             </>)}
 
             {/* Fixture import intentionally omitted on the staff page. */}
+
+            {/* Fixtures — read-only import status (staff cannot edit fixtures) */}
+            <div className="bg-gray-800 p-6 rounded-lg">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h2 className="text-lg font-semibold text-white">📋 Fixtures — Import Status</h2>
+                {(() => {
+                  const done = fixtures.filter((f) => (f.home_score != null && f.away_score != null) || !!f.forfeited_by).length;
+                  return <span className="text-sm text-gray-400">{done} imported • {fixtures.length - done} pending • {fixtures.length} total</span>;
+                })()}
+              </div>
+              <p className="text-gray-400 text-sm mb-4">View only — shows which fixtures already have results imported and which are still pending. Fixtures can&apos;t be edited here.</p>
+              <input
+                type="text"
+                value={fixtureSearch}
+                onChange={(e) => setFixtureSearch(e.target.value)}
+                placeholder="Search team, league or stage..."
+                className="w-full mb-3 p-3 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
+              />
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
+                  {(["all", "imported", "pending"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStaffFixtureStatus(s)}
+                      className={cx(
+                        "px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition",
+                        staffFixtureStatus === s ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={staffFixtureLeague}
+                  onChange={(e) => setStaffFixtureLeague(e.target.value)}
+                  className="p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
+                >
+                  <option value="all">All leagues</option>
+                  {leagues.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}{l.season ? ` (${l.season})` : ""}</option>
+                  ))}
+                  <option value="none">No league</option>
+                </select>
+              </div>
+              {(() => {
+                const q = fixtureSearch.trim().toLowerCase();
+                const visible = fixtures.filter((f) => {
+                  const imported = (f.home_score != null && f.away_score != null) || !!f.forfeited_by;
+                  if (staffFixtureStatus === "imported" && !imported) return false;
+                  if (staffFixtureStatus === "pending" && imported) return false;
+                  if (staffFixtureLeague === "none" ? f.league_id != null : (staffFixtureLeague !== "all" && f.league_id !== staffFixtureLeague)) return false;
+                  if (q && ![f.home_team, f.away_team, f.league?.name, f.stage, f.group_name].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))) return false;
+                  return true;
+                });
+                return (
+                  <>
+                    <div className="text-xs text-gray-500 mb-2">Showing {visible.length} of {fixtures.length}</div>
+                    <div className="max-h-[28rem] overflow-y-auto rounded border border-gray-700 divide-y divide-gray-700">
+                      {visible.length === 0 && (
+                        <div className="p-4 text-gray-500 text-sm text-center">No fixtures match these filters.</div>
+                      )}
+                      {visible.map((f) => {
+                        const hasScore = f.home_score != null && f.away_score != null;
+                        const imported = hasScore || !!f.forfeited_by;
+                        return (
+                          <div key={f.id} className="p-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-white text-sm truncate">
+                                <span className="font-medium">{f.home_team}</span>
+                                <span className="text-gray-500"> vs </span>
+                                <span className="font-medium">{f.away_team}</span>
+                                {hasScore && <span className="ml-2 text-gray-300">({f.home_score}–{f.away_score})</span>}
+                                {f.forfeited_by && <span className="ml-2 text-amber-400 text-xs">forfeit ({f.forfeited_by})</span>}
+                              </div>
+                              <div className="text-gray-500 text-xs truncate">
+                                {f.league?.name || "No league"}
+                                {f.stage ? ` • ${f.stage}` : ""}
+                                {f.played_at ? ` • ${new Date(f.played_at).toLocaleDateString()}` : ""}
+                              </div>
+                            </div>
+                            <span className={cx(
+                              "shrink-0 px-2.5 py-1 rounded-full text-xs font-semibold",
+                              imported ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-gray-600/40 text-gray-300 border border-gray-500/30"
+                            )}>
+                              {imported ? "Imported" : "Pending"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
 
             {/* JSON Import */}
             <div className="bg-gray-800 p-6 rounded-lg">
