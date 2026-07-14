@@ -684,6 +684,43 @@ export default function AdminDashboardPage() {
     setEditingLeague(league.id);
   };
 
+  // Duplicate a league's settings into a brand-new league (blank season, active,
+  // no teams or fixtures). Opens the new copy in the editor so the season can be set.
+  const handleDuplicateLeague = async (league: League) => {
+    if (!confirm(`Duplicate "${league.name}"? This creates a new league with the same settings — blank season, marked active, with no teams or fixtures.`)) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/leagues", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          name: league.name,
+          season: null,
+          format: league.format || "league",
+          image: league.image || null,
+          tier: league.tier ?? 2,
+          use_tier_bonus: league.use_tier_bonus ?? true,
+          award_champion: league.award_champion ?? true,
+          ended: false,
+          zones: league.zones || [],
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({ type: "success", text: `Duplicated "${league.name}". Set the season on the new copy below.` });
+        await loadLeagues();
+        if (data.league) handleEditLeague(data.league);
+      } else {
+        setMessage({ type: "error", text: data.error || "Failed to duplicate league" });
+      }
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeleteLeague = async (id: string) => {
     if (!confirm("Are you sure you want to delete this league?")) return;
     try {
@@ -3497,6 +3534,7 @@ export default function AdminDashboardPage() {
                       <div className="flex gap-2">
                         <button onClick={() => handleToggleLeagueEnded(l)} className={`text-sm ${l.ended ? "text-green-400 hover:text-green-300" : "text-orange-400 hover:text-orange-300"}`}>{l.ended ? "Reopen" : "End Season"}</button>
                         <button onClick={() => handleEditLeague(l)} className="text-blue-400 hover:text-blue-300 text-sm">Edit</button>
+                        <button onClick={() => handleDuplicateLeague(l)} className="text-purple-400 hover:text-purple-300 text-sm">Duplicate</button>
                         <button onClick={() => handleDeleteLeague(l.id)} className="text-red-400 hover:text-red-300 text-sm">Delete</button>
                       </div>
                     </div>
@@ -3688,7 +3726,7 @@ export default function AdminDashboardPage() {
             <div className="bg-gray-800 p-6 rounded-lg">
               <h2 className="text-lg font-semibold text-white mb-4">{editingFixture ? "Edit Fixture" : "Add New Fixture"}</h2>
               <div className="grid gap-4 md:grid-cols-3">
-                <div><label className="block text-gray-300 mb-2 text-sm">League</label><select value={fixtureForm.league_id} onChange={(e) => setFixtureForm({ ...fixtureForm, league_id: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600"><option value="">Select league</option>{leagues.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+                <div><label className="block text-gray-300 mb-2 text-sm">League</label><select value={fixtureForm.league_id} onChange={(e) => setFixtureForm({ ...fixtureForm, league_id: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600"><option value="">Select league</option>{leagues.map((l) => <option key={l.id} value={l.id}>{l.name}{l.season ? ` (${l.season})` : ""}</option>)}</select></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Date & Time *</label><input type="datetime-local" value={fixtureForm.played_at} onChange={(e) => setFixtureForm({ ...fixtureForm, played_at: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" /></div>
                 <div><label className="block text-gray-300 mb-2 text-sm">Day</label><input type="number" min="1" value={fixtureForm.day} onChange={(e) => setFixtureForm({ ...fixtureForm, day: e.target.value })} className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600" placeholder="1, 2, 3..." /></div>
               </div>

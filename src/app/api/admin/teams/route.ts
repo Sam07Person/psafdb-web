@@ -414,7 +414,24 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    return json(200, { team, disbandResults });
+    // Cascade a name change onto historical matches. The matches table stores
+    // team names as plain strings (home_team/away_team), so renaming a team must
+    // also rewrite those strings — otherwise games played under the old name keep
+    // it and appear as a separate phantom row in the league standings.
+    let matchesRenamed = 0;
+    if (oldTeam && name && oldTeam.name !== name) {
+      const { count: homeCount } = await supabaseAdmin
+        .from("matches")
+        .update({ home_team: name }, { count: "exact" })
+        .eq("home_team", oldTeam.name);
+      const { count: awayCount } = await supabaseAdmin
+        .from("matches")
+        .update({ away_team: name }, { count: "exact" })
+        .eq("away_team", oldTeam.name);
+      matchesRenamed = (homeCount || 0) + (awayCount || 0);
+    }
+
+    return json(200, { team, disbandResults, matchesRenamed });
   } catch (err: any) {
     return json(500, { error: err.message });
   }
