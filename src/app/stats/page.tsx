@@ -9,7 +9,11 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-async function getAllStats(leagueIds?: string[], season?: string): Promise<{ players: PlayerStat[]; teams: TeamStat[] }> {
+async function getAllStats(
+  leagueIds?: string[],
+  season?: string,
+  dayRange?: { from?: number; to?: number }
+): Promise<{ players: PlayerStat[]; teams: TeamStat[]; matchdays: number[] }> {
   // If season filter, first get league IDs for that season
   let seasonLeagueIds: string[] | null = null;
   if (season) {
@@ -18,7 +22,7 @@ async function getAllStats(leagueIds?: string[], season?: string): Promise<{ pla
       .select("id")
       .eq("season", season);
     seasonLeagueIds = (seasonLeagues ?? []).map((l: any) => l.id);
-    if (seasonLeagueIds.length === 0) return { players: [], teams: [] };
+    if (seasonLeagueIds.length === 0) return { players: [], teams: [], matchdays: [] };
   }
 
   // Combine league IDs from filter + season
@@ -27,7 +31,7 @@ async function getAllStats(leagueIds?: string[], season?: string): Promise<{ pla
     // Intersection: only leagues that match both filters
     const seasonSet = new Set(seasonLeagueIds);
     filterIds = leagueIds.filter(id => seasonSet.has(id));
-    if (filterIds.length === 0) return { players: [], teams: [] };
+    if (filterIds.length === 0) return { players: [], teams: [], matchdays: [] };
   } else if (leagueIds && leagueIds.length > 0) {
     filterIds = leagueIds;
   } else if (seasonLeagueIds) {
@@ -36,20 +40,35 @@ async function getAllStats(leagueIds?: string[], season?: string): Promise<{ pla
 
   // Paginate matches (Supabase hard cap is 1000 rows per request)
   const PAGE = 1000;
-  const matches: any[] = [];
+  const allMatches: any[] = [];
   for (let from = 0; ; from += PAGE) {
     let q = supabase
       .from("matches")
-      .select("id,home_team,away_team,home_score,away_score")
+      .select("id,home_team,away_team,home_score,away_score,day")
       .not("home_score", "is", null)
       .range(from, from + PAGE - 1);
     if (filterIds) q = q.in("league_id", filterIds);
     const { data: page } = await q;
     if (!page || page.length === 0) break;
-    matches.push(...page);
+    allMatches.push(...page);
     if (page.length < PAGE) break;
   }
-  if (matches.length === 0) return { players: [], teams: [] };
+
+  // All distinct matchdays in scope (drives the From/To filter dropdowns)
+  const matchdaySet = new Set<number>();
+  for (const m of allMatches) {
+    if (m.day != null) matchdaySet.add(m.day);
+  }
+  const matchdays = [...matchdaySet].sort((a, b) => a - b);
+
+  // Apply matchday-range filter in memory (null-day knockout matches are excluded by a range)
+  const matches = allMatches.filter(
+    m =>
+      (dayRange?.from == null || (m.day != null && m.day >= dayRange.from)) &&
+      (dayRange?.to == null || (m.day != null && m.day <= dayRange.to))
+  );
+
+  if (matches.length === 0) return { players: [], teams: [], matchdays };
 
   const matchIds = matches.map((m: any) => m.id);
 
@@ -136,6 +155,7 @@ async function getAllStats(leagueIds?: string[], season?: string): Promise<{ pla
   return {
     players: Object.values(byPlayer),
     teams: Object.values(teamMap).sort((a, b) => b.gf - a.gf),
+    matchdays,
   };
 }
 
@@ -144,16 +164,21 @@ export const revalidate = 60;
 export default async function StatsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ league?: string; tab?: string; season?: string }>;
+  searchParams?: Promise<{ league?: string; tab?: string; season?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
   const leagueParam = sp?.league || "";
   const selectedLeagues = leagueParam ? leagueParam.split(",").filter(Boolean) : [];
   const selectedSeason = sp?.season || "";
+  const dayFromRaw = sp?.from ? Number(sp.from) : undefined;
+  const dayToRaw = sp?.to ? Number(sp.to) : undefined;
+  const dayFrom = Number.isFinite(dayFromRaw) ? dayFromRaw : undefined;
+  const dayTo = Number.isFinite(dayToRaw) ? dayToRaw : undefined;
+  const dayRange = dayFrom != null || dayTo != null ? { from: dayFrom, to: dayTo } : undefined;
 
   const [{ data: leaguesRaw }, stats, { data: teamLeaguesRaw }, { data: directTeamsRaw }] = await Promise.all([
     supabase.from("leagues").select("id,name,ended,season").order("name"),
-    getAllStats(selectedLeagues.length > 0 ? selectedLeagues : undefined, selectedSeason || undefined),
+    getAllStats(selectedLeagues.length > 0 ? selectedLeagues : undefined, selectedSeason || undefined, dayRange),
     supabase.from("team_leagues").select("team_id, teams(name), leagues(id,ended)").limit(10000),
     supabase.from("teams").select("name, league_id, leagues:league_id(id,ended)").limit(10000),
   ]);
@@ -211,12 +236,20 @@ export default async function StatsPage({
 
       {/* Filter bar + section nav */}
       <Suspense>
-        <StatsFilterBar leagues={leagues} selectedLeagues={selectedLeagues} seasons={seasons} selectedSeason={selectedSeason} />
+        <StatsFilterBar
+          leagues={leagues}
+          selectedLeagues={selectedLeagues}
+          seasons={seasons}
+          selectedSeason={selectedSeason}
+          matchdays={stats.matchdays}
+          dayFrom={dayFrom}
+          dayTo={dayTo}
+        />
       </Suspense>
 
       {/* Stats content — pass activeTab to control which section is shown */}
       <LeagueStatsClient
-        key={`${leagueParam}-${selectedSeason}-${sp?.tab || "attacking"}`}
+        key={`${leagueParam}-${selectedSeason}-${sp?.tab || "attacking"}-${dayFrom ?? ""}-${dayTo ?? ""}`}
         playerStats={stats.players}
         teamStats={stats.teams}
         teamIdMap={teamIdMap}
