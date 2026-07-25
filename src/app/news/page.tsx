@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { calcMatchBreakdown, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { useLanguage } from "@/components/LanguageProvider";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -925,19 +926,20 @@ function generateNews(
 // ── Filter config ─────────────────────────────────────────────────────────────
 
 const FILTERS = [
-  { key: "all", label: "All" },
-  { key: "league", label: "Titles", types: ["league_winner", "league_relegation"] },
-  { key: "goals", label: "Goals", types: ["hattrick", "hattrick_multi", "brace", "assist_king", "ga_combo"] },
-  { key: "results", label: "Results", types: ["clean_sheet", "goalless_draw", "high_draw", "thrashing", "comprehensive", "goal_fest", "forfeit", "narrow_win"] as const },
-  { key: "performance", label: "Performance", types: ["save_hero", "def_wall"] },
-  { key: "standings", label: "Standings", types: ["standings_overtake", "league_gap"] },
-  { key: "totw", label: "TOTW", types: ["totw"] },
-  { key: "elo", label: "ELO", types: ["elo_overtake"] },
+  { key: "all", labelKey: "news.filter.all" },
+  { key: "league", labelKey: "news.filter.titles", types: ["league_winner", "league_relegation"] },
+  { key: "goals", labelKey: "news.filter.goals", types: ["hattrick", "hattrick_multi", "brace", "assist_king", "ga_combo"] },
+  { key: "results", labelKey: "news.filter.results", types: ["clean_sheet", "goalless_draw", "high_draw", "thrashing", "comprehensive", "goal_fest", "forfeit", "narrow_win"] as const },
+  { key: "performance", labelKey: "news.filter.performance", types: ["save_hero", "def_wall"] },
+  { key: "standings", labelKey: "news.filter.standings", types: ["standings_overtake", "league_gap"] },
+  { key: "totw", labelKey: "news.filter.totw", types: ["totw"] },
+  { key: "elo", labelKey: "news.filter.elo", types: ["elo_overtake"] },
 ] as const;
 
 // ── News card ─────────────────────────────────────────────────────────────────
 
 function NewsCard({ item }: { item: NewsItem }) {
+  const { t } = useLanguage();
   const totwEntries = item.meta?.entries as TOTWEntry[] | undefined;
 
   return (
@@ -1030,6 +1032,7 @@ function NewsCard({ item }: { item: NewsItem }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewsPage() {
+  const { t } = useLanguage();
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1125,7 +1128,7 @@ export default function NewsPage() {
               transition: "all 0.1s",
             }}
           >
-            {f.label}
+            {t(f.labelKey)}
           </button>
         ))}
         {!loading && (

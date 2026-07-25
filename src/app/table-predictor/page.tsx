@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -213,6 +214,7 @@ function generateMissingFixtures(teams: string[], existingMatches: Match[], grou
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function TablePredictorPage() {
+  const { t } = useLanguage();
   const [leagues, setLeagues] = useState<League[]>([]);
   const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
   const [teams, setTeams] = useState<string[]>([]);
@@ -493,15 +495,15 @@ export default function TablePredictorPage() {
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("breadcrumb.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Table Predictor
+            {t("predictor.title")}
           </div>
           <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
-            Table Predictor
+            {t("predictor.title")}
           </h1>
           <p style={{ color: "var(--text-faint)", fontSize: 13, marginTop: 6 }}>
-            Predict the remaining fixtures and see how the final table looks.
+            {t("predictor.tagline")}
           </p>
         </div>
       </section>
@@ -509,12 +511,12 @@ export default function TablePredictorPage() {
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px 48px" }}>
         {/* League selector */}
         {loading ? (
-          <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>Loading leagues...</div>
+          <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>{t("predictor.loadingLeagues")}</div>
         ) : (
           <>
             <div style={{ marginBottom: 24 }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", color: "var(--text-faint)", marginBottom: 8 }}>
-                Select League
+                {t("predictor.selectLeague")}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {leagues.map(l => (
@@ -533,14 +535,14 @@ export default function TablePredictorPage() {
                       transition: "all 0.15s",
                     }}
                   >
-                    {l.name}{l.season ? ` · S${l.season}` : ""}
+                    {l.name}{l.season ? ` · ${t("predictor.season", { n: l.season })}` : ""}
                   </button>
                 ))}
               </div>
             </div>
 
             {loadingLeague && (
-              <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>Loading league data...</div>
+              <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>{t("predictor.loadingLeague")}</div>
             )}
 
             {selectedLeague && !loadingLeague && (
@@ -559,7 +561,7 @@ export default function TablePredictorPage() {
                     transition: "all 0.15s",
                   }}
                 >
-                  Save Predictions
+                  {t("predictor.save")}
                 </button>
                 <button
                   onClick={loadPredictions}
@@ -571,7 +573,7 @@ export default function TablePredictorPage() {
                     transition: "all 0.15s",
                   }}
                 >
-                  Load Predictions
+                  {t("predictor.load")}
                 </button>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
@@ -586,19 +588,19 @@ export default function TablePredictorPage() {
                           textTransform: "uppercase", color: "#f4c430",
                           display: "flex", alignItems: "center", justifyContent: "space-between",
                         }}>
-                          <span>{group !== "default" ? group : "Standings"}</span>
+                          <span>{group !== "default" ? group : t("predictor.standings")}</span>
                           <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 600, letterSpacing: "0.08em" }}>
-                            {predictedCount} predicted · {remainingCount} remaining
+                            {t("predictor.predictedRemaining", { predicted: predictedCount, remaining: remainingCount })}
                           </span>
                         </div>
                         <div style={{ overflowX: "auto" }}>
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                             <thead>
                               <tr style={{ background: "var(--bg-row)" }}>
-                                {["#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
+                                {["#", t("predictor.col.team"), "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
                                   <th key={h} style={{
                                     padding: "8px 10px",
-                                    textAlign: h === "Team" || h === "#" ? "left" : "center",
+                                    textAlign: h === t("predictor.col.team") || h === "#" ? "left" : "center",
                                     fontSize: 10, color: "var(--text-faint)", fontWeight: 700,
                                     letterSpacing: "0.15em", textTransform: "uppercase",
                                     borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap",
@@ -666,15 +668,15 @@ export default function TablePredictorPage() {
                           color: isPlayedGroup ? "#22c55e" : "#4ea8f7",
                           display: "flex", justifyContent: "space-between", alignItems: "center",
                         }}>
-                          <span>Matchday {dayNum}</span>
+                          <span>{t("predictor.matchday", { n: dayNum })}</span>
                           {isPlayedGroup && (
                             <span style={{ fontSize: 9, color: "#22c55e", background: "#22c55e15", padding: "2px 8px", letterSpacing: "0.1em" }}>
-                              PLAYED
+                              {t("predictor.played")}
                             </span>
                           )}
                           {!isPlayedGroup && (
                             <span style={{ fontSize: 9, color: "#4ea8f7", background: "#4ea8f715", padding: "2px 8px", letterSpacing: "0.1em" }}>
-                              PREDICT
+                              {t("predictor.predict")}
                             </span>
                           )}
                         </div>
@@ -714,6 +716,7 @@ function FixtureRow({
   onReset: (key: string) => void;
   onForfeit: (key: string, side: "home" | "away") => void;
 }) {
+  const { t } = useLanguage();
   const predicted = !f.played && f.home_score !== null && f.away_score !== null;
   const isForfeited = f.forfeited_by !== null;
 
@@ -735,7 +738,7 @@ function FixtureRow({
       {!f.played && (
         <button
           onClick={() => onForfeit(f.key, "home")}
-          title={`${f.home_team} forfeits`}
+          title={t("predictor.forfeitTitle", { team: f.home_team })}
           style={{
             padding: "2px 5px", fontSize: 8, fontWeight: 800, letterSpacing: "0.05em",
             background: isForfeited && f.forfeited_by === "home" ? "#e6394630" : "transparent",
@@ -812,7 +815,7 @@ function FixtureRow({
                 background: "transparent", border: "none", color: "var(--text-faint)",
                 cursor: "pointer", padding: 0,
               }}
-              title="Reset"
+              title={t("predictor.resetFixture")}
             >
               ✕
             </button>
@@ -834,7 +837,7 @@ function FixtureRow({
       {!f.played && (
         <button
           onClick={() => onForfeit(f.key, "away")}
-          title={`${f.away_team} forfeits`}
+          title={t("predictor.forfeitTitle", { team: f.away_team })}
           style={{
             padding: "2px 5px", fontSize: 8, fontWeight: 800, letterSpacing: "0.05em",
             background: isForfeited && f.forfeited_by === "away" ? "#e6394630" : "transparent",

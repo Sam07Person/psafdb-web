@@ -1,15 +1,17 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
+import { useLanguage } from "@/components/LanguageProvider";
 
 const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "stats", label: "League Stats" },
+  { id: "overview", labelKey: "league.tab.overview" },
+  { id: "stats", labelKey: "league.tab.stats" },
 ];
 
 export function LeagueTabBar({ activeTab }: { activeTab: string }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useLanguage();
 
   return (
     <div style={{ borderBottom: "1px solid var(--border-main)", background: "var(--bg-nav)" }}>
@@ -34,7 +36,7 @@ export function LeagueTabBar({ activeTab }: { activeTab: string }) {
               whiteSpace: "nowrap",
             }}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>

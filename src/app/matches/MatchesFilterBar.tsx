@@ -2,14 +2,11 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 
 export type LeagueOption = { id: string; name: string; ended: boolean };
 
-const STATUS_OPTIONS = [
-  { id: "", label: "All" },
-  { id: "played", label: "Played" },
-  { id: "upcoming", label: "Upcoming" },
-] as const;
+const STATUS_IDS = ["", "played", "upcoming"] as const;
 
 export function MatchesFilterBar({
   leagues,
@@ -33,6 +30,7 @@ export function MatchesFilterBar({
   dayTo?: number;
 }) {
   const router = useRouter();
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchInput, setSearchInput] = useState(search);
@@ -111,10 +109,10 @@ export function MatchesFilterBar({
 
   const leagueLabel =
     selectedLeagues.length === 0
-      ? "All Leagues"
+      ? t("matches.league.all")
       : selectedLeagues.length === 1
-        ? (leagues.find((l) => l.id === selectedLeagues[0])?.name ?? "1 League")
-        : `${selectedLeagues.length} Leagues`;
+        ? (leagues.find((l) => l.id === selectedLeagues[0])?.name ?? t("matches.league.one"))
+        : t("matches.league.many", { n: selectedLeagues.length });
 
   return (
     <div style={{ borderBottom: "1px solid var(--border-main)", background: "var(--bg-nav)", padding: "14px 24px" }}>
@@ -142,12 +140,16 @@ export function MatchesFilterBar({
 
         {/* Status filter */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {STATUS_OPTIONS.map((opt) => {
-            const active = status === opt.id;
+          {STATUS_IDS.map((id) => {
+            const active = status === id;
+            const label =
+              id === "played" ? t("matches.status.played")
+              : id === "upcoming" ? t("matches.status.upcoming")
+              : t("matches.status.all");
             return (
               <button
-                key={opt.id}
-                onClick={() => setParam("status", opt.id)}
+                key={id}
+                onClick={() => setParam("status", id)}
                 style={{
                   padding: "5px 12px",
                   fontSize: 11,
@@ -160,7 +162,7 @@ export function MatchesFilterBar({
                   cursor: "pointer",
                 }}
               >
-                {opt.label}
+                {label}
               </button>
             );
           })}
@@ -225,7 +227,7 @@ export function MatchesFilterBar({
                     letterSpacing: "0.06em",
                   }}
                 >
-                  All Leagues
+                  {t("matches.league.all")}
                 </button>
                 {[...leagues]
                   .sort((a, b) => Number(a.ended) - Number(b.ended))
@@ -269,7 +271,7 @@ export function MatchesFilterBar({
                       </span>
                       <span>
                         {l.name}
-                        {l.ended ? " (ended)" : ""}
+                        {l.ended ? ` (${t("common.ended")})` : ""}
                       </span>
                     </button>
                   );
@@ -298,10 +300,10 @@ export function MatchesFilterBar({
                 minWidth: 80,
               }}
             >
-              <option value="">All Seasons</option>
+              <option value="">{t("matches.season.all")}</option>
               {seasons.map((s) => (
                 <option key={s} value={s}>
-                  Season {s}
+                  {t("common.season")} {s}
                 </option>
               ))}
             </select>
@@ -312,7 +314,7 @@ export function MatchesFilterBar({
         {matchdays.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", color: "var(--text-faint)" }}>
-              Matchday
+              {t("matches.matchday")}
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <select
@@ -328,10 +330,10 @@ export function MatchesFilterBar({
                   minWidth: 64,
                 }}
               >
-                <option value="">From</option>
+                <option value="">{t("common.all")}</option>
                 {matchdays.map((d) => (
                   <option key={`f${d}`} value={d}>
-                    MD {d}
+                    {t("matches.matchday")} {d}
                   </option>
                 ))}
               </select>
@@ -349,10 +351,10 @@ export function MatchesFilterBar({
                   minWidth: 64,
                 }}
               >
-                <option value="">To</option>
+                <option value="">{t("common.all")}</option>
                 {matchdays.map((d) => (
                   <option key={`t${d}`} value={d}>
-                    MD {d}
+                    {t("matches.matchday")} {d}
                   </option>
                 ))}
               </select>
@@ -394,7 +396,7 @@ export function MatchesFilterBar({
               cursor: "pointer",
             }}
           >
-            Clear Filters
+            {t("common.clearAll")}
           </button>
         )}
       </div>

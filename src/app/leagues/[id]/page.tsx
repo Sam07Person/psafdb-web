@@ -6,6 +6,8 @@ import { notFound } from "next/navigation";
 import StandingsTableWithForm from "./StandingsTableWithForm";
 import { LeagueTabBar } from "./LeagueTabBar";
 import { LeagueStatsClient, type PlayerStat, type TeamStat } from "./LeagueStatsClient";
+import { getLang } from "@/lib/lang-server";
+import { t as tt } from "@/lib/i18n";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -425,6 +427,7 @@ export default async function LeagueDetailPage({
   searchParams?: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
+  const lang = await getLang();
   const sp = await searchParams;
   const activeTab = sp?.tab === "stats" ? "stats" : "overview";
   const league = await getLeague(id);
@@ -590,8 +593,8 @@ export default async function LeagueDetailPage({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-row)" }}>
-              {["#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
-                <th key={h} style={{ padding: "8px 12px", textAlign: h === "Team" || h === "#" ? "left" : "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>{h}</th>
+              {["#", tt(lang, "league.team"), "P", "W", "D", "L", "GF", "GA", "GD", tt(lang, "league.pts")].map(h => (
+                <th key={h} style={{ padding: "8px 12px", textAlign: h === tt(lang, "league.team") || h === "#" ? "left" : "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -792,7 +795,7 @@ export default async function LeagueDetailPage({
     return (
       <div>
         <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
-          Bracket
+          {tt(lang, "league.bracket")}
         </div>
 
         <div style={{ overflowX: "auto", background: "var(--bg-row)", padding: "24px 20px 28px" }}>
@@ -832,7 +835,7 @@ export default async function LeagueDetailPage({
         {thirdStage && (byStage[thirdStage] || []).length > 0 && (
           <div style={{ marginTop: 2 }}>
             <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${AC}`, padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: AC }}>
-              Third Place Play-off
+              {tt(lang, "league.thirdPlace")}
             </div>
             {byStage[thirdStage].map((tie: MergedTie) => {
               if (tie.leg1) return <MatchRow key={tie.id} match={tie.leg1} />;
@@ -850,9 +853,9 @@ export default async function LeagueDetailPage({
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "40px 24px 32px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{tt(lang, "nav.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href="/leagues" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Leagues</Link>
+            <Link href="/leagues" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{tt(lang, "nav.leagues")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             {league.name}
           </div>
@@ -865,7 +868,7 @@ export default async function LeagueDetailPage({
             <div>
               <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>{league.name}</h1>
               <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center" }}>
-                {league.season && <span style={{ fontSize: 12, color: "var(--text-faint)" }}>Season {league.season}</span>}
+                {league.season && <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{tt(lang, "league.season", { n: league.season })}</span>}
                 {league.format && <span style={{ fontSize: 11, color: "var(--text-muted)", background: "var(--bg-card)", padding: "2px 8px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{league.format.replace(/_/g, " ")}</span>}
               </div>
             </div>
@@ -880,6 +883,7 @@ export default async function LeagueDetailPage({
           playerStats={leagueStats.players}
           teamStats={leagueStats.teams}
           teamIdMap={teamIdMap}
+          lang={lang}
         />
       )}
 
@@ -904,7 +908,7 @@ export default async function LeagueDetailPage({
             <>
               {sortedGroups.length === 0 ? (
                 <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
-                  No group stage matches yet
+                  {tt(lang, "league.noGroupMatches")}
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 2 }}>
@@ -933,21 +937,21 @@ export default async function LeagueDetailPage({
           {isKnockout && (
             mainBracketStages.length === 0 && !bracketThirdStage ? (
               <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
-                No matches yet
+                {tt(lang, "league.noMatches")}
               </div>
             ) : (
               <KnockoutBracket stages={bracketStages} byStage={bracketByStage} />
             )
           )}
 
-          {/* Recent Results (league format only — groups/knockout handle their own results above) */}
+          {/* {tt(lang, "league.recentResults")} (league format only — groups/knockout handle their own results above) */}
           {isLeague && (
             <div style={{ marginTop: 2 }}>
               <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
-                Recent Results
+                {tt(lang, "league.recentResults")}
               </div>
               {playedMatches.length === 0
-                ? <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>No matches played yet</div>
+                ? <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>{tt(lang, "league.noMatchesPlayed")}</div>
                 : playedMatches.slice(0, 10).map((match: any) => <MatchRow key={match.id} match={match} />)
               }
             </div>
@@ -957,7 +961,7 @@ export default async function LeagueDetailPage({
           {isGroupKnockout && groupMatches.filter((m: any) => m.home_score !== null).length > 0 && (
             <div style={{ marginTop: 2 }}>
               <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946" }}>
-                Recent Group Results
+                {tt(lang, "league.recentGroupResults")}
               </div>
               {groupMatches.filter((m: any) => m.home_score !== null).slice(0, 10).map((match: any) => (
                 <MatchRow key={match.id} match={match} />
@@ -970,14 +974,14 @@ export default async function LeagueDetailPage({
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7" }}>
             <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7", borderBottom: "1px solid var(--border-main)" }}>
-              League Info
+              {tt(lang, "league.leagueInfo")}
             </div>
             {[
-              { label: "Teams", val: teams.length || standings.length },
-              { label: "Groups", val: isGroupKnockout ? sortedGroups.length : "—" },
-              { label: "Matches Played", val: playedMatches.length },
-              { label: "Total Goals", val: totalGoals },
-              { label: "Forfeits", val: matches.filter((m: any) => m.forfeited_by).length },
+              { label: tt(lang, "league.teams"), val: teams.length || standings.length },
+              { label: tt(lang, "league.groups"), val: isGroupKnockout ? sortedGroups.length : "—" },
+              { label: tt(lang, "league.matchesPlayed"), val: playedMatches.length },
+              { label: tt(lang, "league.totalGoals"), val: totalGoals },
+              { label: tt(lang, "league.forfeits"), val: matches.filter((m: any) => m.forfeited_by).length },
             ].filter(({ val }) => val !== "—").map(({ label, val }) => (
               <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderBottom: "1px solid var(--border-row)" }}>
                 <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
@@ -989,7 +993,7 @@ export default async function LeagueDetailPage({
           {upcomingMatches.length > 0 && (
             <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa" }}>
               <div style={{ padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid var(--border-main)" }}>
-                Upcoming
+                {tt(lang, "league.upcoming")}
               </div>
               {upcomingMatches.map((match: any) => (
                 <div key={match.id} style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-row)" }}>

@@ -2,6 +2,14 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useLanguage } from "@/components/LanguageProvider";
+
+const CATEGORY_LABEL_KEY: Record<string, string> = {
+  Players: "search.players",
+  Teams: "search.teams",
+  Leagues: "search.leagues",
+  Matches: "search.matches",
+};
 
 type SearchResults = {
   players: { id: string; name: string | null; handle: string | null }[];
@@ -38,6 +46,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function SearchBar() {
+  const { t } = useLanguage();
   const [query, setQuery]     = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
   const [open, setOpen]       = useState(false);
@@ -124,6 +133,16 @@ export default function SearchBar() {
 
   const hasResults = items.length > 0;
 
+  // Render a localized sub-label; the raw `sub` from buildItems carries an
+  // internal English marker ("Team", "League", "Season X") or a date string.
+  function renderSub(sub: string) {
+    if (!sub) return null;
+    if (sub === "Team") return t("search.team");
+    if (sub === "League") return t("search.league");
+    if (sub.startsWith("Season ")) return t("search.season", { n: sub.replace("Season ", "") });
+    return sub; // date string
+  }
+
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       {/* Input */}
@@ -138,7 +157,7 @@ export default function SearchBar() {
           onChange={e => setQuery(e.target.value)}
           onFocus={() => { if (results && items.length > 0) setOpen(true); }}
           onKeyDown={handleKeyDown}
-          placeholder="Search…"
+          placeholder={t("search.placeholder")}
           style={{
             background: "transparent",
             border: "none",
@@ -173,7 +192,7 @@ export default function SearchBar() {
           overflow: "hidden",
         }}>
           {!hasResults ? (
-            <div style={{ padding: "14px 16px", fontSize: 12, color: "var(--text-faint)" }}>No results for "{query}"</div>
+            <div style={{ padding: "14px 16px", fontSize: 12, color: "var(--text-faint)" }}>{t("search.noResults", { query })}</div>
           ) : (
             <>
               {Object.entries(grouped).map(([category, catItems]) => {
@@ -181,11 +200,12 @@ export default function SearchBar() {
                 return (
                   <div key={category}>
                     <div style={{ padding: "8px 14px 4px", fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color }}>
-                      {category}
+                      {t(CATEGORY_LABEL_KEY[category] ?? category)}
                     </div>
                     {catItems.map((item) => {
                       const globalIdx = items.indexOf(item);
                       const isFocused = globalIdx === focused;
+                      const subLabel = renderSub(item.sub);
                       return (
                         <button
                           key={item.href}
@@ -207,8 +227,8 @@ export default function SearchBar() {
                           <span style={{ fontSize: 13, color: "var(--text-body)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {item.label}
                           </span>
-                          {item.sub && item.sub !== "Team" && (
-                            <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{item.sub}</span>
+                          {subLabel && (
+                            <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{subLabel}</span>
                           )}
                         </button>
                       );
@@ -217,9 +237,9 @@ export default function SearchBar() {
                 );
               })}
               <div style={{ borderTop: "1px solid var(--border-row)", padding: "6px 14px", fontSize: 10, color: "var(--text-faint)", display: "flex", gap: 12 }}>
-                <span>↑↓ navigate</span>
-                <span>↵ open</span>
-                <span>esc close</span>
+                <span>↑↓ {t("search.navigate")}</span>
+                <span>↵ {t("search.open")}</span>
+                <span>esc {t("search.close")}</span>
               </div>
             </>
           )}

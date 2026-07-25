@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import TeamsTable from "./TeamsTable";
+import { getLang } from "@/lib/lang-server";
+import { t as translate } from "@/lib/i18n";
 import { calcMatchRating, calcOverallRating, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 const supabase = createClient(
@@ -232,6 +234,8 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
 export const revalidate = 60;
 
 export default async function TeamsPage() {
+    const lang = await getLang();
+    const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
     const teams = await getTeams();
 
     const [teamsWithStats, teamRatings] = await Promise.all([
@@ -266,34 +270,34 @@ export default async function TeamsPage() {
                 <div className="mb-8">
                     <div className="flex items-center gap-4 text-sm">
                         <Link href="/" className="text-white/50 hover:text-white/80 transition">
-                            ← Home
+                            ← {t("breadcrumb.home")}
                         </Link>
                     </div>
-                    <h1 className="mt-4 text-4xl font-bold">Teams</h1>
+                    <h1 className="mt-4 text-4xl font-bold">{t("teams.title")}</h1>
                     <p className="mt-2 text-white/60">
-                        {teams.length} team{teams.length !== 1 ? "s" : ""} registered
+                        {teams.length === 1 ? t("teams.subtitleOne", { n: teams.length }) : t("teams.subtitle", { n: teams.length })}
                     </p>
                 </div>
 
                 {teams.length === 0 ? (
                     <div className="rounded-xl bg-white/5 border border-white/10 p-12 text-center">
-                        <p className="text-white/40 text-lg">No teams found</p>
+                        <p className="text-white/40 text-lg">{t("teams.noTeams")}</p>
                     </div>
                 ) : (
-                    <TeamsTable teams={teamsWithRatings} />
+                    <TeamsTable teams={teamsWithRatings} lang={lang} />
                 )}
 
                 {/* Legend */}
                 <div className="mt-4 flex flex-wrap gap-4 text-xs text-white/40">
-                    <span>P = Played</span>
-                    <span>W = Won</span>
-                    <span>D = Drawn</span>
-                    <span>L = Lost</span>
-                    <span>GF = Goals For</span>
-                    <span>GA = Goals Against</span>
-                    <span>GD = Goal Difference</span>
-                    <span>Pts = Points</span>
-                    <span>Rating = Avg of current squad player ratings (min. 3 rated players)</span>
+                    <span>{t("teams.legend.played")}</span>
+                    <span>{t("teams.legend.won")}</span>
+                    <span>{t("teams.legend.drawn")}</span>
+                    <span>{t("teams.legend.lost")}</span>
+                    <span>{t("teams.legend.gf")}</span>
+                    <span>{t("teams.legend.ga")}</span>
+                    <span>{t("teams.legend.gd")}</span>
+                    <span>{t("teams.legend.pts")}</span>
+                    <span>{t("teams.legend.rating")}</span>
                 </div>
             </div>
         </main>

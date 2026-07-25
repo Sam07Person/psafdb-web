@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useLanguage } from "@/components/LanguageProvider";
 import {
   calcSubRatings,
   calcOverallRating,
@@ -84,6 +85,7 @@ function SubRatingBar({ label, value, detail }: { label: string; value: number; 
 export default function PlayerRatingPage() {
   const params = useParams();
   const playerId = params.id as string;
+  const { t } = useLanguage();
 
   const [player, setPlayer] = useState<PlayerRow | null>(null);
   const [stats, setStats] = useState<StatRow[]>([]);
@@ -119,7 +121,7 @@ export default function PlayerRatingPage() {
         .single();
 
       if (playerErr || !playerData) {
-        setError("Player not found");
+        setError(t("rating.playerNotFound"));
         setLoading(false);
         return;
       }
@@ -167,12 +169,12 @@ export default function PlayerRatingPage() {
     })();
   }, [playerId]);
 
-  if (!supabase) return <main style={{ padding: 40, color: "var(--text-sub)" }}>Supabase not configured.</main>;
+  if (!supabase) return <main style={{ padding: 40, color: "var(--text-sub)" }}>{t("rating.supabaseNotConfigured")}</main>;
 
   if (loading) {
     return (
       <main style={{ minHeight: "calc(100vh - 56px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>Loading rating...</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{t("rating.loadingRating")}</div>
       </main>
     );
   }
@@ -180,13 +182,13 @@ export default function PlayerRatingPage() {
   if (error || !player) {
     return (
       <main style={{ padding: 40 }}>
-        <p style={{ color: "#e63946" }}>{error ?? "Player not found"}</p>
-        <Link href="/players" style={{ color: "var(--text-muted)", fontSize: 13 }}>← Back to players</Link>
+        <p style={{ color: "#e63946" }}>{error ?? t("rating.playerNotFound")}</p>
+        <Link href="/players" style={{ color: "var(--text-muted)", fontSize: 13 }}>← {t("rating.backToPlayers")}</Link>
       </main>
     );
   }
 
-  const displayName = player.name || player.handle || `Player ${player.id.slice(0, 8)}`;
+  const displayName = player.name || player.handle || t("rating.playerN", { id: player.id.slice(0, 8) });
 
   // Only use played (non-benched) matches with complete stats for rating
   const playedStats = stats.filter(s => !s.benched && !s.stats_incomplete && s.matches);
@@ -375,7 +377,7 @@ export default function PlayerRatingPage() {
   const rCatches  = sr(avgCatches / 4.00 * 100);
   const rGC       = sr(Math.max(0, 1 - avgGC / 9.2) * 100);
 
-  const tierLabel = leagueTier === 1 ? "Tier 1 – Elite (+5 pts)" : leagueTier === 3 ? "Tier 3 – Amateur (−5 pts)" : "Tier 2 – Standard";
+  const tierLabel = leagueTier === 1 ? t("rating.tier1") : leagueTier === 3 ? t("rating.tier3") : t("rating.tier2");
 
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
@@ -383,13 +385,13 @@ export default function PlayerRatingPage() {
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("nav.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href="/players" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Players</Link>
+            <Link href="/players" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("nav.players")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             <Link href={`/players/${playerId}`} style={{ color: "var(--text-faint)", textDecoration: "none" }}>{displayName}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Rating
+            {t("rating.rating")}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 20 }}>
@@ -410,12 +412,12 @@ export default function PlayerRatingPage() {
               <div style={{ fontSize: 52, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                 {overall !== null ? overall : playedStats.length > 0 ? "N/A" : "—"}
               </div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.2em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Overall</div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.2em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>{t("rating.overall")}</div>
               {overall !== null && (
                 <div style={{ fontSize: 12, color: ratingColor, fontWeight: 700, marginTop: 2 }}>{ratingLabel}</div>
               )}
               {!hasEnoughForRating && playedStats.length > 0 && (
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{playedStats.length}/3 matches</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{t("rating.matchesOutOf3", { n: playedStats.length })}</div>
               )}
             </div>
           </div>
@@ -425,13 +427,13 @@ export default function PlayerRatingPage() {
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 24px" }}>
         {playedStats.length === 0 ? (
           <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
-            No complete match statistics available to calculate a rating.
+            {t("rating.noStatsForRating")}
           </div>
         ) : !hasEnoughForRating ? (
           <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
-            <div style={{ fontSize: 16, color: "var(--text-muted)", marginBottom: 8 }}>Rating not yet available</div>
-            <div>A minimum of <strong style={{ color: "var(--text-sub)" }}>3 played matches</strong> is required for an official rating.</div>
-            <div style={{ marginTop: 8 }}>{playedStats.length} of 3 matches recorded.</div>
+            <div style={{ fontSize: 16, color: "var(--text-muted)", marginBottom: 8 }}>{t("rating.ratingNotAvailable")}</div>
+            <div>{t("rating.minMatchesRequired")}</div>
+            <div style={{ marginTop: 8 }}>{t("rating.matchesRecorded", { n: playedStats.length })}</div>
           </div>
         ) : (
           <>
@@ -457,7 +459,7 @@ export default function PlayerRatingPage() {
             return (
               <div style={{ background: "var(--bg-card)", padding: "20px 24px", marginBottom: 24 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>
-                  Overall Rating History
+                  {t("rating.ratingHistory")}
                 </div>
                 <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
                   {/* Grid lines */}
@@ -512,7 +514,7 @@ export default function PlayerRatingPage() {
                   })()}
                 </svg>
                 <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6, textAlign: "right" }}>
-                  {chartData.length} matches · oldest → newest · overall rating after each match
+                  {t("rating.chartCaption", { n: chartData.length })}
                 </div>
               </div>
             );
@@ -523,37 +525,37 @@ export default function PlayerRatingPage() {
             <div>
               {/* Stat breakdown */}
               <div style={{ background: "var(--bg-card)", padding: "24px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 20 }}>Rating Breakdown</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 20 }}>{t("rating.ratingBreakdown")}</div>
 
                 {role !== "GK" && (
                   <>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>Attacking</div>
-                    <SubRatingBar label="Goals"           value={rGoals}   detail={`${avgGoals.toFixed(2)}/match`} />
-                    <SubRatingBar label="Assists"         value={rAssists} detail={`${avgAssists.toFixed(2)}/match`} />
-                    <SubRatingBar label="Shots"           value={rShots}   detail={`${avgShots.toFixed(1)}/match`} />
-                    <SubRatingBar label="Shots on Target" value={rSOT}     detail={`${avgSOT.toFixed(1)}/match`} />
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>{t("rating.attacking")}</div>
+                    <SubRatingBar label={t("rating.goals")}           value={rGoals}   detail={t("rating.perMatch", { n: avgGoals.toFixed(2) })} />
+                    <SubRatingBar label={t("rating.assists")}         value={rAssists} detail={t("rating.perMatch", { n: avgAssists.toFixed(2) })} />
+                    <SubRatingBar label={t("rating.shots")}           value={rShots}   detail={t("rating.perMatch", { n: avgShots.toFixed(1) })} />
+                    <SubRatingBar label={t("rating.shotsOnTarget")} value={rSOT}     detail={t("rating.perMatch", { n: avgSOT.toFixed(1) })} />
                   </>
                 )}
 
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: role !== "GK" ? 18 : 0 }}>Passing</div>
-                <SubRatingBar label="Passes"     value={rPasses} detail={`${avgPasses.toFixed(0)}/match`} />
-                <SubRatingBar label="Key Passes" value={rKP}     detail={`${avgKP.toFixed(1)}/match`} />
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: role !== "GK" ? 18 : 0 }}>{t("rating.passing")}</div>
+                <SubRatingBar label={t("rating.passes")}     value={rPasses} detail={t("rating.perMatch", { n: avgPasses.toFixed(0) })} />
+                <SubRatingBar label={t("rating.keyPasses")} value={rKP}     detail={t("rating.perMatch", { n: avgKP.toFixed(1) })} />
 
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Defending</div>
-                <SubRatingBar label="Tackles"         value={rTackles}  detail={`${avgTackles.toFixed(1)} + ${avgKTackles.toFixed(1)} key = ${(avgTackles + avgKTackles).toFixed(1)}/match`} />
-                <SubRatingBar label="Key Tackles"     value={rKTackles} detail={`${avgKTackles.toFixed(1)}/match (bonus)`} />
-                <SubRatingBar label="Interceptions"   value={rInt}      detail={`${avgInt.toFixed(1)} + ${avgKInt.toFixed(1)} key = ${(avgInt + avgKInt).toFixed(1)}/match`} />
-                <SubRatingBar label="Lost Possession" value={rPL}       detail={`${avgPL.toFixed(1)}/match (lower is better)`} />
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>{t("rating.defending")}</div>
+                <SubRatingBar label={t("rating.tackles")}         value={rTackles}  detail={t("rating.tacklesDetail", { a: avgTackles.toFixed(1), b: avgKTackles.toFixed(1), c: (avgTackles + avgKTackles).toFixed(1) })} />
+                <SubRatingBar label={t("rating.keyTackles")}     value={rKTackles} detail={t("rating.perMatchBonus", { n: avgKTackles.toFixed(1) })} />
+                <SubRatingBar label={t("rating.interceptions")}   value={rInt}      detail={t("rating.tacklesDetail", { a: avgInt.toFixed(1), b: avgKInt.toFixed(1), c: (avgInt + avgKInt).toFixed(1) })} />
+                <SubRatingBar label={t("rating.lostPossession")} value={rPL}       detail={t("rating.perMatchLowerBetter", { n: avgPL.toFixed(1) })} />
 
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Consistency</div>
-                <SubRatingBar label="Game Score" value={subRatings.consistency} detail={avgScore > 0 ? `Avg game score: ${subRatings.consistency.toFixed(0)} / 100` : `Based on W/D/L record`} />
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>{t("rating.consistency")}</div>
+                <SubRatingBar label={t("rating.gameScore")} value={subRatings.consistency} detail={avgScore > 0 ? t("rating.avgGameScore", { n: subRatings.consistency.toFixed(0) }) : t("rating.basedOnRecord")} />
 
                 {role === "GK" && (
                   <>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>Goalkeeping</div>
-                    <SubRatingBar label="Goals Conceded" value={rGC}      detail={`${avgGC.toFixed(1)}/match (lower is better)`} />
-                    <SubRatingBar label="Saves"          value={rSaves}   detail={`${avgSaves.toFixed(1)}/match`} />
-                    <SubRatingBar label="Catches"        value={rCatches} detail={`${avgCatches.toFixed(1)}/match`} />
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, marginTop: 18 }}>{t("rating.goalkeeping")}</div>
+                    <SubRatingBar label={t("rating.goalsConceded")} value={rGC}      detail={t("rating.perMatchLowerBetter", { n: avgGC.toFixed(1) })} />
+                    <SubRatingBar label={t("rating.saves")}          value={rSaves}   detail={t("rating.perMatch", { n: avgSaves.toFixed(1) })} />
+                    <SubRatingBar label={t("rating.catches")}        value={rCatches} detail={t("rating.perMatch", { n: avgCatches.toFixed(1) })} />
                   </>
                 )}
               </div>
@@ -562,14 +564,14 @@ export default function PlayerRatingPage() {
               {matchRatings.length > 0 && (
                 <div style={{ background: "var(--bg-card)" }}>
                   <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase" }}>Match Ratings (last {matchRatings.length})</span>
-                    <span style={{ fontSize: 10, color: "var(--text-faint)" }}>click row to expand</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase" }}>{t("rating.matchRatingsLast", { n: matchRatings.length })}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-faint)" }}>{t("rating.clickToExpand")}</span>
                   </div>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: "var(--bg-row)" }}>
-                          {["Date", "Match", "Result", "Pos", "Rating"].map(h => (
+                          {[t("rating.date"), t("rating.match"), t("rating.result"), t("rating.pos"), t("rating.ratingCol")].map(h => (
                             <th key={h} style={{ padding: "8px 12px", textAlign: h === "Rating" ? "center" : "left", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>{h}</th>
                           ))}
                         </tr>
@@ -581,11 +583,11 @@ export default function PlayerRatingPage() {
                         const bd = mr.breakdown;
                         const sr = mr.statRow;
                         const cats: { key: keyof typeof bd.weights; label: string }[] = [
-                          { key: "attacking", label: "Attacking" },
-                          { key: "defending", label: "Defending" },
-                          { key: "passing", label: "Passing" },
-                          { key: "consistency", label: "Consistency" },
-                          { key: "gk", label: "GK Perf." },
+                          { key: "attacking", label: t("rating.attacking") },
+                          { key: "defending", label: t("rating.defending") },
+                          { key: "passing", label: t("rating.passing") },
+                          { key: "consistency", label: t("rating.consistency") },
+                          { key: "gk", label: t("rating.gkPerf") },
                         ];
                         return (
                           <tbody key={mr.matchId}>
@@ -615,20 +617,20 @@ export default function PlayerRatingPage() {
                                   {/* Stats used */}
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", padding: "10px 0 12px", borderBottom: "1px solid var(--border-row)", fontSize: 11 }}>
                                     {[
-                                      { label: "Goals", v: sr.goals },
-                                      { label: "Assists", v: sr.assists },
-                                      { label: "SOT", v: sr.shots_on_target },
-                                      { label: "Key Passes", v: sr.key_passes },
-                                      { label: "Passes", v: sr.passes },
-                                      { label: "Tackles", v: sr.tackles },
-                                      { label: "Key Tackles", v: sr.key_tackles },
-                                      { label: "Interceptions", v: sr.interceptions },
-                                      { label: "Key Int.", v: sr.key_interceptions },
-                                      { label: "Poss. Lost", v: sr.possessions_lost },
-                                      ...(getPositionRole(mr.position) === "GK" ? [{ label: "Goals Conceded", v: sr.goals_conceded ?? 0 }] : []),
-                                      ...(sr.gk_saves > 0 ? [{ label: "GK Saves", v: sr.gk_saves }] : []),
-                                      ...(sr.gk_catches > 0 ? [{ label: "GK Catches", v: sr.gk_catches }] : []),
-                                      ...(sr.score > 60 ? [{ label: "Game Score", v: sr.score }] : []),
+                                      { label: t("rating.goals"), v: sr.goals },
+                                      { label: t("rating.assists"), v: sr.assists },
+                                      { label: t("rating.sot"), v: sr.shots_on_target },
+                                      { label: t("rating.keyPasses"), v: sr.key_passes },
+                                      { label: t("rating.passes"), v: sr.passes },
+                                      { label: t("rating.tackles"), v: sr.tackles },
+                                      { label: t("rating.keyTackles"), v: sr.key_tackles },
+                                      { label: t("rating.interceptions"), v: sr.interceptions },
+                                      { label: t("rating.keyInt"), v: sr.key_interceptions },
+                                      { label: t("rating.possLost"), v: sr.possessions_lost },
+                                      ...(getPositionRole(mr.position) === "GK" ? [{ label: t("rating.goalsConceded"), v: sr.goals_conceded ?? 0 }] : []),
+                                      ...(sr.gk_saves > 0 ? [{ label: t("rating.gkSavesLabel"), v: sr.gk_saves }] : []),
+                                      ...(sr.gk_catches > 0 ? [{ label: t("rating.gkCatchesLabel"), v: sr.gk_catches }] : []),
+                                      ...(sr.score > 60 ? [{ label: t("rating.gameScore"), v: sr.score }] : []),
                                     ].map(({ label, v }) => (
                                       <span key={label} style={{ color: "var(--text-muted)" }}>
                                         {label}: <strong style={{ color: "var(--text-sub)", fontWeight: 600 }}>{v}</strong>
@@ -648,10 +650,10 @@ export default function PlayerRatingPage() {
                                           : 0;
                                         // Effective weights: GC 30%, saves 30%, catches 19%
                                         return [
-                                          { key: "gk-gc",      label: "Goals Conceded", score: Math.max(0, (1 - gc / 9.2) * 100),              weight: 0.30, effBonus: null as number | null },
-                                          { key: "gk-saves",   label: "Saves",          score: (sr.gk_saves / 8.00) * 100,                     weight: 0.30, effBonus: null },
-                                          { key: "gk-catches", label: "Catches",        score: Math.min(150, (sr.gk_catches / 4.00) * 100),    weight: 0.19, effBonus: null },
-                                          { key: "gk-eff",     label: "Save Efficiency", score: saveRatio !== null ? Math.round(saveRatio * 100) : 0, weight: 0, effBonus: efficiencyBonus },
+                                          { key: "gk-gc",      label: t("rating.goalsConceded"), score: Math.max(0, (1 - gc / 9.2) * 100),              weight: 0.30, effBonus: null as number | null },
+                                          { key: "gk-saves",   label: t("rating.saves"),          score: (sr.gk_saves / 8.00) * 100,                     weight: 0.30, effBonus: null },
+                                          { key: "gk-catches", label: t("rating.catches"),        score: Math.min(150, (sr.gk_catches / 4.00) * 100),    weight: 0.19, effBonus: null },
+                                          { key: "gk-eff",     label: t("rating.saveEfficiency"), score: saveRatio !== null ? Math.round(saveRatio * 100) : 0, weight: 0, effBonus: efficiencyBonus },
                                         ];
                                       }
                                       return [{ key: c.key, label: c.label, score: bd.scores[c.key], weight: bd.weights[c.key], effBonus: null as number | null }];
@@ -662,7 +664,7 @@ export default function PlayerRatingPage() {
                                           <>
                                             <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-faint)", width: 32, textAlign: "right" }}>{score}%</span>
                                             <span style={{ fontSize: 11, color: effBonus >= 0 ? "#4ade80" : "#e63946", fontWeight: 700, marginLeft: 4 }}>
-                                              {effBonus >= 0 ? "+" : ""}{effBonus.toFixed(1)} pts
+                                              {effBonus >= 0 ? "+" : ""}{effBonus.toFixed(1)} {t("rating.pts")}
                                             </span>
                                           </>
                                         ) : (
@@ -678,9 +680,9 @@ export default function PlayerRatingPage() {
 
                                   {/* Formula summary */}
                                   <div style={{ marginTop: 6, paddingTop: 8, borderTop: "1px solid var(--border-row)", display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: "var(--text-muted)", flexWrap: "wrap" }}>
-                                    <span>Base: <strong style={{ color: "var(--text-sub)" }}>{bd.base.toFixed(1)}</strong></span>
+                                    <span>{t("rating.base")}: <strong style={{ color: "var(--text-sub)" }}>{bd.base.toFixed(1)}</strong></span>
                                     {bd.resultBonus > 0 && (
-                                      <span>+ {mr.result === "W" ? "Win" : "Draw"} bonus: <strong style={{ color: "var(--text-sub)" }}>+{bd.resultBonus}</strong></span>
+                                      <span>+ {mr.result === "W" ? t("rating.winBonus") : t("rating.drawBonus")}: <strong style={{ color: "var(--text-sub)" }}>+{bd.resultBonus}</strong></span>
                                     )}
                                     <span>= <strong style={{ color: rColor, fontSize: 15 }}>{bd.final}</strong></span>
                                   </div>
@@ -700,13 +702,13 @@ export default function PlayerRatingPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Quick stats */}
               <div style={{ background: "var(--bg-card)", padding: "20px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>Based On</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>{t("rating.basedOn")}</div>
                 {[
-                  { label: "Matches rated", value: playedStats.length },
-                  { label: "Wins", value: results.filter(r => r === "W").length },
-                  { label: "Draws", value: results.filter(r => r === "D").length },
-                  { label: "Losses", value: results.filter(r => r === "L").length },
-                  { label: "Win rate", value: n > 0 ? `${Math.round(results.filter(r => r === "W").length / n * 100)}%` : "—" },
+                  { label: t("rating.matchesRated"), value: playedStats.length },
+                  { label: t("rating.wins"), value: results.filter(r => r === "W").length },
+                  { label: t("rating.draws"), value: results.filter(r => r === "D").length },
+                  { label: t("rating.losses"), value: results.filter(r => r === "L").length },
+                  { label: t("rating.winRate"), value: n > 0 ? t("rating.percent", { n: Math.round(results.filter(r => r === "W").length / n * 100) }) : "—" },
                 ].map(({ label, value }) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border-row)" }}>
                     <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
@@ -717,20 +719,20 @@ export default function PlayerRatingPage() {
 
               {/* How it's calculated */}
               <div style={{ background: "var(--bg-card)", padding: "20px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 12 }}>How It's Calculated</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 12 }}>{t("rating.howCalculated")}</div>
                 <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
-                  Each match is rated <strong style={{ color: "var(--text-sub)" }}>0–100</strong> based on goals, assists, passes, tackles, interceptions, and other stats weighted by position.
+                  {t("rating.calcP1a")}<strong style={{ color: "var(--text-sub)" }}>0–100</strong>{t("rating.calcP1b")}
                 </p>
                 <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, margin: "10px 0 0" }}>
-                  The overall rating is the <strong style={{ color: "var(--text-sub)" }}>average of all match ratings</strong>. Forwards are weighted more on attacking, defenders on defensive output, etc.
+                  {t("rating.calcP2a")}<strong style={{ color: "var(--text-sub)" }}>{t("rating.averageMatchRatings")}</strong>{t("rating.calcP2b")}
                 </p>
                 <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, margin: "10px 0 0" }}>
-                  League tier applies a <strong style={{ color: "var(--text-sub)" }}>±5 point</strong> adjustment (Elite leagues award more, Amateur leagues slightly less).
+                  {t("rating.calcP3a")}<strong style={{ color: "var(--text-sub)" }}>±5 {t("rating.point")}</strong>{t("rating.calcP3b")}
                 </p>
               </div>
 
               <Link href={`/players/${playerId}`} style={{ display: "block", textAlign: "center", background: "var(--border-main)", color: "var(--text-sub)", padding: "12px", fontSize: 12, textDecoration: "none", fontWeight: 600, letterSpacing: "0.08em" }}>
-                ← Back to Player Profile
+                ← {t("rating.backToProfile")}
               </Link>
             </div>
           </div>

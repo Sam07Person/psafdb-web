@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 import {
   calcMatchRating,
@@ -219,6 +220,7 @@ function PlayerPanel({
   slot: 1 | 2; color: string;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerRow[]>([]);
   const [open, setOpen] = useState(false);
@@ -261,7 +263,7 @@ function PlayerPanel({
         fontSize: 10, fontWeight: 700, letterSpacing: "0.2em",
         textTransform: "uppercase", color, marginBottom: 8,
       }}>
-        Player {slot}
+        {t("compare.playerSlot", { n: slot })}
       </div>
       <input
         value={query}
@@ -311,10 +313,11 @@ function PlayerPanel({
 }
 
 function PlayerCard({ stats, loading, color }: { stats: PlayerStats | null; loading: boolean; color: string }) {
+  const { t } = useLanguage();
   if (loading) {
     return (
       <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${color}`, padding: "20px", minHeight: 80 }}>
-        <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>
+        <div style={{ color: "var(--text-faint)", fontSize: 13 }}>{t("common.loading")}</div>
       </div>
     );
   }
@@ -348,13 +351,13 @@ function PlayerCard({ stats, loading, color }: { stats: PlayerStats | null; load
             {stats.overallRating} · {getRatingLabel(stats.overallRating)}
           </span>
         ) : (
-          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Rating N/A (&lt;3 matches)</span>
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{t("compare.ratingNa")}</span>
         )}
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-          {stats.matchesPlayed} apps
+          {t("compare.apps", { n: stats.matchesPlayed })}
         </span>
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-          {stats.wins}W {stats.draws}D {stats.losses}L
+          {t("compare.record", { w: stats.wins, d: stats.draws, l: stats.losses })}
         </span>
       </div>
     </div>
@@ -364,6 +367,7 @@ function PlayerCard({ stats, loading, color }: { stats: PlayerStats | null; load
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function ComparePage() {
+  const { t } = useLanguage();
   const [tierBonuses, setTierBonuses] = useState<Record<number, number>>(DEFAULT_TIER_BONUSES);
   const [p1Id, setP1Id] = useState<string | null>(null);
   const [p2Id, setP2Id] = useState<string | null>(null);
@@ -420,15 +424,15 @@ export default function ComparePage() {
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("breadcrumb.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Compare
+            {t("compare.title")}
           </div>
           <h1 style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
-            Player Comparison
+            {t("compare.title")}
           </h1>
           <p style={{ marginTop: 8, color: "var(--text-muted)", fontSize: 13 }}>
-            Search for two players to compare their stats and ratings head-to-head.
+            {t("compare.subtitle")}
           </p>
         </div>
       </section>
@@ -441,7 +445,7 @@ export default function ComparePage() {
             <button
               onClick={handleSwap}
               disabled={!p1Stats && !p2Stats}
-              title="Swap players"
+              title={t("compare.swap")}
               style={{
                 width: 36, height: 36, background: "var(--bg-card)", border: "1px solid var(--border-main)",
                 color: "var(--text-muted)", cursor: (p1Stats || p2Stats) ? "pointer" : "default",
@@ -482,7 +486,7 @@ export default function ComparePage() {
 
           {/* ── Overview ── */}
           <div style={{ background: "var(--bg-card)", borderTop: "3px solid var(--border-main)", marginBottom: 2 }}>
-            <SectionHeader label="Overview" color="var(--text-muted)" />
+            <SectionHeader label={t("compare.section.overview")} color="var(--text-muted)" />
 
             {/* Overall rating — big numbers */}
             <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-row)" }}>
@@ -506,49 +510,49 @@ export default function ComparePage() {
               )}
             </div>
 
-            <StatRow label="Matches Played" v1={p1Stats.matchesPlayed} v2={p2Stats.matchesPlayed} />
-            <StatRow label="Wins" v1={p1Stats.wins} v2={p2Stats.wins} />
-            <StatRow label="Draws" v1={p1Stats.draws} v2={p2Stats.draws} />
-            <StatRow label="Losses" v1={p1Stats.losses} v2={p2Stats.losses} lowerBetter />
-            <StatRow label="Win Rate %" v1={wr1} v2={wr2} decimals={1} suffix="%" />
-            <StatRow label="Avg Score" v1={p1Stats.avgScore} v2={p2Stats.avgScore} decimals={2} />
+            <StatRow label={t("compare.row.matches")} v1={p1Stats.matchesPlayed} v2={p2Stats.matchesPlayed} />
+            <StatRow label={t("compare.row.wins")} v1={p1Stats.wins} v2={p2Stats.wins} />
+            <StatRow label={t("compare.row.draws")} v1={p1Stats.draws} v2={p2Stats.draws} />
+            <StatRow label={t("compare.row.losses")} v1={p1Stats.losses} v2={p2Stats.losses} lowerBetter />
+            <StatRow label={t("compare.row.winrate")} v1={wr1} v2={wr2} decimals={1} suffix="%" />
+            <StatRow label={t("compare.row.avgscore")} v1={p1Stats.avgScore} v2={p2Stats.avgScore} decimals={2} />
           </div>
 
           {/* ── Attacking ── */}
           <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946", marginBottom: 2 }}>
-            <SectionHeader label="Attacking · per match" color="#e63946" />
-            <StatRow label="Goals (total)" v1={p1Stats.goals} v2={p2Stats.goals} />
-            <StatRow label="Assists (total)" v1={p1Stats.assists} v2={p2Stats.assists} />
-            <StatRow label="G + A" v1={p1Stats.goals + p1Stats.assists} v2={p2Stats.goals + p2Stats.assists} />
-            <StatRow label="Goals / Match" v1={pm1(p1Stats.goals)} v2={pm2(p2Stats.goals)} decimals={2} />
-            <StatRow label="Assists / Match" v1={pm1(p1Stats.assists)} v2={pm2(p2Stats.assists)} decimals={2} />
-            <StatRow label="Key Passes / M" v1={pm1(p1Stats.keyPasses)} v2={pm2(p2Stats.keyPasses)} decimals={2} />
-            <StatRow label="Shots on Target / M" v1={pm1(p1Stats.shotsOnTarget)} v2={pm2(p2Stats.shotsOnTarget)} decimals={2} />
+            <SectionHeader label={t("compare.section.attacking")} color="#e63946" />
+            <StatRow label={t("compare.row.goalsTotal")} v1={p1Stats.goals} v2={p2Stats.goals} />
+            <StatRow label={t("compare.row.assistsTotal")} v1={p1Stats.assists} v2={p2Stats.assists} />
+            <StatRow label={t("compare.row.ga")} v1={p1Stats.goals + p1Stats.assists} v2={p2Stats.goals + p2Stats.assists} />
+            <StatRow label={t("compare.row.goalsMatch")} v1={pm1(p1Stats.goals)} v2={pm2(p2Stats.goals)} decimals={2} />
+            <StatRow label={t("compare.row.assistsMatch")} v1={pm1(p1Stats.assists)} v2={pm2(p2Stats.assists)} decimals={2} />
+            <StatRow label={t("compare.row.keyPassM")} v1={pm1(p1Stats.keyPasses)} v2={pm2(p2Stats.keyPasses)} decimals={2} />
+            <StatRow label={t("compare.row.sotM")} v1={pm1(p1Stats.shotsOnTarget)} v2={pm2(p2Stats.shotsOnTarget)} decimals={2} />
           </div>
 
           {/* ── Defending ── */}
           <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ade80", marginBottom: 2 }}>
-            <SectionHeader label="Defending · per match" color="#4ade80" />
-            <StatRow label="Tackles / Match" v1={pm1(p1Stats.tackles)} v2={pm2(p2Stats.tackles)} decimals={2} />
-            <StatRow label="Key Tackles / M" v1={pm1(p1Stats.keyTackles)} v2={pm2(p2Stats.keyTackles)} decimals={2} />
-            <StatRow label="Interceptions / M" v1={pm1(p1Stats.interceptions)} v2={pm2(p2Stats.interceptions)} decimals={2} />
-            <StatRow label="Key Ints / M" v1={pm1(p1Stats.keyInterceptions)} v2={pm2(p2Stats.keyInterceptions)} decimals={2} />
-            <StatRow label="Poss. Lost / M" v1={pm1(p1Stats.possLost)} v2={pm2(p2Stats.possLost)} decimals={2} lowerBetter />
+            <SectionHeader label={t("compare.section.defending")} color="#4ade80" />
+            <StatRow label={t("compare.row.tacklesM")} v1={pm1(p1Stats.tackles)} v2={pm2(p2Stats.tackles)} decimals={2} />
+            <StatRow label={t("compare.row.keyTacklesM")} v1={pm1(p1Stats.keyTackles)} v2={pm2(p2Stats.keyTackles)} decimals={2} />
+            <StatRow label={t("compare.row.intsM")} v1={pm1(p1Stats.interceptions)} v2={pm2(p2Stats.interceptions)} decimals={2} />
+            <StatRow label={t("compare.row.keyIntsM")} v1={pm1(p1Stats.keyInterceptions)} v2={pm2(p2Stats.keyInterceptions)} decimals={2} />
+            <StatRow label={t("compare.row.possLostM")} v1={pm1(p1Stats.possLost)} v2={pm2(p2Stats.possLost)} decimals={2} lowerBetter />
           </div>
 
           {/* ── Passing ── */}
           <div style={{ background: "var(--bg-card)", borderTop: `3px solid ${C1}`, marginBottom: 2 }}>
-            <SectionHeader label="Passing · per match" color={C1} />
-            <StatRow label="Passes / Match" v1={pm1(p1Stats.passes)} v2={pm2(p2Stats.passes)} decimals={1} />
-            <StatRow label="Key Passes / M" v1={pm1(p1Stats.keyPasses)} v2={pm2(p2Stats.keyPasses)} decimals={2} />
+            <SectionHeader label={t("compare.section.passing")} color={C1} />
+            <StatRow label={t("compare.row.passesM")} v1={pm1(p1Stats.passes)} v2={pm2(p2Stats.passes)} decimals={1} />
+            <StatRow label={t("compare.row.keyPassM")} v1={pm1(p1Stats.keyPasses)} v2={pm2(p2Stats.keyPasses)} decimals={2} />
           </div>
 
           {/* ── GK (conditional) ── */}
           {showGK && (
             <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", marginBottom: 2 }}>
-              <SectionHeader label="Goalkeeper · per match" color="#f4c430" />
-              <StatRow label="Saves / Match" v1={pm1(p1Stats.gkSaves)} v2={pm2(p2Stats.gkSaves)} decimals={2} />
-              <StatRow label="Catches / Match" v1={pm1(p1Stats.gkCatches)} v2={pm2(p2Stats.gkCatches)} decimals={2} />
+              <SectionHeader label={t("compare.section.gk")} color="#f4c430" />
+              <StatRow label={t("compare.row.gkSavesM")} v1={pm1(p1Stats.gkSaves)} v2={pm2(p2Stats.gkSaves)} decimals={2} />
+              <StatRow label={t("compare.row.gkCatchesM")} v1={pm1(p1Stats.gkCatches)} v2={pm2(p2Stats.gkCatches)} decimals={2} />
             </div>
           )}
 

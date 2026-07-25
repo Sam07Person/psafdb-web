@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { getLang } from "@/lib/lang-server";
+import { t as tt, type Lang } from "@/lib/i18n";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -451,6 +453,7 @@ export default async function TeamDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const lang = await getLang();
   const team = await getTeam(id);
 
   if (!team) notFound();
@@ -481,9 +484,9 @@ export default async function TeamDetailPage({
       <div className="mx-auto max-w-5xl px-4 py-12">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
-          <Link href="/" className="text-white/50 hover:text-white/80 transition">Home</Link>
+          <Link href="/" className="text-white/50 hover:text-white/80 transition">{tt(lang, "nav.home")}</Link>
           <span className="text-white/30">/</span>
-          <Link href="/teams" className="text-white/50 hover:text-white/80 transition">Teams</Link>
+          <Link href="/teams" className="text-white/50 hover:text-white/80 transition">{tt(lang, "nav.teams")}</Link>
         </div>
 
         {/* Header */}
@@ -506,11 +509,11 @@ export default async function TeamDetailPage({
           <div className="mb-6 inline-flex items-center gap-4 rounded-xl border px-5 py-3" style={{ borderColor: teamRatingColor + "55", background: teamRatingColor + "11" }}>
             <div>
               <div className="text-4xl font-black tabular-nums leading-none" style={{ color: teamRatingColor ?? undefined }}>{teamRating}</div>
-              <div className="text-xs font-bold tracking-widest uppercase mt-1" style={{ color: teamRatingColor + "aa" }}>Team Rating</div>
+              <div className="text-xs font-bold tracking-widest uppercase mt-1" style={{ color: teamRatingColor + "aa" }}>{tt(lang, "teamdetail.teamRating")}</div>
             </div>
             <div className="text-sm font-bold" style={{ color: teamRatingColor ?? undefined }}>
               {teamRatingLabel}
-              <div className="text-xs font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>Avg of {ratedCount} rated players</div>
+              <div className="text-xs font-normal mt-0.5" style={{ color: "var(--text-muted)" }}>{tt(lang, "teamdetail.avgRated", { n: ratedCount })}</div>
             </div>
           </div>
         )}
@@ -527,9 +530,9 @@ export default async function TeamDetailPage({
               >
                 <span style={{ fontSize: 22 }}>🏆</span>
                 <div>
-                  <div className="text-sm font-bold text-yellow-300">League Champions</div>
+                  <div className="text-sm font-bold text-yellow-300">{tt(lang, "teamdetail.champions")}</div>
                   <div className="text-xs text-yellow-200/70">
-                    {c.leagueName}{c.season ? ` · Season ${c.season}` : ""}
+                    {c.leagueName}{c.season ? ` · ${tt(lang, "teamdetail.season", { n: c.season })}` : ""}
                   </div>
                 </div>
               </Link>
@@ -541,40 +544,40 @@ export default async function TeamDetailPage({
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
           <div className="rounded-xl bg-white/5 border border-white/10 p-4 text-center">
             <p className="text-2xl font-bold">{stats.played}</p>
-            <p className="text-xs text-white/50 mt-1">Played</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.played")}</p>
           </div>
           <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-4 text-center">
             <p className="text-2xl font-bold text-emerald-400">{stats.won}</p>
-            <p className="text-xs text-white/50 mt-1">Won</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.won")}</p>
           </div>
           <div className="rounded-xl bg-yellow-500/10 border border-yellow-500/30 p-4 text-center">
             <p className="text-2xl font-bold text-yellow-400">{stats.drawn}</p>
-            <p className="text-xs text-white/50 mt-1">Drawn</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.drawn")}</p>
           </div>
           <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-4 text-center">
             <p className="text-2xl font-bold text-red-400">{stats.lost}</p>
-            <p className="text-xs text-white/50 mt-1">Lost</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.lost")}</p>
           </div>
           <div className="rounded-xl bg-white/5 border border-white/10 p-4 text-center">
             <p className="text-2xl font-bold">{stats.gf}:{stats.ga}</p>
-            <p className="text-xs text-white/50 mt-1">Goals</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.goals")}</p>
           </div>
           <div className="rounded-xl bg-white/5 border border-white/10 p-4 text-center">
             <p className={`text-2xl font-bold ${gd > 0 ? "text-emerald-400" : gd < 0 ? "text-red-400" : ""}`}>
               {gd > 0 ? "+" : ""}{gd}
             </p>
-            <p className="text-xs text-white/50 mt-1">GD</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.gd")}</p>
           </div>
           <div className="rounded-xl bg-blue-500/10 border border-blue-500/30 p-4 text-center">
             <p className="text-2xl font-bold text-blue-400">{points}</p>
-            <p className="text-xs text-white/50 mt-1">Points</p>
+            <p className="text-xs text-white/50 mt-1">{tt(lang, "teamdetail.points")}</p>
           </div>
         </div>
 
         {/* Win Rate Bar */}
         <div className="mb-4 rounded-xl bg-white/5 border border-white/10 p-4">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-white/60">Win Rate</span>
+            <span className="text-sm text-white/60">{tt(lang, "teamdetail.winRate")}</span>
             <span className="text-sm font-medium">{winRate}%</span>
           </div>
           <div className="h-2 bg-white/10 rounded-full overflow-hidden">
@@ -602,7 +605,7 @@ export default async function TeamDetailPage({
           return (
             <div className="mb-8 rounded-xl bg-white/5 border border-white/10 p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-white/60">Recent Form</span>
+                <span className="text-sm text-white/60">{tt(lang, "teamdetail.recentForm")}</span>
                 <div className="flex items-center gap-2">
                   {last5.map((r, i) => (
                     <Link key={i} href={`/matches/${r.matchId}`} title={`${r.result} vs ${r.opponent} (${r.scored}–${r.conceded})`}>
@@ -626,12 +629,12 @@ export default async function TeamDetailPage({
           {/* Current Squad */}
           <div className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10 bg-white/5">
-              <h2 className="font-semibold">Current Squad ({currentSquadWithRatings.length})</h2>
-              <p className="text-xs text-white/50">Players whose last match was for this team</p>
+              <h2 className="font-semibold">{tt(lang, "teamdetail.currentSquad", { n: currentSquadWithRatings.length })}</h2>
+              <p className="text-xs text-white/50">{tt(lang, "teamdetail.squadNote")}</p>
             </div>
             
             {currentSquadWithRatings.length === 0 ? (
-              <div className="p-6 text-center text-white/40">No current players</div>
+              <div className="p-6 text-center text-white/40">{tt(lang, "teamdetail.noCurrentPlayers")}</div>
             ) : (
               <div className="divide-y divide-white/5">
                 {currentSquadWithRatings.map((player) => {
@@ -651,7 +654,7 @@ export default async function TeamDetailPage({
                         <span className="font-medium">{player.name || player.handle}</span>
                       </div>
                       <div className="flex items-center gap-3 text-sm">
-                        <span className="text-white/50">{player.matches_for_team} apps</span>
+                        <span className="text-white/50">{tt(lang, "teamdetail.apps", { n: player.matches_for_team })}</span>
                         {player.goals > 0 && <span className="text-emerald-400">{player.goals}G</span>}
                         {player.assists > 0 && <span className="text-sky-400">{player.assists}A</span>}
                         {pRatingColor ? (
@@ -670,12 +673,12 @@ export default async function TeamDetailPage({
           {/* Former Players */}
           <div className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10 bg-white/5">
-              <h2 className="font-semibold">Former Players ({formerPlayers.length})</h2>
-              <p className="text-xs text-white/50">Players who have moved to other teams</p>
+              <h2 className="font-semibold">{tt(lang, "teamdetail.formerPlayers", { n: formerPlayers.length })}</h2>
+              <p className="text-xs text-white/50">{tt(lang, "teamdetail.formerNote")}</p>
             </div>
             
             {formerPlayers.length === 0 ? (
-              <div className="p-6 text-center text-white/40">No former players</div>
+              <div className="p-6 text-center text-white/40">{tt(lang, "teamdetail.noFormerPlayers")}</div>
             ) : (
               <div className="divide-y divide-white/5 max-h-80 overflow-y-auto">
                 {formerPlayers.map((player) => (
@@ -693,7 +696,7 @@ export default async function TeamDetailPage({
                       <span className="text-white/70">{player.name || player.handle}</span>
                     </div>
                     <div className="flex items-center gap-3 text-sm">
-                      <span className="text-white/40">{player.matches_for_team} apps</span>
+                      <span className="text-white/40">{tt(lang, "teamdetail.apps", { n: player.matches_for_team })}</span>
                       {player.goals > 0 && <span className="text-emerald-400/70">{player.goals}G</span>}
                       {player.assists > 0 && <span className="text-sky-400/70">{player.assists}A</span>}
                     </div>
@@ -707,12 +710,12 @@ export default async function TeamDetailPage({
         {/* Recent Matches */}
         <div className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
           <div className="px-4 py-3 border-b border-white/10 bg-white/5">
-            <h2 className="font-semibold">Recent Matches</h2>
+            <h2 className="font-semibold">{tt(lang, "teamdetail.recentMatches")}</h2>
           </div>
 
           {matches.length === 0 ? (
             <div className="p-8 text-center text-white/40">
-              No matches found
+              {tt(lang, "teamdetail.noMatches")}
             </div>
           ) : (
             <div className="divide-y divide-white/5">
@@ -754,7 +757,7 @@ export default async function TeamDetailPage({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-white/40">{isHome ? "vs" : "@"}</span>
+                        <span className="text-xs text-white/40">{isHome ? tt(lang, "teamdetail.vs") : tt(lang, "teamdetail.at")}</span>
                         <span className="font-medium truncate">{opponent}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
@@ -769,7 +772,7 @@ export default async function TeamDetailPage({
                       {isPlayed ? (
                         <span className="font-mono font-bold">{scored} - {conceded}</span>
                       ) : (
-                        <span className="text-white/40 text-sm">Upcoming</span>
+                        <span className="text-white/40 text-sm">{tt(lang, "teamdetail.upcoming")}</span>
                       )}
                     </div>
                   </Link>

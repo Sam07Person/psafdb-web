@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useLanguage } from "@/components/LanguageProvider";
 import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
@@ -225,6 +226,7 @@ function calcLocalTOTW(stats: TOTWRawStat[]): Partial<Record<SlotKey, { playerId
 export default function PlayerDetailPage() {
   const params = useParams();
   const playerId = params.id as string;
+  const { t } = useLanguage();
 
   const [player, setPlayer] = useState<PlayerRow | null>(null);
   const [matchStats, setMatchStats] = useState<MatchPlayerStat[]>([]);
@@ -601,8 +603,8 @@ export default function PlayerDetailPage() {
     return (
       <main className="mx-auto max-w-6xl px-6 py-10">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-xl font-semibold">Player Details</div>
-          <p className="mt-2 text-white/70">Missing environment variables.</p>
+          <div className="text-xl font-semibold">{t("player.loading")}</div>
+          <p className="mt-2 text-white/70">{t("player.missingEnv")}</p>
         </div>
       </main>
     );
@@ -612,7 +614,7 @@ export default function PlayerDetailPage() {
     return (
       <main className="mx-auto max-w-6xl px-6 py-10">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-          Loading player...
+          {t("player.loadingPlayer")}
         </div>
       </main>
     );
@@ -622,13 +624,13 @@ export default function PlayerDetailPage() {
     return (
       <main className="mx-auto max-w-6xl px-6 py-10">
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
-          <div className="text-lg font-semibold">Error</div>
+          <div className="text-lg font-semibold">{t("common.error")}</div>
           <pre className="mt-3 overflow-auto text-xs text-white/80">
-            {error ? JSON.stringify(error, null, 2) : "Player not found"}
+            {error ? JSON.stringify(error, null, 2) : t("player.notFound")}
           </pre>
         </div>
         <Link href="/players" className="mt-4 inline-block text-sm text-white/60 hover:text-white">
-          ← Back to players
+          ← {t("player.backToPlayers")}
         </Link>
       </main>
     );
@@ -640,9 +642,9 @@ export default function PlayerDetailPage() {
     <main className="mx-auto max-w-6xl px-6 py-10">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
-        <Link href="/" className="text-white/50 hover:text-white/80 transition">Home</Link>
+        <Link href="/" className="text-white/50 hover:text-white/80 transition">{t("nav.home")}</Link>
         <span className="text-white/30">/</span>
-        <Link href="/players" className="text-white/50 hover:text-white/80 transition">Players</Link>
+        <Link href="/players" className="text-white/50 hover:text-white/80 transition">{t("nav.players")}</Link>
       </div>
 
       {/* Header */}
@@ -654,25 +656,25 @@ export default function PlayerDetailPage() {
           )}
           {player.game_user_id && (
             <div className="mt-1 flex items-center gap-2">
-              <span className="text-sm text-white/40">Player ID:</span>
+              <span className="text-sm text-white/40">{t("player.playerId")}:</span>
               <code className="rounded bg-white/10 px-2 py-0.5 text-sm font-mono text-white/70">
                 {player.game_user_id}
               </code>
             </div>
           )}
           <div className="mt-1 flex items-center gap-2">
-            <span className="text-sm text-white/40">Discord:</span>
+            <span className="text-sm text-white/40">{t("player.discord")}:</span>
             {player.discord_id ? (
               <code className="rounded bg-indigo-500/20 px-2 py-0.5 text-sm font-mono text-indigo-300">
                 {player.discord_id}
               </code>
             ) : (
-              <span className="text-sm italic text-white/30">Unknown</span>
+              <span className="text-sm italic text-white/30">{t("player.unknown")}</span>
             )}
           </div>
           {player.created_at && (
             <div className="mt-1 text-sm text-white/40">
-              Registered {formatDate(player.created_at)}
+              {t("player.registered")} {formatDate(player.created_at)}
             </div>
           )}
         </div>
@@ -680,13 +682,13 @@ export default function PlayerDetailPage() {
         <div className="flex flex-col gap-2 items-start md:items-end">
           {mostPlayedPosition && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/50">Main position:</span>
+              <span className="text-sm text-white/50">{t("player.mainPosition")}:</span>
               <PositionBadge position={mostPlayedPosition} />
             </div>
           )}
           {lastClub && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/50">Last club:</span>
+              <span className="text-sm text-white/50">{t("player.lastClub")}:</span>
               {teamIdMap[lastClub.teamName] ? (
                 <Link href={`/teams/${teamIdMap[lastClub.teamName]}`} style={{ textDecoration: "none" }}>
                   <span className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-sm font-medium text-emerald-200 hover:bg-emerald-400/20 transition-colors cursor-pointer">
@@ -707,11 +709,11 @@ export default function PlayerDetailPage() {
                   <div style={{ fontSize: 28, fontWeight: 900, color: ratingColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                     {overallRating !== null ? overallRating : "N/A"}
                   </div>
-                  <div style={{ fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>Rating</div>
+                  <div style={{ fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>{t("player.rating")}</div>
                 </div>
                 <div style={{ fontSize: 11, color: ratingColor, fontWeight: 700, letterSpacing: "0.06em" }}>
-                  {ratingLabelText ?? `${matchRatingValues.length}/3 matches`}
-                  <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginTop: 2 }}>Full breakdown →</div>
+                  {ratingLabelText ?? t("player.matchesForRating", { n: matchRatingValues.length })}
+                  <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginTop: 2 }}>{t("player.fullBreakdown")} →</div>
                 </div>
               </div>
             </Link>
@@ -722,7 +724,7 @@ export default function PlayerDetailPage() {
       {/* Club History */}
       {teamsPlayedFor.length > 0 && (
         <div className="mt-6">
-          <div className="text-sm text-white/50 mb-2">Teams played for:</div>
+          <div className="text-sm text-white/50 mb-2">{t("player.teamsPlayedFor")}:</div>
           <div className="flex flex-wrap gap-2">
             {teamsPlayedFor.map((team) => {
               const teamId = teamIdMap[team];
@@ -754,14 +756,14 @@ export default function PlayerDetailPage() {
       {/* Recent Form Strip */}
       {recentFormRatings.length > 0 && (
         <div className="mt-6">
-          <div className="text-sm text-white/50 mb-2">Recent Form <span className="text-white/30 text-xs">(last {recentFormRatings.length} rated matches)</span></div>
+          <div className="text-sm text-white/50 mb-2">{t("player.recentForm")} <span className="text-white/30 text-xs">{t("player.lastRatedMatches", { n: recentFormRatings.length })}</span></div>
           <div className="flex items-center gap-2">
             {recentFormRatings.map((r, i) => {
               const c = getRatingColor(r);
               return (
                 <div
                   key={i}
-                  title={`Match rating: ${r}/100`}
+                  title={t("player.matchRatingTitle", { r })}
                   style={{ background: c + "22", border: `1.5px solid ${c}55`, color: c }}
                   className="flex h-9 w-12 items-center justify-center rounded-lg text-sm font-bold"
                 >
@@ -805,7 +807,7 @@ export default function PlayerDetailPage() {
 
         return (
           <div className="mt-6">
-            <div className="text-sm text-white/50 mb-3">Position Breakdown</div>
+            <div className="text-sm text-white/50 mb-3">{t("player.positionBreakdown")}</div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-wrap items-center gap-6">
               <svg viewBox="0 0 180 160" style={{ width: 180, height: 160, flexShrink: 0 }}>
                 {slices.map(({ pos, sweep, x1, y1, x2, y2, large }) =>
@@ -822,7 +824,7 @@ export default function PlayerDetailPage() {
                   <div key={pos} className="flex items-center gap-2">
                     <span style={{ width: 10, height: 10, borderRadius: 2, background: sliceColor(pos), flexShrink: 0, display: "inline-block" }} />
                     <span className="text-xs text-white/70 font-medium w-8">{pos}</span>
-                    <span className="text-xs text-white/40">{count} match{count !== 1 ? "es" : ""}</span>
+                    <span className="text-xs text-white/40">{t("player.matchCount", { n: count })}</span>
                     <span className="text-xs text-white/50 ml-1">({Math.round(count / total * 100)}%)</span>
                   </div>
                 ))}
@@ -835,54 +837,54 @@ export default function PlayerDetailPage() {
       {/* Total Stats */}
       <div className="mt-8">
         <div className="flex items-center justify-between">
-          <div className="text-lg font-semibold">Career Stats</div>
+          <div className="text-lg font-semibold">{t("player.careerStats")}</div>
           {totalStats.matches_without_stats > 0 && (
             <div className="text-xs text-amber-400/80 flex items-center gap-1">
               <span>⚠️</span>
-              <span>{totalStats.matches_without_stats} match{totalStats.matches_without_stats !== 1 ? 'es' : ''} with incomplete stats</span>
+              <span>{t("player.incompleteStatsNote", { n: totalStats.matches_without_stats })}</span>
             </div>
           )}
         </div>
         
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <StatCard 
-            label="Appearances" 
+            label={t("player.appearances")} 
             value={totalStats.matches_played} 
-            subtext={`${totalStats.starts} starts, ${totalStats.sub_appearances} sub`}
+            subtext={t("player.startsSub", { starts: totalStats.starts, sub: totalStats.sub_appearances })}
           />
           <StatCard
-            label="Record"
+            label={t("player.record")}
             value={`${totalStats.wins}W ${totalStats.draws}D ${totalStats.losses}L`}
-            subtext={`${totalStats.matches_played > 0 ? ((totalStats.wins / totalStats.matches_played) * 100).toFixed(0) : 0}% win rate`}
+            subtext={t("player.winRate", { n: totalStats.matches_played > 0 ? ((totalStats.wins / totalStats.matches_played) * 100).toFixed(0) : 0 })}
           />
           <StatCard 
-            label="Goals" 
+            label={t("player.goals")} 
             value={totalStats.goals} 
             color="text-emerald-400" 
-            subtext={totalStats.matches_without_stats > 0 ? `from ${totalStats.matches_with_stats} matches` : undefined}
+            subtext={totalStats.matches_without_stats > 0 ? t("player.fromMatches", { n: totalStats.matches_with_stats }) : undefined}
           />
           <StatCard 
-            label="Assists" 
+            label={t("player.assists")} 
             value={totalStats.assists} 
             color="text-sky-400" 
-            subtext={totalStats.matches_without_stats > 0 ? `from ${totalStats.matches_with_stats} matches` : undefined}
+            subtext={totalStats.matches_without_stats > 0 ? t("player.fromMatches", { n: totalStats.matches_with_stats }) : undefined}
           />
           <StatCard
-            label="Avg Score"
+            label={t("player.avgScore")}
             value={totalStats.avg_score.toFixed(1)}
             color="text-amber-400"
-            subtext="All matches"
+            subtext={t("player.allMatches")}
           />
           <StatCard
-            label="G+A"
+            label={t("player.ga")}
             value={totalStats.goals + totalStats.assists}
-            subtext={totalStats.matches_without_stats > 0 ? `from ${totalStats.matches_with_stats} matches` : "Goal contributions"}
+            subtext={totalStats.matches_without_stats > 0 ? t("player.fromMatches", { n: totalStats.matches_with_stats }) : t("player.goalContributions")}
             color="text-purple-400"
           />
           <StatCard
-            label="Benched"
+            label={t("player.benched")}
             value={totalStats.benched}
-            subtext="Unused sub"
+            subtext={t("player.unusedSub")}
             color="text-gray-400"
           />
         </div>
@@ -891,19 +893,19 @@ export default function PlayerDetailPage() {
         {totalStats.matches_with_stats > 0 && (
           <>
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
-              <StatCard label="Shots" value={totalStats.shots} />
-              <StatCard label="On Target" value={totalStats.shots_on_target} />
-              <StatCard label="Passes" value={totalStats.passes} />
-              <StatCard label="Key Passes" value={totalStats.key_passes} />
-              <StatCard label="Tackles" value={totalStats.tackles} />
-              <StatCard label="Key Tackles" value={totalStats.key_tackles} />
-              <StatCard label="Interceptions" value={totalStats.interceptions} />
-              <StatCard label="Poss. Lost" value={totalStats.possessions_lost} />
+              <StatCard label={t("player.shots")} value={totalStats.shots} />
+              <StatCard label={t("player.onTarget")} value={totalStats.shots_on_target} />
+              <StatCard label={t("player.passes")} value={totalStats.passes} />
+              <StatCard label={t("player.keyPasses")} value={totalStats.key_passes} />
+              <StatCard label={t("player.tackles")} value={totalStats.tackles} />
+              <StatCard label={t("player.keyTackles")} value={totalStats.key_tackles} />
+              <StatCard label={t("player.interceptions")} value={totalStats.interceptions} />
+              <StatCard label={t("player.possLost")} value={totalStats.possessions_lost} />
             </div>
 
             {totalStats.matches_without_stats > 0 && (
               <p className="mt-2 text-xs text-white/40">
-                * Detailed stats from {totalStats.matches_with_stats} of {totalStats.matches_played} matches
+                * {t("player.detailedFrom", { with: totalStats.matches_with_stats, played: totalStats.matches_played })}
               </p>
             )}
           </>
@@ -911,8 +913,8 @@ export default function PlayerDetailPage() {
 
         {(totalStats.gk_saves > 0 || totalStats.gk_catches > 0) && (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="GK Saves" value={totalStats.gk_saves} color="text-yellow-400" />
-            <StatCard label="GK Catches" value={totalStats.gk_catches} color="text-yellow-400" />
+            <StatCard label={t("player.gkSaves")} value={totalStats.gk_saves} color="text-yellow-400" />
+            <StatCard label={t("player.gkCatches")} value={totalStats.gk_catches} color="text-yellow-400" />
           </div>
         )}
       </div>
@@ -921,10 +923,10 @@ export default function PlayerDetailPage() {
       <div className="mt-10">
         <div className="flex items-center justify-between">
           <div className="text-lg font-semibold">
-            Awards
+            {t("player.awards")}
             {totwAppearances.length > 0 && (
               <span className="ml-2 text-sm font-normal text-white/40">
-                ({totwAppearances.length} TOTW{totwAppearances.length !== 1 ? "s" : ""})
+                ({t("player.totwCount", { n: totwAppearances.length })})
               </span>
             )}
           </div>
@@ -932,15 +934,15 @@ export default function PlayerDetailPage() {
             onClick={() => setShowAwards(v => !v)}
             className="text-sm text-white/60 hover:text-white"
           >
-            {showAwards ? "Hide" : "Show"}
+            {showAwards ? t("player.hide") : t("player.show")}
           </button>
         </div>
         {showAwards && (
           totwLoading ? (
-            <div className="mt-3 text-sm text-white/40">Loading awards…</div>
+            <div className="mt-3 text-sm text-white/40">{t("player.loadingAwards")}</div>
           ) : totwAppearances.length === 0 ? (
             <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-              No Team of the Week appearances yet.
+              {t("player.noTotw")}
             </div>
           ) : (
             <div className="mt-3 space-y-2">
@@ -954,7 +956,7 @@ export default function PlayerDetailPage() {
                     <div style={{ fontSize: 22, color: "#f4a261", flexShrink: 0 }}>★</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-body)" }}>
-                        Team of the Week — Matchday {a.day}
+                        {t("player.totwMatchday", { day: a.day })}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                         {a.leagueName} • {a.slot}
@@ -975,7 +977,7 @@ export default function PlayerDetailPage() {
       <div className="mt-10">
         <div className="flex items-center justify-between">
           <div className="text-lg font-semibold">
-            {showAllMatches ? "All Appearances" : "Recent Appearances"}
+            {showAllMatches ? t("player.allAppearances") : t("player.recentAppearances")}
           </div>
           <div className="flex items-center gap-4">
             {playedMatches.length > 5 && (
@@ -983,7 +985,7 @@ export default function PlayerDetailPage() {
                 onClick={() => setShowAllMatches(!showAllMatches)}
                 className="text-sm text-white/60 hover:text-white"
               >
-                {showAllMatches ? "Show recent only" : `View all ${playedMatches.length} appearances`}
+                {showAllMatches ? t("player.showRecentOnly") : t("player.viewAll", { n: playedMatches.length })}
               </button>
             )}
           </div>
@@ -991,7 +993,7 @@ export default function PlayerDetailPage() {
 
         {playedMatches.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-            No appearances yet.
+            {t("player.noAppearances")}
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -1046,16 +1048,16 @@ export default function PlayerDetailPage() {
                       <PositionBadge position={s.position} />
                       {s.is_starter ? (
                         <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-200">
-                          Started
+                          {t("player.started")}
                         </span>
                       ) : (
                         <span className="rounded-full border border-orange-400/30 bg-orange-400/10 px-2 py-0.5 text-xs text-orange-200">
-                          Sub
+                          {t("player.sub")}
                         </span>
                       )}
                       {s.stats_incomplete && (
                         <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200">
-                          Stats N/A
+                          {t("player.statsNA")}
                         </span>
                       )}
                     </div>
@@ -1063,21 +1065,21 @@ export default function PlayerDetailPage() {
 
                   <div className="mt-3 flex flex-wrap gap-4 text-sm">
                     {s.stats_incomplete ? (
-                      <span className="text-amber-400/70">Detailed stats not available</span>
+                      <span className="text-amber-400/70">{t("player.statsNotAvailable")}</span>
                     ) : (
                       <>
                         {(s.goals ?? 0) > 0 && (
-                          <span className="text-emerald-400">⚽ {s.goals} goal{s.goals !== 1 ? "s" : ""}</span>
+                          <span className="text-emerald-400">⚽ {t("player.goalWord", { n: s.goals ?? 0 })}</span>
                         )}
                         {(s.assists ?? 0) > 0 && (
-                          <span className="text-sky-400">🅰️ {s.assists} assist{s.assists !== 1 ? "s" : ""}</span>
+                          <span className="text-sky-400">🅰️ {t("player.assistWord", { n: s.assists ?? 0 })}</span>
                         )}
-                        <span className="text-white/50">{s.shots ?? 0} shots ({s.shots_on_target ?? 0} on target)</span>
-                        <span className="text-white/50">{s.passes ?? 0} passes ({s.key_passes ?? 0} key)</span>
-                        <span className="text-white/50">{s.tackles ?? 0} tackles</span>
+                        <span className="text-white/50">{t("player.shotsLine", { shots: s.shots ?? 0, ont: s.shots_on_target ?? 0 })}</span>
+                        <span className="text-white/50">{t("player.passesLine", { passes: s.passes ?? 0, key: s.key_passes ?? 0 })}</span>
+                        <span className="text-white/50">{t("player.tacklesLine", { n: s.tackles ?? 0 })}</span>
                       </>
                     )}
-                    <span className="text-amber-400">Score: {s.score}</span>
+                    <span className="text-amber-400">{t("player.scoreWord")}: {s.score}</span>
                   </div>
                 </Link>
               );
@@ -1091,18 +1093,18 @@ export default function PlayerDetailPage() {
         <div className="mt-10">
           <div className="flex items-center justify-between">
             <div className="text-lg font-semibold text-gray-400">
-              Benched ({benchedMatches.length})
+              {t("player.benchedCount", { n: benchedMatches.length })}
             </div>
             <button
               onClick={() => setShowBenchedMatches(!showBenchedMatches)}
               className="text-sm text-white/60 hover:text-white"
             >
-              {showBenchedMatches ? "Hide" : "Show"} benched matches
+              {showBenchedMatches ? t("player.hide") : t("player.show")} {t("player.benchedMatches")}
             </button>
           </div>
           
           <p className="mt-1 text-sm text-white/40">
-            Matches where player was an unused substitute
+            {t("player.unusedSubstitute")}
           </p>
 
           {showBenchedMatches && (
@@ -1139,11 +1141,11 @@ export default function PlayerDetailPage() {
                           <span className="text-white/70">{oppName}</span>
                         </div>
                         <div className="text-xs text-white/30">
-                          {formatDate(match.played_at)} • Sub {s.sub_number}
+                          {formatDate(match.played_at)} • {t("player.subWord")} {s.sub_number}
                         </div>
                       </div>
                       <span className="rounded border border-gray-600/30 bg-gray-600/10 px-2 py-0.5 text-xs text-gray-400">
-                        Benched
+                        {t("player.benchedWord")}
                       </span>
                     </div>
                   </Link>

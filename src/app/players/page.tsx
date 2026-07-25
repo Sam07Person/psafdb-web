@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 import {
   calcMatchRating,
@@ -58,6 +59,7 @@ function cx(...s: Array<string | false | null | undefined>) {
 
 
 export default function PlayersPage() {
+  const { t } = useLanguage();
   const [players, setPlayers] = useState<PlayerWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<any>(null);
@@ -288,7 +290,7 @@ export default function PlayersPage() {
     return (
       <main className="mx-auto max-w-6xl px-6 py-10">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-xl font-semibold">Players</div>
+          <div className="text-xl font-semibold">{t("players.title")}</div>
           <p className="mt-2 text-white/70">
             Missing env vars. Add <code className="rounded bg-black/30 px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
             <code className="rounded bg-black/30 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to <code className="rounded bg-black/30 px-1">.env.local</code>.
@@ -302,7 +304,7 @@ export default function PlayersPage() {
     return (
       <main className="mx-auto max-w-6xl px-6 py-10">
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
-          <div className="text-lg font-semibold">Error</div>
+          <div className="text-lg font-semibold">{t("common.error")}</div>
           <pre className="mt-3 overflow-auto text-xs text-white/80">{JSON.stringify(error, null, 2)}</pre>
         </div>
       </main>
@@ -316,26 +318,28 @@ export default function PlayersPage() {
         <div>
           <div className="flex items-center gap-4 text-sm mb-2">
             <Link href="/" className="text-white/50 hover:text-white/80 transition">
-              ← Home
+              ← {t("breadcrumb.home")}
             </Link>
           </div>
           <div className="flex items-center gap-4 flex-wrap">
-            <div className="text-3xl font-bold tracking-tight">Players</div>
+            <div className="text-3xl font-bold tracking-tight">{t("players.title")}</div>
             <Link
               href="/compare"
               className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-widest text-white/60 hover:border-white/20 hover:text-white/80 transition"
             >
-              ⚡ Compare Players
+              ⚡ {t("players.comparePlayers")}
             </Link>
           </div>
           <div className="mt-1 text-sm text-white/70">
-            {players.length} registered player{players.length !== 1 ? "s" : ""}. Click to view full stats.
+            {players.length === 1
+              ? t("players.subtitleOne", { n: players.length })
+              : t("players.subtitle", { n: players.length })}
           </div>
         </div>
 
         <div className="flex flex-col gap-3 md:flex-row md:items-end">
           <div className="w-full md:w-[240px]">
-            <label className="text-xs uppercase tracking-wide text-white/60">Search</label>
+            <label className="text-xs uppercase tracking-wide text-white/60">{t("search.hint")}</label>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -345,7 +349,7 @@ export default function PlayersPage() {
           </div>
 
           <div className="w-full md:w-[200px]">
-            <label className="text-xs uppercase tracking-wide text-white/60">Sort by</label>
+            <label className="text-xs uppercase tracking-wide text-white/60">{t("common.sortBy")}</label>
             <select
               value={`${sortKey}:${sortDir}`}
               onChange={(e) => {
@@ -355,16 +359,16 @@ export default function PlayersPage() {
               }}
               className="mt-2 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm outline-none focus:border-white/20"
             >
-              <option value="rating:desc">Rating (high → low)</option>
-              <option value="rating:asc">Rating (low → high)</option>
-              <option value="total_goals:desc">Goals (high → low)</option>
-              <option value="total_goals:asc">Goals (low → high)</option>
-              <option value="total_assists:desc">Assists (high → low)</option>
-              <option value="total_assists:asc">Assists (low → high)</option>
-              <option value="matches_played:desc">Matches (high → low)</option>
-              <option value="matches_played:asc">Matches (low → high)</option>
-              <option value="name:asc">Name (A → Z)</option>
-              <option value="name:desc">Name (Z → A)</option>
+              <option value="rating:desc">{t("players.sort.ratingHighLow")}</option>
+              <option value="rating:asc">{t("players.sort.ratingLowHigh")}</option>
+              <option value="total_goals:desc">{t("players.sort.goalsHighLow")}</option>
+              <option value="total_goals:asc">{t("players.sort.goalsLowHigh")}</option>
+              <option value="total_assists:desc">{t("players.sort.assistsHighLow")}</option>
+              <option value="total_assists:asc">{t("players.sort.assistsLowHigh")}</option>
+              <option value="matches_played:desc">{t("players.sort.matchesHighLow")}</option>
+              <option value="matches_played:asc">{t("players.sort.matchesLowHigh")}</option>
+              <option value="name:asc">{t("players.sort.nameAZ")}</option>
+              <option value="name:desc">{t("players.sort.nameZA")}</option>
             </select>
           </div>
         </div>
@@ -374,11 +378,11 @@ export default function PlayersPage() {
       <div className="mt-8">
         {loading ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-            Loading players...
+            {t("common.loading")}
           </div>
         ) : filteredPlayers.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-white/70">
-            No players found.
+            {t("common.noResults")}
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -429,27 +433,27 @@ export default function PlayersPage() {
                   <div className="mt-4 grid grid-cols-3 gap-2">
                     <div className="rounded-xl bg-black/20 px-3 py-2 text-center">
                       <div className="text-lg font-bold">{p.matches_played}</div>
-                      <div className="text-[10px] uppercase tracking-wide text-white/50">Matches</div>
+                      <div className="text-[10px] uppercase tracking-wide text-white/50">{t("players.col.matches")}</div>
                     </div>
                     <div className="rounded-xl bg-black/20 px-3 py-2 text-center">
                       <div className="text-lg font-bold text-emerald-400">{p.total_goals}</div>
-                      <div className="text-[10px] uppercase tracking-wide text-white/50">Goals</div>
+                      <div className="text-[10px] uppercase tracking-wide text-white/50">{t("players.col.goals")}</div>
                     </div>
                     <div className="rounded-xl bg-black/20 px-3 py-2 text-center">
                       <div className="text-lg font-bold text-sky-400">{p.total_assists}</div>
-                      <div className="text-[10px] uppercase tracking-wide text-white/50">Assists</div>
+                      <div className="text-[10px] uppercase tracking-wide text-white/50">{t("players.col.assists")}</div>
                     </div>
                   </div>
 
                   {p.recent_form.length > 0 && (
                     <div className="mt-3 flex items-center gap-1.5">
-                      <span className="text-[9px] uppercase tracking-widest text-white/30 mr-0.5">Form</span>
+                      <span className="text-[9px] uppercase tracking-widest text-white/30 mr-0.5">{t("players.form")}</span>
                       {p.recent_form.map((r, i) => {
                         const c = getRatingColor(r);
                         return (
                           <div
                             key={i}
-                            title={`Match rating: ${r}/100`}
+                            title={t("players.matchRating", { n: r })}
                             style={{ background: c + "22", border: `1.5px solid ${c}55`, color: c }}
                             className="flex h-6 w-8 items-center justify-center rounded text-[10px] font-bold"
                           >

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useRef } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 
 type Zone = { name: string; color: string; spots: number; type: "top" | "bottom" };
 type StandingRow = {
@@ -59,8 +60,9 @@ function FormBadge({ entry }: { entry: FormEntry }) {
   const [show, setShow] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const { t } = useLanguage();
 
-  const label = entry.result === "W" ? "Win" : entry.result === "L" ? "Loss" : "Draw";
+  const label = entry.result === "W" ? t("standings.win") : entry.result === "L" ? t("standings.loss") : t("standings.draw");
 
   const handleEnter = () => {
     if (ref.current) {
@@ -103,10 +105,10 @@ function FormBadge({ entry }: { entry: FormEntry }) {
             {label}
           </div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#e8e8f0" }}>
-            vs {entry.opponent}
+            {t("standings.vs")} {entry.opponent}
           </div>
           <div style={{ fontSize: 10, color: "#a0a0b8", marginTop: 1 }}>
-            {entry.myScore} - {entry.oppScore} ({entry.isHome ? "Home" : "Away"})
+            {entry.myScore} - {entry.oppScore} ({entry.isHome ? t("standings.home") : t("standings.away")})
           </div>
         </div>
       )}
@@ -126,37 +128,51 @@ export default function StandingsTableWithForm({
   matches: any[];
 }) {
   const [showForm, setShowForm] = useState(false);
+  const { t } = useLanguage();
+
+  const COLS = [
+    { key: "#", label: "#" },
+    { key: "Team", label: t("teams.col.team") },
+    { key: "P", label: t("teams.col.played") },
+    { key: "W", label: t("teams.col.won") },
+    { key: "D", label: t("teams.col.drawn") },
+    { key: "L", label: t("teams.col.lost") },
+    { key: "GF", label: t("teams.col.gf") },
+    { key: "GA", label: t("teams.col.ga") },
+    { key: "GD", label: t("teams.col.gd") },
+    { key: "Pts", label: t("teams.col.pts") },
+  ];
 
   return (
     <>
       {/* Header with toggle */}
       <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span>Standings</span>
+        <span>{t("standings.title")}</span>
         {rows.length > 0 && (
           <button
             onClick={() => setShowForm(f => !f)}
             style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", padding: "3px 10px", background: showForm ? "#f4c43018" : "transparent", color: showForm ? "#f4c430" : "var(--text-faint)", border: `1px solid ${showForm ? "#f4c430" : "var(--border-main)"}`, transition: "all 0.15s" }}
           >
-            {showForm ? "Hide Form" : "Form"}
+            {showForm ? t("standings.hideForm") : t("standings.form")}
           </button>
         )}
       </div>
 
       {rows.length === 0 ? (
         <div style={{ background: "var(--bg-card)", padding: "40px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
-          No teams yet
+          {t("standings.noTeams")}
         </div>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-row)" }}>
-                {["#", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"].map(h => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: h === "Team" || h === "#" ? "left" : "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>{h}</th>
+                {COLS.map(c => (
+                  <th key={c.key} style={{ padding: "8px 12px", textAlign: c.key === "Team" || c.key === "#" ? "left" : "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>{c.label}</th>
                 ))}
                 {showForm && (
                   <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, color: "#f4c430", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>
-                    Form
+                    {t("standings.form")}
                   </th>
                 )}
               </tr>

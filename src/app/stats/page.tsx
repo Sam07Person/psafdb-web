@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { StatsFilterBar } from "./StatsFilterBar";
 import { LeagueStatsClient, type PlayerStat, type TeamStat } from "../leagues/[id]/LeagueStatsClient";
+import { getLang } from "@/lib/lang-server";
+import { t as translate } from "@/lib/i18n";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -166,6 +168,8 @@ export default async function StatsPage({
 }: {
   searchParams?: Promise<{ league?: string; tab?: string; season?: string; from?: string; to?: string }>;
 }) {
+  const lang = await getLang();
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const sp = await searchParams;
   const leagueParam = sp?.league || "";
   const selectedLeagues = leagueParam ? leagueParam.split(",").filter(Boolean) : [];
@@ -217,18 +221,18 @@ export default async function StatsPage({
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("breadcrumb.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Stats
+            {t("stats.title")}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
             <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
-              Stats
+              {t("stats.title")}
             </h1>
             {selectedLeagueNames.length > 0 ? (
               <span style={{ fontSize: 14, color: "var(--text-faint)" }}>{selectedLeagueNames.join(", ")}</span>
             ) : (
-              <span style={{ fontSize: 14, color: "var(--text-faint)" }}>All Leagues</span>
+              <span style={{ fontSize: 14, color: "var(--text-faint)" }}>{t("stats.allLeagues")}</span>
             )}
           </div>
         </div>
@@ -244,6 +248,7 @@ export default async function StatsPage({
           matchdays={stats.matchdays}
           dayFrom={dayFrom}
           dayTo={dayTo}
+          lang={lang}
         />
       </Suspense>
 
@@ -258,6 +263,7 @@ export default async function StatsPage({
         activeTeamNames={[...activeTeamNames]}
         showTeamFilters
         showPlayerFilters
+        lang={lang}
       />
     </main>
   );

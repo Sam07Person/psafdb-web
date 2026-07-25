@@ -2,12 +2,14 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { t as translate, type Lang } from "@/lib/i18n";
 
 export type LeagueOption = { id: string; name: string; ended: boolean };
 
-export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], selectedSeason = "", matchdays = [], dayFrom, dayTo }: { leagues: LeagueOption[]; selectedLeagues?: string[]; seasons?: string[]; selectedSeason?: string; matchdays?: number[]; dayFrom?: number; dayTo?: number }) {
+export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], selectedSeason = "", matchdays = [], dayFrom, dayTo, lang = "en" }: { leagues: LeagueOption[]; selectedLeagues?: string[]; seasons?: string[]; selectedSeason?: string; matchdays?: number[]; dayFrom?: number; dayTo?: number; lang?: Lang }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -81,18 +83,18 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
   const activeTab = searchParams.get("tab") || "attacking";
 
   const SECTIONS = [
-    { id: "attacking", label: "Attacking" },
-    { id: "passing", label: "Passing" },
-    { id: "defending", label: "Defending" },
-    { id: "gk", label: "Goalkeeping" },
-    { id: "teams", label: "Team Stats" },
+    { id: "attacking", tkey: "stats.tab.attacking" },
+    { id: "passing", tkey: "stats.tab.passing" },
+    { id: "defending", tkey: "stats.tab.defending" },
+    { id: "gk", tkey: "stats.tab.goalkeeping" },
+    { id: "teams", tkey: "stats.tab.teams" },
   ];
 
   const leagueLabel = selectedLeagues.length === 0
-    ? "All Leagues"
+    ? t("matches.league.all")
     : selectedLeagues.length === 1
-      ? (leagues.find(l => l.id === selectedLeagues[0])?.name ?? "1 League")
-      : `${selectedLeagues.length} Leagues`;
+      ? (leagues.find(l => l.id === selectedLeagues[0])?.name ?? t("matches.league.one"))
+      : t("matches.league.many", { n: selectedLeagues.length });
 
   return (
     <div style={{ borderBottom: "1px solid var(--border-main)", background: "var(--bg-nav)", padding: "14px 24px" }}>
@@ -100,7 +102,7 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
         {/* League multi-select */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", color: "var(--text-faint)" }}>
-            League
+            {t("nav.leagues")}
           </span>
           <div ref={dropdownRef} style={{ position: "relative" }}>
             <button
@@ -149,7 +151,7 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
                     cursor: "pointer", letterSpacing: "0.06em",
                   }}
                 >
-                  All Leagues
+                  {t("matches.league.all")}
                 </button>
                 {leagues.map(l => {
                   const active = selectedSet.has(l.id);
@@ -177,7 +179,7 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
                       }}>
                         {active ? "✓" : ""}
                       </span>
-                      <span>{l.name}{l.ended ? " (ended)" : ""}</span>
+                      <span>{l.name}{l.ended ? ` (${t("common.ended")})` : ""}</span>
                     </button>
                   );
                 })}
@@ -190,7 +192,7 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
         {seasons.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", color: "var(--text-faint)" }}>
-              Season
+              {t("common.season")}
             </span>
             <select
               value={selectedSeason}
@@ -205,9 +207,9 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
                 minWidth: 80,
               }}
             >
-              <option value="">All Seasons</option>
+              <option value="">{t("matches.season.all")}</option>
               {seasons.map(s => (
-                <option key={s} value={s}>Season {s}</option>
+                <option key={s} value={s}>{t("common.season")} {s}</option>
               ))}
             </select>
           </div>
@@ -217,7 +219,7 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
         {matchdays.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", color: "var(--text-faint)" }}>
-              Matchday
+              {t("matches.matchday")}
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <select
@@ -233,9 +235,9 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
                   minWidth: 64,
                 }}
               >
-                <option value="">From</option>
+                <option value="">{t("matches.matchday.from")}</option>
                 {matchdays.map(d => (
-                  <option key={`f${d}`} value={d}>MD {d}</option>
+                  <option key={`f${d}`} value={d}>{t("matches.md", { n: d })}</option>
                 ))}
               </select>
               <span style={{ fontSize: 11, color: "var(--text-faint)" }}>–</span>
@@ -252,9 +254,9 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
                   minWidth: 64,
                 }}
               >
-                <option value="">To</option>
+                <option value="">{t("matches.matchday.to")}</option>
                 {matchdays.map(d => (
-                  <option key={`t${d}`} value={d}>MD {d}</option>
+                  <option key={`t${d}`} value={d}>{t("matches.md", { n: d })}</option>
                 ))}
               </select>
               {(dayFrom != null || dayTo != null) && (
@@ -296,7 +298,7 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
                 cursor: "pointer",
               }}
             >
-              {s.label}
+              {t(s.tkey)}
             </button>
           ))}
         </div>

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { expectedScore } from "@/lib/elo";
 import { MatchesFilterBar, type LeagueOption } from "./MatchesFilterBar";
+import { useLanguage } from "@/components/LanguageProvider";
 
 type MatchRow = {
   id: string;
@@ -22,6 +23,7 @@ type MatchRow = {
 
 function MatchesList() {
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
   const search = searchParams.get("q") ?? "";
   const status = searchParams.get("status") ?? "";
   const leagueParam = searchParams.get("league") ?? "";
@@ -139,7 +141,7 @@ function MatchesList() {
               const awayWin = played && m.away_score! > m.home_score!;
               const leagueLabel = m.league?.name
                 ? `${m.league.name}${m.league.season ? ` · S${m.league.season}` : ""}`
-                : "No league";
+                : t("matches.noLeague");
 
               return (
                 <Link
@@ -154,7 +156,7 @@ function MatchesList() {
                       <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{new Date(m.played_at).toLocaleDateString()}</span>
                       {m.day != null && (
                         <span style={{ fontSize: 9, color: "var(--text-faint)", border: "1px solid var(--border-main)", padding: "0 4px", letterSpacing: "0.06em" }}>
-                          MD{m.day}
+                          {t("matches.md", { n: m.day })}
                         </span>
                       )}
                     </div>
@@ -192,9 +194,9 @@ function MatchesList() {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 20, flexShrink: 0 }}>
                     {m.forfeited_by && (
-                      <span style={{ fontSize: 10, color: "#e63946", background: "#e6394620", padding: "2px 6px", letterSpacing: "0.08em" }}>FORFEIT</span>
+                      <span style={{ fontSize: 10, color: "#e63946", background: "#e6394620", padding: "2px 6px", letterSpacing: "0.08em" }}>{t("matches.forfeit")}</span>
                     )}
-                    <span style={{ fontSize: 11, color: "#4ea8f7", letterSpacing: "0.1em", fontWeight: 700 }}>VIEW →</span>
+                    <span style={{ fontSize: 11, color: "#4ea8f7", letterSpacing: "0.1em", fontWeight: 700 }}>{t("common.view")} →</span>
                   </div>
                 </Link>
               );
@@ -207,21 +209,22 @@ function MatchesList() {
 }
 
 export default function MatchesPage() {
+  const { t } = useLanguage();
   return (
     <main style={{ minHeight: "calc(100vh - 56px)" }}>
       {/* Header */}
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("breadcrumb.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Matches
+            {t("matches.title")}
           </div>
-          <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>Matches</h1>
+          <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>{t("matches.title")}</h1>
         </div>
       </section>
 
-      <Suspense fallback={<div style={{ color: "var(--text-faint)", fontSize: 13, padding: "20px 24px" }}>Loading filters...</div>}>
+      <Suspense fallback={<div style={{ color: "var(--text-faint)", fontSize: 13, padding: "20px 24px" }}>{t("common.loadingFilters")}</div>}>
         <MatchesList />
       </Suspense>
     </main>

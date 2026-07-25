@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 import {
   calcMatchBreakdown,
@@ -250,6 +251,7 @@ function FootballField({ totw }: { totw: Partial<Record<SlotKey, TOTWEntry>> }) 
 }
 
 export default function AwardsPage() {
+  const { t } = useLanguage();
   const [leagues, setLeagues] = useState<{ id: string; name: string; ended: boolean | null }[]>([]);
   const [matchdays, setMatchdays] = useState<number[]>([]);
   const [matchdayDates, setMatchdayDates] = useState<Record<number, string>>({});
@@ -331,12 +333,12 @@ export default function AwardsPage() {
 
   const totw = useMemo(() => calcTOTW(dayStats), [dayStats]);
 
-  if (!supabase) return <main style={{ padding: 40, color: "#888" }}>Supabase not configured.</main>;
+  if (!supabase) return <main style={{ padding: 40, color: "#888" }}>{t("awards.notConfigured")}</main>;
 
   if (loading) {
     return (
       <main style={{ minHeight: "calc(100vh - 56px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>Loading awards...</div>
+        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{t("common.loading")}</div>
       </main>
     );
   }
@@ -353,12 +355,12 @@ export default function AwardsPage() {
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "28px 24px 20px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("breadcrumb.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Awards
+            {t("awards.title")}
           </div>
-          <h1 style={{ fontSize: 26, fontWeight: 900, color: "var(--text-main)", margin: 0, letterSpacing: "-0.02em" }}>Awards</h1>
-          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>Team of the Week — highest-rated players per matchday</p>
+          <h1 style={{ fontSize: 26, fontWeight: 900, color: "var(--text-main)", margin: 0, letterSpacing: "-0.02em" }}>{t("awards.title")}</h1>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>{t("awards.pageSubtitle")}</p>
         </div>
       </section>
 
@@ -396,7 +398,7 @@ export default function AwardsPage() {
 
         {matchdays.length === 0 ? (
           <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
-            No match data found for this league.
+            {t("awards.noData")}
           </div>
         ) : (
           <>
@@ -412,12 +414,12 @@ export default function AwardsPage() {
                   fontWeight: 600, letterSpacing: "0.06em",
                 }}
               >
-                ← Earlier
+                {t("awards.earlier")}
               </button>
 
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Team of the Week
+                  {t("awards.subtitle")}
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 900, color: "var(--text-body)", marginTop: 4, letterSpacing: "-0.01em" }}>
                   Matchday {selectedDay ?? "—"}
@@ -428,7 +430,7 @@ export default function AwardsPage() {
                   </div>
                 )}
                 <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>
-                  {filledSlots}/6 positions filled
+                  {t("awards.positionsFilled", { n: filledSlots })}
                 </div>
               </div>
 
@@ -442,7 +444,7 @@ export default function AwardsPage() {
                   fontWeight: 600, letterSpacing: "0.06em",
                 }}
               >
-                Later →
+                {t("awards.later")}
               </button>
             </div>
 
@@ -454,7 +456,7 @@ export default function AwardsPage() {
               <div>
                 <div style={{ background: "var(--bg-card)", padding: "16px 20px" }}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.2em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 14 }}>
-                    Team of the Week
+                    {t("awards.subtitle")}
                   </div>
                   {DISPLAY_ORDER.map(slot => {
                     const entry = totw[slot];
@@ -489,7 +491,7 @@ export default function AwardsPage() {
                 </div>
 
                 <div style={{ background: "var(--bg-card)", padding: "12px 20px", marginTop: 2, fontSize: 11, color: "var(--text-faint)", lineHeight: 1.6 }}>
-                  Rating links to the match. Player name links to profile.
+                  {t("awards.legend")}
                 </div>
               </div>
             </div>

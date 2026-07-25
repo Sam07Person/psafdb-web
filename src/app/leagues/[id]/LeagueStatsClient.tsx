@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { t as translate, type Lang } from "@/lib/i18n";
 
 export type PlayerStat = {
   playerId: string;
@@ -33,12 +34,12 @@ export type TeamStat = {
 
 type Section = "attacking" | "passing" | "defending" | "gk" | "teams";
 
-const SECTIONS: { id: Section; label: string }[] = [
-  { id: "attacking", label: "Attacking" },
-  { id: "passing", label: "Passing" },
-  { id: "defending", label: "Defending" },
-  { id: "gk", label: "Goalkeeping" },
-  { id: "teams", label: "Team Stats" },
+const SECTION_KEYS: { id: Section; tkey: string }[] = [
+  { id: "attacking", tkey: "stats.tab.attacking" },
+  { id: "passing", tkey: "stats.tab.passing" },
+  { id: "defending", tkey: "stats.tab.defending" },
+  { id: "gk", tkey: "stats.tab.goalkeeping" },
+  { id: "teams", tkey: "stats.tab.teams" },
 ];
 
 const thStyle: React.CSSProperties = {
@@ -76,12 +77,14 @@ function StatTable<T extends Record<string, any>>({
   defaultSort,
   rowKey,
   minGames = 1,
+  noDataLabel,
 }: {
   rows: T[];
   cols: ColDef<T>[];
   defaultSort: keyof T;
   rowKey: (r: T) => string;
   minGames?: number;
+  noDataLabel?: string;
 }) {
   const [sortKey, setSortKey] = useState<keyof T>(defaultSort);
   const [asc, setAsc] = useState(false);
@@ -107,7 +110,7 @@ function StatTable<T extends Record<string, any>>({
   if (sorted.length === 0) {
     return (
       <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
-        No data yet
+        {noDataLabel ?? "No data yet"}
       </div>
     );
   }
@@ -178,6 +181,7 @@ export function LeagueStatsClient({
   activeTeamNames,
   showTeamFilters,
   showPlayerFilters,
+  lang,
 }: {
   playerStats: PlayerStat[];
   teamStats: TeamStat[];
@@ -188,7 +192,9 @@ export function LeagueStatsClient({
   activeTeamNames?: string[];
   showTeamFilters?: boolean;
   showPlayerFilters?: boolean;
+  lang?: Lang;
 }) {
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang ?? "en", k, v);
   const [section, setSection] = useState<Section>(defaultSection ?? "attacking");
   const [teamMinGames, setTeamMinGames] = useState(0);
   const [playerMinGames, setPlayerMinGames] = useState(0);
@@ -230,7 +236,7 @@ export function LeagueStatsClient({
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
       {/* Section nav */}
       {!hideSectionNav && <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
-        {SECTIONS.map(s => (
+        {SECTION_KEYS.map(s => (
           <button
             key={s.id}
             onClick={() => handleSection(s.id)}
@@ -246,7 +252,7 @@ export function LeagueStatsClient({
               cursor: "pointer",
             }}
           >
-            {s.label}
+            {t(s.tkey)}
           </button>
         ))}
       </div>}
@@ -255,7 +261,7 @@ export function LeagueStatsClient({
       {showPlayerFilters && isPlayerSection && (
         <div style={{ background: "var(--bg-card)", padding: "10px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 16, marginBottom: 0, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>Min GP</span>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>{t("stats.minGp")}</span>
             <select
               value={playerMinGames}
               onChange={e => setPlayerMinGames(Number(e.target.value))}
@@ -271,7 +277,7 @@ export function LeagueStatsClient({
           </div>
           {availablePositions.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>Position</span>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)" }}>{t("stats.position")}</span>
               {availablePositions.map(pos => {
                 const active = selectedPositions.has(pos);
                 return (
@@ -309,7 +315,7 @@ export function LeagueStatsClient({
                     color: "var(--text-faint)", cursor: "pointer",
                   }}
                 >
-                  Clear
+                  {t("stats.clear")}
                 </button>
               )}
             </div>
@@ -321,19 +327,19 @@ export function LeagueStatsClient({
       {section === "attacking" && (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #e63946" }}>
           <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#e63946", borderBottom: "1px solid var(--border-main)" }}>
-            Attacking Stats
+            {t("stats.attacking")}
           </div>
           <StatTable<PlayerStat>
             rows={filteredPlayers}
             defaultSort="goals"
             rowKey={r => r.playerId}
             cols={[
-              { key: "name", label: "Player", render: (_, r) => <PlayerLink stat={r} /> },
-              { key: "games", label: "GP" },
-              { key: "goals", label: "Goals" },
-              { key: "assists", label: "Assists" },
-              { key: "shots_on_target", label: "SoT" },
-              { key: "key_passes", label: "Key Passes" },
+              { key: "name", label: t("stats.col.player"), render: (_, r) => <PlayerLink stat={r} /> },
+              { key: "games", label: t("stats.col.gp") },
+              { key: "goals", label: t("stats.col.goals") },
+              { key: "assists", label: t("stats.col.assists") },
+              { key: "shots_on_target", label: t("stats.col.sot") },
+              { key: "key_passes", label: t("stats.col.keyPasses") },
             ]}
           />
         </div>
@@ -343,7 +349,7 @@ export function LeagueStatsClient({
       {section === "passing" && (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7" }}>
           <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7", borderBottom: "1px solid var(--border-main)" }}>
-            Passing Stats
+            {t("stats.passing")}
           </div>
           <StatTable<PlayerStat & { passes_pg: number; kp_pg: number }>
             rows={filteredPlayers.map(p => ({
@@ -354,12 +360,12 @@ export function LeagueStatsClient({
             defaultSort="passes"
             rowKey={r => r.playerId}
             cols={[
-              { key: "name", label: "Player", render: (_, r) => <PlayerLink stat={r} /> },
-              { key: "games", label: "GP" },
-              { key: "passes", label: "Total Passes" },
-              { key: "passes_pg", label: "Passes/Game" },
-              { key: "key_passes", label: "Key Passes" },
-              { key: "kp_pg", label: "KP/Game" },
+              { key: "name", label: t("stats.col.player"), render: (_, r) => <PlayerLink stat={r} /> },
+              { key: "games", label: t("stats.col.gp") },
+              { key: "passes", label: t("stats.col.totalPasses") },
+              { key: "passes_pg", label: t("stats.col.passesGame") },
+              { key: "key_passes", label: t("stats.col.keyPasses") },
+              { key: "kp_pg", label: t("stats.col.kpGame") },
             ]}
           />
         </div>
@@ -369,10 +375,10 @@ export function LeagueStatsClient({
       {section === "defending" && (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ade80" }}>
           <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ade80", borderBottom: "1px solid var(--border-main)" }}>
-            Defensive Stats
+            {t("stats.defending")}
           </div>
           <div style={{ padding: "8px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)", marginRight: 2 }}>View</span>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-faint)", marginRight: 2 }}>{t("stats.view")}</span>
             {(["all", "totals", "pg"] as const).map(v => (
               <button key={v} onClick={() => setDefView(v)} style={{
                 padding: "2px 10px", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer",
@@ -380,7 +386,7 @@ export function LeagueStatsClient({
                 border: `1px solid ${defView === v ? "#7070f0" : "var(--border-main)"}`,
                 color: defView === v ? "#9090f8" : "var(--text-faint)",
               }}>
-                {v === "all" ? "All" : v === "totals" ? "Totals" : "Per Game"}
+                {v === "all" ? t("stats.view.all") : v === "totals" ? t("stats.view.totals") : t("stats.view.pg")}
               </button>
             ))}
           </div>
@@ -398,21 +404,21 @@ export function LeagueStatsClient({
             defaultSort="total_tackles"
             rowKey={r => r.playerId}
             cols={[
-              { key: "name", label: "Player", render: (_, r) => <PlayerLink stat={r} /> },
-              { key: "games", label: "GP" },
+              { key: "name", label: t("stats.col.player"), render: (_, r) => <PlayerLink stat={r} /> },
+              { key: "games", label: t("stats.col.gp") },
               ...(defView !== "pg" ? [
-                { key: "total_tackles" as const, label: "Tackles" },
-                { key: "key_tackles" as const, label: "Key Tackles" },
-                { key: "total_ints" as const, label: "Interceptions" },
-                { key: "key_interceptions" as const, label: "Key Int" },
-                { key: "possessions_lost" as const, label: "Poss. Lost", defaultAsc: true },
+                { key: "total_tackles" as const, label: t("stats.col.tackles") },
+                { key: "key_tackles" as const, label: t("stats.col.keyTackles") },
+                { key: "total_ints" as const, label: t("stats.col.interceptions") },
+                { key: "key_interceptions" as const, label: t("stats.col.keyInt") },
+                { key: "possessions_lost" as const, label: t("stats.col.possLost"), defaultAsc: true },
               ] : []),
               ...(defView !== "totals" ? [
-                { key: "tackles_pg" as const, label: "Tkl/Game" },
-                { key: "key_tackles_pg" as const, label: "KTkl/Game" },
-                { key: "ints_pg" as const, label: "Int/Game" },
-                { key: "key_ints_pg" as const, label: "KInt/Game" },
-                { key: "poss_lost_pg" as const, label: "PL/Game", defaultAsc: true },
+                { key: "tackles_pg" as const, label: t("stats.col.tklGame") },
+                { key: "key_tackles_pg" as const, label: t("stats.col.ktklGame") },
+                { key: "ints_pg" as const, label: t("stats.col.intGame") },
+                { key: "key_ints_pg" as const, label: t("stats.col.kintGame") },
+                { key: "poss_lost_pg" as const, label: t("stats.col.plGame"), defaultAsc: true },
               ] : []),
             ]}
           />
@@ -423,10 +429,10 @@ export function LeagueStatsClient({
       {section === "gk" && (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f4c430" }}>
           <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f4c430", borderBottom: "1px solid var(--border-main)" }}>
-            Goalkeeping Stats
+            {t("stats.goalkeeping")}
           </div>
           {gkPlayers.length === 0 ? (
-            <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>No GK data recorded</div>
+            <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>{t("stats.noGk")}</div>
           ) : (
             <StatTable<PlayerStat & { saves_pg: number }>
               rows={gkPlayers.map(p => ({
@@ -436,11 +442,11 @@ export function LeagueStatsClient({
               defaultSort="gk_saves"
               rowKey={r => r.playerId}
               cols={[
-                { key: "name", label: "Player", render: (_, r) => <PlayerLink stat={r} /> },
-                { key: "games", label: "GP" },
-                { key: "gk_saves", label: "Saves" },
-                { key: "saves_pg", label: "Saves/Game" },
-                { key: "gk_catches", label: "Catches" },
+                { key: "name", label: t("stats.col.player"), render: (_, r) => <PlayerLink stat={r} /> },
+                { key: "games", label: t("stats.col.gp") },
+                { key: "gk_saves", label: t("stats.col.saves") },
+                { key: "saves_pg", label: t("stats.col.savesGame") },
+                { key: "gk_catches", label: t("stats.col.catches") },
               ]}
             />
           )}
@@ -458,7 +464,7 @@ export function LeagueStatsClient({
         return (
         <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa" }}>
           <div style={{ padding: "12px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-            <span>Team Stats</span>
+            <span>{t("stats.teamStats")}</span>
             {showTeamFilters && (
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-sub)", textTransform: "uppercase", cursor: "pointer" }}>
@@ -468,10 +474,10 @@ export function LeagueStatsClient({
                     onChange={e => setActiveOnly(e.target.checked)}
                     style={{ cursor: "pointer" }}
                   />
-                  Active leagues only
+                  {t("stats.activeOnly")}
                 </label>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-sub)", textTransform: "uppercase" }}>Min GP</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-sub)", textTransform: "uppercase" }}>{t("stats.minGp")}</span>
                   <select
                     value={teamMinGames}
                     onChange={e => setTeamMinGames(Number(e.target.value))}
@@ -501,7 +507,7 @@ export function LeagueStatsClient({
             cols={[
               {
                 key: "name",
-                label: "Team",
+                label: t("stats.col.team"),
                 render: (val: string, r: TeamStat & { gd: number; gpg: number; gapg: number }) => {
                   const id = teamIdMap[val];
                   return id
@@ -509,21 +515,21 @@ export function LeagueStatsClient({
                     : val;
                 },
               },
-              { key: "games", label: "GP" },
-              { key: "gf", label: "Goals For" },
-              { key: "ga", label: "Goals Against", defaultAsc: true },
+              { key: "games", label: t("stats.col.gp") },
+              { key: "gf", label: t("stats.col.gf") },
+              { key: "ga", label: t("stats.col.ga"), defaultAsc: true },
               {
                 key: "gd",
-                label: "GD",
+                label: t("stats.col.gd"),
                 render: (val: number) => (
                   <span style={{ color: val > 0 ? "#4ade80" : val < 0 ? "#e63946" : "var(--text-muted)", fontWeight: 600 }}>
                     {val > 0 ? "+" : ""}{val}
                   </span>
                 ),
               },
-              { key: "gpg", label: "GF/Game" },
-              { key: "gapg", label: "GA/Game", defaultAsc: true },
-              { key: "cs", label: "Clean Sheets" },
+              { key: "gpg", label: t("stats.col.gfGame") },
+              { key: "gapg", label: t("stats.col.gaGame"), defaultAsc: true },
+              { key: "cs", label: t("stats.col.cleanSheets") },
             ]}
           />
         </div>

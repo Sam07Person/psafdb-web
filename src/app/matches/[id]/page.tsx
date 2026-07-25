@@ -11,6 +11,8 @@ import {
   type MatchResult,
 } from "@/lib/ratings";
 import { computeCurrentElos, expectedScore, eloColor, DEFAULT_ELO } from "@/lib/elo";
+import { getLang } from "@/lib/lang-server";
+import { t as tt, type Lang } from "@/lib/i18n";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -243,27 +245,28 @@ async function getBestLineup(teamName: string): Promise<LineupSlot[]> {
 export const revalidate = 60;
 
 const TEAM_STAT_ROWS: [string, string, boolean][] = [
-  ["Possession", "possession", true],
-  ["Passes", "passes", false],
-  ["Key Passes", "key_passes", false],
-  ["Shots", "shots", false],
-  ["Shots on Target", "shots_on_target", false],
-  ["Goals", "goals", false],
-  ["Assists", "assists", false],
-  ["Tackles", "tackles", false],
-  ["Key Tackles", "key_tackles", false],
-  ["Interceptions", "interceptions", false],
-  ["Key Interceptions", "key_interceptions", false],
-  ["Possessions Lost", "possessions_lost", false],
-  ["Corners", "corner_kicks", false],
-  ["Fouls", "fouls", false],
-  ["Yellow Cards", "yellow_cards", false],
-  ["Red Cards", "red_cards", false],
-  ["Offsides", "offsides", false],
+  ["matchdetail.stat.possession", "possession", true],
+  ["matchdetail.stat.passes", "passes", false],
+  ["matchdetail.stat.key_passes", "key_passes", false],
+  ["matchdetail.stat.shots", "shots", false],
+  ["matchdetail.stat.shots_on_target", "shots_on_target", false],
+  ["matchdetail.stat.goals", "goals", false],
+  ["matchdetail.stat.assists", "assists", false],
+  ["matchdetail.stat.tackles", "tackles", false],
+  ["matchdetail.stat.key_tackles", "key_tackles", false],
+  ["matchdetail.stat.interceptions", "interceptions", false],
+  ["matchdetail.stat.key_interceptions", "key_interceptions", false],
+  ["matchdetail.stat.possessions_lost", "possessions_lost", false],
+  ["matchdetail.stat.corners", "corner_kicks", false],
+  ["matchdetail.stat.fouls", "fouls", false],
+  ["matchdetail.stat.yellow_cards", "yellow_cards", false],
+  ["matchdetail.stat.red_cards", "red_cards", false],
+  ["matchdetail.stat.offsides", "offsides", false],
 ];
 
 export default async function MatchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const lang: Lang = await getLang();
   const match = await getMatch(id);
   if (!match) notFound();
 
@@ -325,9 +328,9 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           {/* Breadcrumb */}
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 20 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{tt(lang, "nav.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            <Link href="/matches" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Matches</Link>
+            <Link href="/matches" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{tt(lang, "nav.matches")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
             {match.home_team} vs {match.away_team}
           </div>
@@ -335,7 +338,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           {league && (
             <div style={{ fontSize: 11, color: "#4ea8f7", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginBottom: 16 }}>
               <Link href={`/leagues/${league.id}`} style={{ color: "#4ea8f7", textDecoration: "none" }}>
-                {league.name}{league.season ? ` · Season ${league.season}` : ""}
+                {league.name}{league.season ? ` · ${tt(lang, "matchdetail.season", { n: league.season })}` : ""}
               </Link>
             </div>
           )}
@@ -348,7 +351,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                   <Link href={`/teams/${teamIds.get(match.home_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.home_team}</Link>
                 ) : match.home_team}
               </div>
-              {homeWin && <div style={{ fontSize: 10, color: "#4ade80", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Winner</div>}
+              {homeWin && <div style={{ fontSize: 10, color: "#4ade80", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>{tt(lang, "matchdetail.winner")}</div>}
             </div>
 
             <div style={{ textAlign: "center", flexShrink: 0 }}>
@@ -357,7 +360,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                   {match.home_score}<span style={{ color: "var(--border-main)", margin: "0 6px" }}>—</span>{match.away_score}
                 </div>
               ) : (
-                <div style={{ fontSize: 28, color: "var(--text-faint)", letterSpacing: "0.1em" }}>VS</div>
+                <div style={{ fontSize: 28, color: "var(--text-faint)", letterSpacing: "0.1em" }}>{tt(lang, "matchdetail.vs")}</div>
               )}
               <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8, letterSpacing: "0.08em" }}>
                 {new Date(match.played_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
@@ -367,7 +370,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
               )}
               {(match as any).forfeited_by && (
                 <div style={{ marginTop: 8, fontSize: 10, color: "#e63946", background: "#e6394620", padding: "3px 10px", letterSpacing: "0.08em", display: "inline-block" }}>
-                  FORFEIT · {(match as any).forfeited_by === "home" ? match.home_team : match.away_team} forfeited
+                  {tt(lang, "matchdetail.forfeit", { team: (match as any).forfeited_by === "home" ? match.home_team : match.away_team })}
                 </div>
               )}
             </div>
@@ -378,7 +381,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                   <Link href={`/teams/${teamIds.get(match.away_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.away_team}</Link>
                 ) : match.away_team}
               </div>
-              {awayWin && <div style={{ fontSize: 10, color: "#4ade80", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>Winner</div>}
+              {awayWin && <div style={{ fontSize: 10, color: "#4ade80", letterSpacing: "0.15em", fontWeight: 700, textTransform: "uppercase", marginTop: 4 }}>{tt(lang, "matchdetail.winner")}</div>}
             </div>
           </div>
         </div>
@@ -396,34 +399,35 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           const homeFav = homeP >= 55;
           const awayFav = awayP >= 55;
           const favLabel = homeFav
-            ? `${match.home_team} favored`
+            ? tt(lang, "matchdetail.favored", { team: match.home_team })
             : awayFav
-            ? `${match.away_team} favored`
-            : "Evenly matched";
+            ? tt(lang, "matchdetail.favored", { team: match.away_team })
+            : tt(lang, "matchdetail.evenlyMatched");
           const hColor = eloColor(homeElo);
           const aColor = eloColor(awayElo);
           // For played matches, show whether prediction was correct
           let predNote: string | null = null;
+            let predType: "correct" | "upset" | "draw" | null = null;
           if (played) {
             const predictedHome = homeP > awayP;
             const predictedAway = awayP > homeP;
             const actualHomeWin = match.home_score! > match.away_score!;
             const actualAwayWin = match.away_score! > match.home_score!;
             const draw = match.home_score === match.away_score;
-            if (draw) predNote = "Match ended in a draw";
+            if (draw) { predNote = tt(lang, "matchdetail.endedDraw"); predType = "draw"; }
             else if ((predictedHome && actualHomeWin) || (predictedAway && actualAwayWin))
-              predNote = "Prediction correct ✓";
+              { predNote = tt(lang, "matchdetail.predictionCorrect"); predType = "correct"; }
             else if (!homeFav && !awayFav)
-              predNote = draw ? "Match ended in a draw" : "Close match — any result was possible";
+              { predNote = draw ? tt(lang, "matchdetail.endedDraw") : tt(lang, "matchdetail.closeMatch"); predType = "draw"; }
             else
-              predNote = "Upset — underdog won";
+              { predNote = tt(lang, "matchdetail.upset"); predType = "upset"; }
           }
           return (
             <div>
               <div style={{ background: "var(--bg-card)", borderTop: "3px solid #22c55e", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#22c55e", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>ELO Prediction</span>
+                <span>{tt(lang, "matchdetail.eloPrediction")}</span>
                 {played && predNote && (
-                  <span style={{ fontSize: 10, color: predNote.includes("correct") ? "#4ade80" : predNote.includes("Upset") ? "#f87171" : "var(--text-faint)", letterSpacing: "0.1em" }}>
+                  <span style={{ fontSize: 10, color: predType === "correct" ? "#4ade80" : predType === "upset" ? "#f87171" : "var(--text-faint)", letterSpacing: "0.1em" }}>
                     {predNote}
                   </span>
                 )}
@@ -436,7 +440,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                       {homeElo}
                     </span>
                   </div>
-                  <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", flexShrink: 0 }}>ELO</div>
+                  <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", flexShrink: 0 }}>{tt(lang, "matchdetail.elo")}</div>
                   <div style={{ flex: 1 }}>
                     <span style={{ display: "inline-block", padding: "3px 10px", background: `${aColor}18`, color: aColor, fontWeight: 800, fontSize: 15, borderRadius: 4, fontVariantNumeric: "tabular-nums" }}>
                       {awayElo}
@@ -452,13 +456,13 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ fontSize: 18, fontWeight: 900, color: homeFav ? "#4ea8f7" : "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
                     {homeP}%
-                    <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginLeft: 6, letterSpacing: "0.08em" }}>HOME WIN</span>
+                    <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginLeft: 6, letterSpacing: "0.08em" }}>{tt(lang, "matchdetail.homeWin")}</span>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-faint)", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                    {played ? "Pre-match" : favLabel}
+                    {played ? tt(lang, "matchdetail.preMatch") : favLabel}
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 900, color: awayFav ? "#a78bfa" : "var(--text-muted)", fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
-                    <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginRight: 6, letterSpacing: "0.08em" }}>AWAY WIN</span>
+                    <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, marginRight: 6, letterSpacing: "0.08em" }}>{tt(lang, "matchdetail.awayWin")}</span>
                     {awayP}%
                   </div>
                 </div>
@@ -485,12 +489,12 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           return (
             <div>
               <div style={{ background: "var(--bg-card)", borderTop: "3px solid #f472b6", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#f472b6" }}>
-                Previous Encounters
+                {tt(lang, "matchdetail.previousEncounters")}
               </div>
               <div style={{ background: "var(--bg-card)", padding: "20px 24px" }}>
                 {prevEncounters.length === 0 ? (
                   <div style={{ fontSize: 13, color: "var(--text-faint)", textAlign: "center", padding: "16px 0" }}>
-                    No previous matches between these teams.
+                    {tt(lang, "matchdetail.noPrevious")}
                   </div>
                 ) : (
                   <>
@@ -502,7 +506,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                       </div>
                       <div style={{ flex: 1, textAlign: "center", padding: "12px 16px", background: "var(--bg-row)", borderLeft: "1px solid var(--border-main)" }}>
                         <div style={{ fontSize: 28, fontWeight: 900, color: "var(--text-muted)" }}>{draws}</div>
-                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 4 }}>Draws</div>
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 4 }}>{tt(lang, "matchdetail.draws")}</div>
                       </div>
                       <div style={{ flex: 1, textAlign: "center", padding: "12px 16px", background: "var(--bg-row)", borderLeft: "1px solid var(--border-main)", borderRight: "3px solid #a78bfa" }}>
                         <div style={{ fontSize: 28, fontWeight: 900, color: "#a78bfa" }}>{awayW}</div>
@@ -510,7 +514,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                       </div>
                     </div>
                     <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginBottom: 16, letterSpacing: "0.08em" }}>
-                      Goals: {homeGF} – {awayGF} &nbsp;·&nbsp; {prevEncounters.length} match{prevEncounters.length !== 1 ? "es" : ""}
+                      {tt(lang, "matchdetail.goals")} {homeGF} – {awayGF} &nbsp;·&nbsp; {prevEncounters.length === 1 ? tt(lang, "matchdetail.matchCountOne", { n: prevEncounters.length }) : tt(lang, "matchdetail.matchCount", { n: prevEncounters.length })}
                     </div>
                     {/* Match list */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -555,14 +559,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         {!played && (homeBestXI.length > 0 || awayBestXI.length > 0) && (
           <div>
             <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>Predicted Lineup</span>
-              <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, letterSpacing: "0.08em", textTransform: "none" }}>Based on career ratings · Min. 3 games</span>
+              <span>{tt(lang, "matchdetail.predictedLineup")}</span>
+              <span style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 400, letterSpacing: "0.08em", textTransform: "none" }}>{tt(lang, "matchdetail.lineupBased")}</span>
             </div>
             <div style={{ background: "var(--bg-card)" }}>
               {/* Column headers */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 52px 1fr", borderBottom: "1px solid var(--border-main)" }}>
                 <div style={{ padding: "10px 16px", fontSize: 11, fontWeight: 800, color: "#4ea8f7", letterSpacing: "0.1em", textTransform: "uppercase" }}>{match.home_team}</div>
-                <div style={{ padding: "10px 0", fontSize: 10, fontWeight: 700, color: "var(--text-faint)", letterSpacing: "0.12em", textTransform: "uppercase", textAlign: "center" }}>Pos</div>
+                <div style={{ padding: "10px 0", fontSize: 10, fontWeight: 700, color: "var(--text-faint)", letterSpacing: "0.12em", textTransform: "uppercase", textAlign: "center" }}>{tt(lang, "matchdetail.pos")}</div>
                 <div style={{ padding: "10px 16px", fontSize: 11, fontWeight: 800, color: "#a78bfa", letterSpacing: "0.1em", textTransform: "uppercase", textAlign: "right" }}>{match.away_team}</div>
               </div>
               {/* One row per slot */}
@@ -585,7 +589,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                           )}
                         </Link>
                       ) : (
-                        <div style={{ fontSize: 12, color: "var(--text-faint)", fontStyle: "italic" }}>TBD</div>
+                        <div style={{ fontSize: 12, color: "var(--text-faint)", fontStyle: "italic" }}>{tt(lang, "matchdetail.tbd")}</div>
                       )}
                     </div>
                     {/* Slot label */}
@@ -604,7 +608,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                           <div style={{ fontSize: 13, color: "var(--text-body)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>{ap.name}</div>
                         </Link>
                       ) : (
-                        <div style={{ fontSize: 12, color: "var(--text-faint)", fontStyle: "italic" }}>TBD</div>
+                        <div style={{ fontSize: 12, color: "var(--text-faint)", fontStyle: "italic" }}>{tt(lang, "matchdetail.tbd")}</div>
                       )}
                     </div>
                   </div>
@@ -618,7 +622,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         {(homeStats || awayStats) && (
           <div>
             <div style={{ background: "var(--bg-card)", borderTop: "3px solid #4ea8f7", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#4ea8f7" }}>
-              Team Stats
+              {tt(lang, "matchdetail.teamStats")}
             </div>
             <div style={{ background: "var(--bg-card)", overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -627,7 +631,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                     <th style={{ padding: "10px 24px", textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--text-body)", borderBottom: "1px solid var(--border-main)", width: "38%" }}>
                       {teamIds.get(match.home_team) ? <Link href={`/teams/${teamIds.get(match.home_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.home_team}</Link> : match.home_team}
                     </th>
-                    <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", width: "24%" }}>Stat</th>
+                    <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", width: "24%" }}>{tt(lang, "matchdetail.stat")}</th>
                     <th style={{ padding: "10px 24px", textAlign: "left", fontSize: 13, fontWeight: 800, color: "var(--text-body)", borderBottom: "1px solid var(--border-main)", width: "38%" }}>
                       {teamIds.get(match.away_team) ? <Link href={`/teams/${teamIds.get(match.away_team)}`} style={{ color: "inherit", textDecoration: "none" }} className="hover:underline">{match.away_team}</Link> : match.away_team}
                     </th>
@@ -643,7 +647,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                     return (
                       <tr key={key} style={{ borderBottom: "1px solid var(--border-row)" }}>
                         <td style={{ padding: "9px 24px", textAlign: "right", fontWeight: hWin ? 800 : 400, color: hWin ? "var(--text-body)" : "var(--text-muted)", fontSize: 15 }}>{fmt(hv)}</td>
-                        <td style={{ padding: "9px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>{label}</td>
+                        <td style={{ padding: "9px 16px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>{tt(lang, label)}</td>
                         <td style={{ padding: "9px 24px", textAlign: "left", fontWeight: aWin ? 800 : 400, color: aWin ? "var(--text-body)" : "var(--text-muted)", fontSize: 15 }}>{fmt(av)}</td>
                       </tr>
                     );

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { expectedScore, eloColor, DEFAULT_ELO } from "@/lib/elo";
+import { useLanguage } from "@/components/LanguageProvider";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ function isPast(d: string) {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function PredictionsPage() {
+  const { t } = useLanguage();
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [eloMap, setEloMap] = useState<Record<string, number>>({});
   const [voteCounts, setVoteCounts] = useState<VoteCounts>({});
@@ -146,15 +148,15 @@ export default function PredictionsPage() {
       <section style={{ borderBottom: "1px solid var(--border-main)", padding: "32px 24px 24px", background: "var(--bg-nav)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "var(--text-faint)", fontWeight: 700, textTransform: "uppercase", marginBottom: 14 }}>
-            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>Home</Link>
+            <Link href="/" style={{ color: "var(--text-faint)", textDecoration: "none" }}>{t("breadcrumb.home")}</Link>
             <span style={{ margin: "0 8px" }}>/</span>
-            Predictions
+            {t("predictions.title")}
           </div>
           <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-0.02em", color: "var(--text-main)", margin: 0 }}>
-            Predictions
+            {t("predictions.title")}
           </h1>
           <p style={{ color: "var(--text-faint)", fontSize: 13, marginTop: 6 }}>
-            Vote on who you think will win each upcoming fixture. Voting closes when the match date passes.
+            {t("predictions.subtitle")}
           </p>
         </div>
       </section>
@@ -162,33 +164,33 @@ export default function PredictionsPage() {
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 48px" }}>
         {/* Tabs */}
         <div style={{ display: "flex", gap: 2, marginTop: 24, marginBottom: 24 }}>
-          {(["upcoming", "past"] as const).map(t => (
+          {(["upcoming", "past"] as const).map(tb => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tb}
+              onClick={() => setTab(tb)}
               style={{
                 padding: "8px 20px",
                 fontSize: 12,
                 fontWeight: 700,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
-                background: tab === t ? "var(--bg-card)" : "transparent",
-                color: tab === t ? "var(--text-main)" : "var(--text-faint)",
-                border: tab === t ? "1px solid var(--border-main)" : "1px solid transparent",
+                background: tab === tb ? "var(--bg-card)" : "transparent",
+                color: tab === tb ? "var(--text-main)" : "var(--text-faint)",
+                border: tab === tb ? "1px solid var(--border-main)" : "1px solid transparent",
                 cursor: "pointer",
                 transition: "all 0.15s",
               }}
             >
-              {t === "upcoming" ? `Upcoming (${upcoming.length})` : `Past (${past.length})`}
+              {tb === "upcoming" ? t("predictions.tabUpcoming", { n: upcoming.length }) : t("predictions.tabPast", { n: past.length })}
             </button>
           ))}
         </div>
 
         {loading ? (
-          <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>Loading...</div>
+          <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>{t("common.loading")}</div>
         ) : grouped.size === 0 ? (
           <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "40px 0" }}>
-            {tab === "upcoming" ? "No upcoming fixtures." : "No past fixtures with predictions."}
+            {tab === "upcoming" ? t("predictions.noFixtures") : t("predictions.noPast")}
           </div>
         ) : (
           Array.from(grouped.entries()).map(([dateKey, dayMatches]) => (
@@ -240,6 +242,7 @@ function MatchCard({
   submitting: boolean;
   locked: boolean;
 }) {
+  const { t } = useLanguage();
   const homeElo = eloMap[m.home_team] ?? DEFAULT_ELO;
   const awayElo = eloMap[m.away_team] ?? DEFAULT_ELO;
   const homeProb = Math.round(expectedScore(homeElo, awayElo) * 100);
@@ -273,7 +276,7 @@ function MatchCard({
           {leagueLabel}{m.day != null ? ` · MD ${m.day}` : ""}
         </span>
         <Link href={`/matches/${m.id}`} style={{ fontSize: 10, color: "#4ea8f7", fontWeight: 700, textDecoration: "none", letterSpacing: "0.1em" }}>
-          VIEW MATCH →
+          {t("predictions.viewMatch")}
         </Link>
       </div>
 
@@ -296,7 +299,7 @@ function MatchCard({
               {m.home_score} <span style={{ color: "var(--text-faint)", fontSize: 14 }}>—</span> {m.away_score}
             </div>
           ) : (
-            <div style={{ fontSize: 12, color: "var(--text-faint)", letterSpacing: "0.1em", fontWeight: 700 }}>vs</div>
+            <div style={{ fontSize: 12, color: "var(--text-faint)", letterSpacing: "0.1em", fontWeight: 700 }}>{t("common.vs")}</div>
           )}
         </div>
 
@@ -315,9 +318,9 @@ function MatchCard({
       {/* ELO probability bar */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", letterSpacing: "0.08em" }}>{homeProb}% ELO</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em" }}>ELO PREDICTION</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#f87171", letterSpacing: "0.08em" }}>{awayProb}% ELO</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", letterSpacing: "0.08em" }}>{t("predictions.elo", { n: homeProb })}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em" }}>{t("predictions.eloPrediction")}</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#f87171", letterSpacing: "0.08em" }}>{t("predictions.elo", { n: awayProb })}</span>
         </div>
         <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden" }}>
           <div style={{ width: `${homeProb}%`, background: "#22c55e", transition: "width 0.3s" }} />
@@ -329,7 +332,7 @@ function MatchCard({
       <div style={{ marginBottom: totalVotes > 0 ? 12 : 0 }}>
         <div style={{ display: "flex", gap: 8 }}>
           {(["home", "draw", "away"] as const).map(opt => {
-            const label = opt === "home" ? m.home_team : opt === "away" ? m.away_team : "Draw";
+            const label = opt === "home" ? m.home_team : opt === "away" ? m.away_team : t("predictions.draw");
             const isSelected = userVote === opt;
             const isCorrect = locked && actualResult === opt;
             const isWrong = locked && userVote === opt && actualResult !== opt;
@@ -369,13 +372,13 @@ function MatchCard({
               >
                 {label}
                 {isSelected && !locked && (
-                  <span style={{ fontSize: 9, display: "block", marginTop: 2, opacity: 0.85 }}>YOUR PICK</span>
+                  <span style={{ fontSize: 9, display: "block", marginTop: 2, opacity: 0.85 }}>{t("predictions.yourPick")}</span>
                 )}
                 {locked && isCorrect && played && (
-                  <span style={{ fontSize: 9, display: "block", marginTop: 2, color: "#22c55e" }}>CORRECT</span>
+                  <span style={{ fontSize: 9, display: "block", marginTop: 2, color: "#22c55e" }}>{t("predictions.correct")}</span>
                 )}
                 {isWrong && (
-                  <span style={{ fontSize: 9, display: "block", marginTop: 2, color: "#ef4444" }}>WRONG</span>
+                  <span style={{ fontSize: 9, display: "block", marginTop: 2, color: "#ef4444" }}>{t("predictions.wrong")}</span>
                 )}
               </button>
             );
@@ -389,7 +392,7 @@ function MatchCard({
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
             <span style={{ fontSize: 10, color: "#22c55e", fontWeight: 700 }}>{homeVotePct}%</span>
             <span style={{ fontSize: 10, color: "var(--text-sub)", letterSpacing: "0.1em", fontWeight: 600 }}>
-              {totalVotes} VOTE{totalVotes !== 1 ? "S" : ""}
+              {totalVotes === 1 ? t("predictions.votes", { n: totalVotes }) : t("predictions.votesPlural", { n: totalVotes })}
             </span>
             <span style={{ fontSize: 10, color: "#f87171", fontWeight: 700 }}>{awayVotePct}%</span>
           </div>
@@ -405,9 +408,9 @@ function MatchCard({
             )}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
-            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{counts.home} home</span>
-            <span style={{ fontSize: 9, color: "#fde047", fontWeight: 600 }}>{drawVotePct}% draw</span>
-            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{counts.away} away</span>
+            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t("predictions.homeVotes", { n: counts.home })}</span>
+            <span style={{ fontSize: 9, color: "#fde047", fontWeight: 600 }}>{t("predictions.drawVotes", { n: drawVotePct })}</span>
+            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t("predictions.awayVotes", { n: counts.away })}</span>
           </div>
         </div>
       )}

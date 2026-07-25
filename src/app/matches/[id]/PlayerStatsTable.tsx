@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { getRatingColor } from "@/lib/ratings";
+import { useLanguage } from "@/components/LanguageProvider";
 
 type PlayerStat = {
   player_id: string;
@@ -87,6 +88,10 @@ function TeamTable({
   sortDir,
   onToggleSort,
   accentColor,
+  playerLabel,
+  posLabel,
+  noPlayersLabel,
+  countLabel,
 }: {
   rows: PlayerStat[];
   teamName: string;
@@ -94,6 +99,10 @@ function TeamTable({
   sortDir: "desc" | "asc";
   onToggleSort: (key: SortKey) => void;
   accentColor: string;
+  playerLabel: string;
+  posLabel: string;
+  noPlayersLabel: string;
+  countLabel: string;
 }) {
   return (
     <div>
@@ -109,15 +118,15 @@ function TeamTable({
       }}>
         {teamName}
         <span style={{ marginLeft: 10, fontSize: 10, fontWeight: 400, color: "var(--text-faint)" }}>
-          {rows.length} player{rows.length !== 1 ? "s" : ""}
+          {countLabel}
         </span>
       </div>
       <div style={{ background: "var(--bg-card)", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 860 }}>
           <thead>
             <tr style={{ background: "var(--bg-row)" }}>
-              <th style={{ padding: "8px 20px", textAlign: "left", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>Player</th>
-              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>Pos</th>
+              <th style={{ padding: "8px 20px", textAlign: "left", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)", whiteSpace: "nowrap" }}>{playerLabel}</th>
+              <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid var(--border-main)" }}>{posLabel}</th>
               {COLUMNS.map(([label, key]) => (
                 <th
                   key={key}
@@ -145,7 +154,7 @@ function TeamTable({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={2 + COLUMNS.length} style={{ padding: "24px 20px", textAlign: "center", color: "var(--text-faint)", fontSize: 12 }}>
-                  No players found
+                  {noPlayersLabel}
                 </td>
               </tr>
             ) : rows.map((r) => {
@@ -215,6 +224,7 @@ export default function PlayerStatsTable({
   homeTeam: string;
   awayTeam: string;
 }) {
+  const { t } = useLanguage();
   const [playerFilter, setPlayerFilter] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey | "position">("position");
@@ -277,7 +287,7 @@ export default function PlayerStatsTable({
     <div>
       {/* Section header */}
       <div style={{ background: "var(--bg-card)", borderTop: "3px solid #a78bfa", padding: "14px 20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#a78bfa" }}>
-        Player Stats
+        {t("matchdetail.playerStats")}
       </div>
 
       {/* Filters */}
@@ -285,11 +295,11 @@ export default function PlayerStatsTable({
         <input
           value={playerFilter}
           onChange={(e) => setPlayerFilter(e.target.value)}
-          placeholder="Search player..."
+          placeholder={t("matchdetail.searchPlayer")}
           style={{ ...inputStyle, width: 180 }}
         />
         <select value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} style={inputStyle}>
-          <option value="all">All positions</option>
+          <option value="all">{t("matchdetail.allPositions")}</option>
           {availablePositions.map((pos) => (
             <option key={pos} value={pos}>{pos}</option>
           ))}
@@ -305,6 +315,10 @@ export default function PlayerStatsTable({
           sortDir={sortDir}
           onToggleSort={toggleSort}
           accentColor="#93c5fd"
+          playerLabel={t("matchdetail.player")}
+          posLabel={t("matchdetail.pos")}
+          noPlayersLabel={t("matchdetail.noPlayers")}
+          countLabel={homeRows.length === 1 ? t("matchdetail.playerCountOne", { n: homeRows.length }) : t("matchdetail.playerCount", { n: homeRows.length })}
         />
       </div>
 
@@ -317,6 +331,10 @@ export default function PlayerStatsTable({
           sortDir={sortDir}
           onToggleSort={toggleSort}
           accentColor="#fca5a5"
+          playerLabel={t("matchdetail.player")}
+          posLabel={t("matchdetail.pos")}
+          noPlayersLabel={t("matchdetail.noPlayers")}
+          countLabel={awayRows.length === 1 ? t("matchdetail.playerCountOne", { n: awayRows.length }) : t("matchdetail.playerCount", { n: awayRows.length })}
         />
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { getRatingColor, getRatingLabel } from "@/lib/ratings";
+import { t as translate, type Lang } from "@/lib/i18n";
 
 type TeamRow = {
   id: string;
@@ -15,18 +16,18 @@ type TeamRow = {
 
 type SortKey = "name" | "league" | "played" | "won" | "drawn" | "lost" | "gf" | "ga" | "gd" | "pts" | "rating";
 
-const COLUMNS: { label: string; key: SortKey; align: "left" | "center" }[] = [
-  { label: "Team",   key: "name",   align: "left" },
-  { label: "League", key: "league", align: "left" },
-  { label: "Rating", key: "rating", align: "center" },
-  { label: "P",  key: "played", align: "center" },
-  { label: "W",  key: "won",    align: "center" },
-  { label: "D",  key: "drawn",  align: "center" },
-  { label: "L",  key: "lost",   align: "center" },
-  { label: "GF", key: "gf",     align: "center" },
-  { label: "GA", key: "ga",     align: "center" },
-  { label: "GD", key: "gd",     align: "center" },
-  { label: "Pts", key: "pts",   align: "center" },
+const COLUMN_DEFS: { key: SortKey; align: "left" | "center"; tkey: string }[] = [
+  { key: "name",   align: "left",   tkey: "teams.col.team" },
+  { key: "league", align: "left",   tkey: "teams.col.league" },
+  { key: "rating", align: "center", tkey: "teams.col.rating" },
+  { key: "played", align: "center", tkey: "teams.col.played" },
+  { key: "won",    align: "center", tkey: "teams.col.won" },
+  { key: "drawn",  align: "center", tkey: "teams.col.drawn" },
+  { key: "lost",   align: "center", tkey: "teams.col.lost" },
+  { key: "gf",     align: "center", tkey: "teams.col.gf" },
+  { key: "ga",     align: "center", tkey: "teams.col.ga" },
+  { key: "gd",     align: "center", tkey: "teams.col.gd" },
+  { key: "pts",    align: "center", tkey: "teams.col.pts" },
 ];
 
 function getValue(team: TeamRow, key: SortKey): string | number {
@@ -46,7 +47,8 @@ function getValue(team: TeamRow, key: SortKey): string | number {
   }
 }
 
-export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
+export default function TeamsTable({ teams, lang }: { teams: TeamRow[]; lang: Lang }) {
+  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
   const [search, setSearch] = useState("");
   const [leagueFilter, setLeagueFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("pts");
@@ -110,21 +112,21 @@ export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
           className={inputCls}
           style={selectStyle}
         >
-          <option value="all">All leagues</option>
+          <option value="all">{t("teams.allLeagues")}</option>
           {leagues.map(([id, name]) => (
             <option key={id} value={id}>{name}</option>
           ))}
-          <option value="__none__">No league</option>
+          <option value="__none__">{t("teams.noLeague")}</option>
         </select>
         <span className="text-sm text-white/40">
-          {rows.length} team{rows.length !== 1 ? "s" : ""}
+          {rows.length === 1 ? t("teams.countOne", { n: rows.length }) : t("teams.countMany", { n: rows.length })}
         </span>
       </div>
 
       {/* Table */}
       {rows.length === 0 ? (
         <div className="rounded-xl bg-white/5 border border-white/10 p-12 text-center text-white/40">
-          No teams match your filters
+          {t("teams.noMatch")}
         </div>
       ) : (
         <div className="rounded-xl bg-white/5 border border-white/10 overflow-hidden">
@@ -133,13 +135,13 @@ export default function TeamsTable({ teams }: { teams: TeamRow[] }) {
               <thead>
                 <tr className="border-b border-white/10 bg-white/5">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-white/40 uppercase tracking-wider">#</th>
-                  {COLUMNS.map(({ label, key, align }) => (
+                  {COLUMN_DEFS.map(({ tkey, key, align }) => (
                     <th
                       key={key}
                       onClick={() => toggleSort(key)}
                       className={`px-4 py-3 text-${align} text-xs font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap transition ${sortKey === key ? "text-emerald-400" : "text-white/40 hover:text-white/60"}`}
                     >
-                      {label}{sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
+                      {t(tkey)}{sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
                     </th>
                   ))}
                 </tr>
