@@ -14,7 +14,8 @@ const supabase = createClient(
 async function getAllStats(
   leagueIds?: string[],
   season?: string,
-  dayRange?: { from?: number; to?: number }
+  dayRange?: { from?: number; to?: number },
+  hideForfeits?: boolean
 ): Promise<{ players: PlayerStat[]; teams: TeamStat[]; matchdays: number[] }> {
   // If season filter, first get league IDs for that season
   let seasonLeagueIds: string[] | null = null;
@@ -46,7 +47,7 @@ async function getAllStats(
   for (let from = 0; ; from += PAGE) {
     let q = supabase
       .from("matches")
-      .select("id,home_team,away_team,home_score,away_score,day")
+      .select("id,home_team,away_team,home_score,away_score,day,forfeited_by")
       .not("home_score", "is", null)
       .range(from, from + PAGE - 1);
     if (filterIds) q = q.in("league_id", filterIds);
@@ -82,12 +83,27 @@ async function getAllStats(
     for (let from = 0; ; from += PAGE) {
       const { data: page } = await supabase
         .from("match_player_stats")
-        .select("player_id,position,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
+        .select("match_id,player_id,position,goals,assists,key_passes,passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,players(id,name,handle)")
         .in("match_id", chunk)
         .range(from, from + PAGE - 1);
       if (!page || page.length === 0) break;
       statsData.push(...page);
       if (page.length < PAGE) break;
+    }
+  }
+
+  // When "Hide forfeits" is on, exclude matches that were forfeited AND have no
+  // recorded player stats. A pure 3-0 ff that was never played has no stats rows;
+  // a real game that was *later* changed to a forfeit (team disbanded) keeps its
+  // imported stats, so we keep it in the aggregation.
+  if (hideForfeits) {
+    const matchesWithStats = new Set(statsData.map((s: any) => s.match_id));
+    const kept = matches.filter((m: any) => !(m.forfeited_by && !matchesWithStats.has(m.id)));
+    if (kept.length !== matches.length) {
+      matches.length = 0;
+      matches.push(...kept);
+      matchIds.length = 0;
+      matchIds.push(...kept.map((m: any) => m.id));
     }
   }
 
@@ -166,7 +182,7 @@ export const revalidate = 60;
 export default async function StatsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ league?: string; tab?: string; season?: string; from?: string; to?: string }>;
+  searchParams?: Promise<{ league?: string; tab?: string; season?: string; from?: string; to?: string; ff?: string }>;
 }) {
   const lang = await getLang();
   const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
@@ -179,10 +195,11 @@ export default async function StatsPage({
   const dayFrom = Number.isFinite(dayFromRaw) ? dayFromRaw : undefined;
   const dayTo = Number.isFinite(dayToRaw) ? dayToRaw : undefined;
   const dayRange = dayFrom != null || dayTo != null ? { from: dayFrom, to: dayTo } : undefined;
+  const hideForfeits = sp?.ff === "1";
 
   const [{ data: leaguesRaw }, stats, { data: teamLeaguesRaw }, { data: directTeamsRaw }] = await Promise.all([
     supabase.from("leagues").select("id,name,ended,season").order("name"),
-    getAllStats(selectedLeagues.length > 0 ? selectedLeagues : undefined, selectedSeason || undefined, dayRange),
+    getAllStats(selectedLeagues.length > 0 ? selectedLeagues : undefined, selectedSeason || undefined, dayRange, hideForfeits),
     supabase.from("team_leagues").select("team_id, teams(name), leagues(id,ended)").limit(10000),
     supabase.from("teams").select("name, league_id, leagues:league_id(id,ended)").limit(10000),
   ]);
@@ -248,13 +265,14 @@ export default async function StatsPage({
           matchdays={stats.matchdays}
           dayFrom={dayFrom}
           dayTo={dayTo}
+          hideForfeits={hideForfeits}
           lang={lang}
         />
       </Suspense>
 
       {/* Stats content — pass activeTab to control which section is shown */}
       <LeagueStatsClient
-        key={`${leagueParam}-${selectedSeason}-${sp?.tab || "attacking"}-${dayFrom ?? ""}-${dayTo ?? ""}`}
+        key={`${leagueParam}-${selectedSeason}-${sp?.tab || "attacking"}-${dayFrom ?? ""}-${dayTo ?? ""}-${hideForfeits ? "1" : "0"}`}
         playerStats={stats.players}
         teamStats={stats.teams}
         teamIdMap={teamIdMap}

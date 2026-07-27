@@ -6,7 +6,7 @@ import { t as translate, type Lang } from "@/lib/i18n";
 
 export type LeagueOption = { id: string; name: string; ended: boolean };
 
-export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], selectedSeason = "", matchdays = [], dayFrom, dayTo, lang = "en" }: { leagues: LeagueOption[]; selectedLeagues?: string[]; seasons?: string[]; selectedSeason?: string; matchdays?: number[]; dayFrom?: number; dayTo?: number; lang?: Lang }) {
+export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], selectedSeason = "", matchdays = [], dayFrom, dayTo, hideForfeits = false, lang = "en" }: { leagues: LeagueOption[]; selectedLeagues?: string[]; seasons?: string[]; selectedSeason?: string; matchdays?: number[]; dayFrom?: number; dayTo?: number; hideForfeits?: boolean; lang?: Lang }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
@@ -70,6 +70,13 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
     const params = new URLSearchParams(searchParams.toString());
     params.delete("from");
     params.delete("to");
+    router.push(`/stats?${params.toString()}`);
+  };
+
+  const handleHideForfeits = (next: boolean) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) params.set("ff", "1");
+    else params.delete("ff");
     router.push(`/stats?${params.toString()}`);
   };
 
@@ -279,6 +286,39 @@ export function StatsFilterBar({ leagues, selectedLeagues = [], seasons = [], se
             </div>
           </div>
         )}
+
+        {/* Hide forfeits toggle */}
+        <button
+          onClick={() => handleHideForfeits(!hideForfeits)}
+          title={t("stats.hideForfeits")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            background: hideForfeits ? "#7070f015" : "var(--bg-card)",
+            border: `1px solid ${hideForfeits ? "#7070f0" : "var(--border-main)"}`,
+            color: hideForfeits ? "#9090f8" : "var(--text-muted)",
+            padding: "5px 11px",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 14, height: 14, fontSize: 9,
+            border: `1px solid ${hideForfeits ? "#7070f0" : "var(--border-main)"}`,
+            background: hideForfeits ? "#7070f030" : "transparent",
+            color: hideForfeits ? "#9090f8" : "transparent",
+            flexShrink: 0,
+          }}>
+            {hideForfeits ? "✓" : ""}
+          </span>
+          {t("stats.hideForfeits")}
+        </button>
 
         {/* Section tabs */}
         <div style={{ display: "flex", gap: 4, marginLeft: "auto", flexWrap: "wrap" }}>

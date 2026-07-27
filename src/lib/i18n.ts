@@ -337,6 +337,7 @@ const en: Record<string, string> = {
   "stats.col.gk_saves": "Saves",
   "stats.col.gk_catches": "Catches",
   "stats.showInactive": "Show Inactive",
+  "stats.hideForfeits": "Hide forfeits",
 // ELO
   "elo.title": "ELO Rankings",
   "elo.subtitle": "Team ratings calculated from match results",
@@ -1045,6 +1046,7 @@ const tr: Record<string, string> = {
   "stats.col.gk_saves": "Kurtarış",
   "stats.col.gk_catches": "Tutuş",
   "stats.showInactive": "İnaktifleri Göster",
+  "stats.hideForfeits": "Hükmen galibiyetleri gizle",
 // ELO
   "elo.title": "ELO Sıralaması",
   "elo.subtitle": "Maç sonuçlarından hesaplanan takım puanları",
