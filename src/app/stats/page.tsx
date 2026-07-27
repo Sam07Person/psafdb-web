@@ -107,6 +107,32 @@ async function getAllStats(
     }
   }
 
+  // Fetch imported team stats so we can recover the real scoreline of matches
+  // that were later changed to a 3-0 forfeit (e.g. a team disbanded). The match
+  // row's home/away score gets overwritten to 3-0, but match_team_stats.goals
+  // still holds the actual goals each side recorded during the game.
+  const teamStatsData: any[] = [];
+  for (let i = 0; i < matchIds.length; i += MATCH_CHUNK) {
+    const chunk = matchIds.slice(i, i + MATCH_CHUNK);
+    for (let from = 0; ; from += PAGE) {
+      const { data: page } = await supabase
+        .from("match_team_stats")
+        .select("match_id,is_home,goals")
+        .in("match_id", chunk)
+        .range(from, from + PAGE - 1);
+      if (!page || page.length === 0) break;
+      teamStatsData.push(...page);
+      if (page.length < PAGE) break;
+    }
+  }
+  // match_id -> { home, away } real goals, when team stats were imported
+  const teamGoalsByMatch: Record<string, { home?: number; away?: number }> = {};
+  for (const s of teamStatsData) {
+    const entry = teamGoalsByMatch[s.match_id] ?? (teamGoalsByMatch[s.match_id] = {});
+    if (s.is_home) entry.home = s.goals;
+    else entry.away = s.goals;
+  }
+
   const { data: allTeams } = await supabase.from("teams").select("id,name");
 
   const teamIdMap: Record<string, string> = Object.fromEntries(
@@ -158,10 +184,15 @@ async function getAllStats(
 
   const teamMap: Record<string, TeamStat> = {};
   for (const m of matches) {
-    for (const [side, opp] of [["home", "away"], ["away", "home"]] as const) {
+    // For matches later turned into a 3-0 forfeit, the imported team stats
+    // still hold the real goals — use those instead of the overwritten 3-0.
+    const ts = (m as any).forfeited_by ? teamGoalsByMatch[(m as any).id] : undefined;
+    const realHome = ts && ts.home != null ? ts.home : (m as any).home_score;
+    const realAway = ts && ts.away != null ? ts.away : (m as any).away_score;
+    for (const [side] of [["home", "away"], ["away", "home"]] as const) {
       const name = (m as any)[`${side}_team`];
-      const scored = (m as any)[`${side}_score`];
-      const conceded = (m as any)[`${opp}_score`];
+      const scored = side === "home" ? realHome : realAway;
+      const conceded = side === "home" ? realAway : realHome;
       if (!teamMap[name]) teamMap[name] = { name, teamId: teamIdMap[name] ?? null, games: 0, gf: 0, ga: 0, cs: 0 };
       teamMap[name].games++;
       teamMap[name].gf += scored;
