@@ -13,6 +13,7 @@ type Judgment = {
   gk: number | null;
   final: number | null;
   notes: string | null;
+  skipped?: boolean;
 };
 
 type Item = {
@@ -31,6 +32,8 @@ type Item = {
     final: number;
     scores: Record<string, number>;
     weights: Record<string, number>;
+    resultBonus: number;
+    role: Role;
   };
   judgment: Judgment | null;
 };
@@ -40,14 +43,46 @@ const BLANK: Judgment = {
   consistency: null, gk: null, final: null, notes: null,
 };
 
-// Which sub-ratings actually matter for each role. Asking for a GK's attacking
-// score, or a striker's goalkeeping, just adds noise to the fit.
-const RELEVANT: Record<Role, (keyof Judgment)[]> = {
-  GK:  ["gk", "passing", "consistency"],
-  DEF: ["defending", "passing", "attacking", "consistency"],
-  MID: ["attacking", "defending", "passing", "consistency"],
-  FWD: ["attacking", "passing", "defending", "consistency"],
-};
+/** The numeric sub-rating fields — everything on Judgment except notes/skipped. */
+type SubField = "attacking" | "defending" | "passing" | "consistency" | "gk";
+
+const SUB_FIELDS: SubField[] = ["attacking", "defending", "passing", "consistency", "gk"];
+
+/**
+ * Which sub-ratings to ask for, taken from the position weights themselves rather
+ * than a hand-written list — a category carrying 0% for this role contributes
+ * nothing to the overall, so asking for it would only add noise.
+ * Heaviest first, since that's the one worth thinking hardest about.
+ */
+function relevantFields(weights: Record<string, number>): SubField[] {
+  return SUB_FIELDS
+    .filter(f => (weights[f] ?? 0) > 0)
+    .sort((a, b) => (weights[b] ?? 0) - (weights[a] ?? 0));
+}
+
+/**
+ * The overall is DERIVED, never typed in: each sub-rating is multiplied by its
+ * position weight, summed, and the result bonus added — exactly how the formula
+ * builds its own final. Judging the overall separately would let it contradict
+ * the sub-ratings and make the calibration data self-inconsistent.
+ *
+ * Returns null until every weighted category has been filled in.
+ */
+function deriveFinal(
+  draft: Judgment,
+  weights: Record<string, number>,
+  resultBonus: number
+): number | null {
+  const fields = relevantFields(weights);
+  if (fields.length === 0) return null;
+  let base = 0;
+  for (const f of fields) {
+    const v = draft[f];
+    if (typeof v !== "number") return null; // incomplete
+    base += v * (weights[f] ?? 0);
+  }
+  return Math.round(Math.min(100, Math.max(0, base + resultBonus)));
+}
 
 const FIELD_LABEL: Record<string, string> = {
   attacking: "Attacking",
@@ -88,14 +123,21 @@ export default function RatingCalibrationPage() {
   const [loginError, setLoginError] = useState<string | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
-  const [counts, setCounts] = useState<Record<string, { total: number; judged: number }>>({});
+  const [counts, setCounts] = useState<Record<string, { total: number; judged: number; skipped: number }>>({});
   const [totalJudged, setTotalJudged] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setupHint, setSetupHint] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<any>(null);
 
   const [roleFilter, setRoleFilter] = useState<Role | "">("");
   const [includeJudged, setIncludeJudged] = useState(false);
   const [limit, setLimit] = useState(25);
+  // Calibration-only floor. Separate from the rating eligibility rule, so moving
+  // it changes what you get asked to judge and nothing else.
+  const [minScore, setMinScore] = useState(70);
+  const [excludeSubs, setExcludeSubs] = useState(true);
+  const [totalSkipped, setTotalSkipped] = useState(0);
 
   const [index, setIndex] = useState(0);
   const [draft, setDraft] = useState<Judgment>(BLANK);
@@ -112,27 +154,49 @@ export default function RatingCalibrationPage() {
   const current = items[index] ?? null;
 
   const load = useCallback(async (pw = password, tok = token) => {
+    // Credentials are passed in explicitly by the restore path, because state set
+    // in the same tick isn't readable here yet. Bailing out beats firing a
+    // guaranteed-401 request with empty headers.
+    if (!pw || !tok) return;
+
     setLoading(true);
     setError(null);
+    setSetupHint(null);
     try {
-      const params = new URLSearchParams({ limit: String(limit) });
+      const params = new URLSearchParams({ limit: String(limit), minScore: String(minScore) });
       if (roleFilter) params.set("role", roleFilter);
       if (includeJudged) params.set("includeJudged", "1");
+      if (!excludeSubs) params.set("excludeSubs", "0");
       const res = await fetch(`/api/admin/rating-calibration?${params}`, {
         headers: { "x-admin-password": pw, Authorization: `Bearer ${tok}` },
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Failed to load");
+      if (res.status === 401) {
+        // Saved credentials are stale (or the env vars changed). Drop them and
+        // show the login form rather than stranding the user on an error page.
+        try { localStorage.removeItem("psafdb_admin_auth"); } catch {}
+        setAuthenticated(false);
+        setPassword("");
+        setToken("");
+        setLoginError("Your saved sign-in is no longer valid. Please sign in again.");
+        return;
+      }
+      if (!res.ok) {
+        if (body.setupRequired) setSetupHint(body.hint ?? null);
+        throw new Error(body.error || "Failed to load");
+      }
       setItems(body.items ?? []);
       setCounts(body.counts ?? {});
       setTotalJudged(body.totalJudged ?? 0);
+      setTotalSkipped(body.totalSkipped ?? 0);
+      setDiagnostics(body.diagnostics ?? null);
       setIndex(0);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [password, token, limit, roleFilter, includeJudged]);
+  }, [password, token, limit, roleFilter, includeJudged, minScore, excludeSubs]);
 
   // Restore the admin session saved by the import page.
   useEffect(() => {
@@ -147,15 +211,25 @@ export default function RatingCalibrationPage() {
         const res = await fetch("/api/admin/rating-calibration?limit=1", {
           headers: { "x-admin-password": pw, Authorization: `Bearer ${tok}` },
         });
-        if (res.ok) setAuthenticated(true);
+        if (!res.ok) {
+          try { localStorage.removeItem("psafdb_admin_auth"); } catch {}
+          return;
+        }
+        // The effect below owns loading. It depends on password/token, so it fires
+        // once those land — no race with the setPassword/setToken above, which is
+        // what made auto-login fail while manual login worked.
+        setAuthenticated(true);
       })();
     } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Reload when the queue filters change. Skipped until credentials exist, so the
+  // restore path above owns the very first load.
   useEffect(() => {
-    if (authenticated) load();
+    if (authenticated && password && token) load(password, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, roleFilter, includeJudged, limit]);
+  }, [authenticated, password, token, roleFilter, includeJudged, limit, minScore, excludeSubs]);
 
   // Load the existing judgment (if any) whenever the current performance changes.
   useEffect(() => {
@@ -180,7 +254,11 @@ export default function RatingCalibrationPage() {
   };
 
   const save = async (advance: boolean) => {
-    if (!current || draft.final == null) return;
+    if (!current) return;
+    // The overall is derived, so a null here means a category is still blank.
+    const finalValue = deriveFinal(draft, current.formula.weights, current.formula.resultBonus);
+    if (finalValue == null) return;
+
     setSaving(true);
     setError(null);
     try {
@@ -193,23 +271,69 @@ export default function RatingCalibrationPage() {
           role: current.role,
           position: current.position,
           ...draft,
+          final: finalValue,
         }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Save failed");
 
-      setItems(prev => prev.map((it, i) => i === index ? { ...it, judgment: { ...draft } } : it));
+      setItems(prev => prev.map((it, i) => i === index ? { ...it, judgment: { ...draft, final: finalValue } } : it));
       setTotalJudged(n => current.judgment ? n : n + 1);
       setCounts(prev => current.judgment ? prev : ({
         ...prev,
         [current.role]: {
           total: prev[current.role]?.total ?? 0,
           judged: (prev[current.role]?.judged ?? 0) + 1,
+          skipped: prev[current.role]?.skipped ?? 0,
         },
       }));
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 900);
       if (advance && index < items.length - 1) setIndex(i => i + 1);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Skip: record "not worth judging" and never queue it again. Distinct from just
+   * clicking Next, which leaves the performance in the pool for a later batch.
+   */
+  const skip = async () => {
+    if (!current) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/rating-calibration", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          matchId: current.matchId,
+          playerId: current.playerId,
+          role: current.role,
+          position: current.position,
+          skipped: true,
+          skipReason: draft.notes || null,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Skip failed");
+
+      // Drop it from the queue outright so the batch shrinks rather than leaving
+      // a dead card you have to click past.
+      setItems(prev => prev.filter((_, i) => i !== index));
+      setTotalSkipped(n => n + 1);
+      setCounts(prev => ({
+        ...prev,
+        [current.role]: {
+          total: prev[current.role]?.total ?? 0,
+          judged: prev[current.role]?.judged ?? 0,
+          skipped: (prev[current.role]?.skipped ?? 0) + 1,
+        },
+      }));
+      setIndex(i => Math.min(i, Math.max(0, items.length - 2)));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -227,6 +351,7 @@ export default function RatingCalibrationPage() {
       if (typing) return;
       if (e.key === "ArrowRight") setIndex(i => Math.min(items.length - 1, i + 1));
       if (e.key === "ArrowLeft") setIndex(i => Math.max(0, i - 1));
+      if (e.key === "s" || e.key === "S") { e.preventDefault(); skip(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -253,7 +378,10 @@ export default function RatingCalibrationPage() {
     );
   }
 
-  const relevant = current ? RELEVANT[current.role] : [];
+  const weights = current?.formula.weights ?? {};
+  const relevant = current ? relevantFields(weights) : [];
+  const derivedFinal = current ? deriveFinal(draft, weights, current.formula.resultBonus) : null;
+  const missingCount = relevant.filter(f => typeof draft[f] !== "number").length;
   const grandTotal = Object.values(counts).reduce((a, c) => a + c.total, 0);
 
   const judgedInBatch = items.filter(i => i.judgment).length;
@@ -297,27 +425,114 @@ export default function RatingCalibrationPage() {
             </button>
           );
         })}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-muted)" }}>
-            <input type="checkbox" checked={includeJudged} onChange={e => setIncludeJudged(e.target.checked)} />
-            Include judged
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-muted)" }}>
-            Batch
-            <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={{ ...inputStyle, padding: "4px 6px", width: "auto" }}>
-              {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-          <span style={{ color: "var(--text-faint)" }}>{totalJudged} judged of {grandTotal}</span>
+      </div>
+
+      {/* Queue filters */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+        fontSize: 12, padding: "12px 14px", marginBottom: 16,
+        border: "1px solid var(--border-row)", borderRadius: 8,
+      }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--text-muted)" }}>
+          Min game score
+          <input
+            type="number" min={0} max={700} step={10} value={minScore}
+            onChange={e => setMinScore(Math.max(0, Number(e.target.value) || 0))}
+            style={{ ...inputStyle, padding: "4px 6px", width: 72 }}
+          />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-muted)" }}>
+          <input type="checkbox" checked={excludeSubs} onChange={e => setExcludeSubs(e.target.checked)} />
+          Exclude subs
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-muted)" }}>
+          <input type="checkbox" checked={includeJudged} onChange={e => setIncludeJudged(e.target.checked)} />
+          Include judged
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-muted)" }}>
+          Batch
+          <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={{ ...inputStyle, padding: "4px 6px", width: "auto" }}>
+            {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        <div style={{ marginLeft: "auto", color: "var(--text-faint)" }}>
+          {totalJudged} judged{totalSkipped > 0 ? ` · ${totalSkipped} skipped` : ""} of {grandTotal}
         </div>
       </div>
 
-      {error && <div style={{ color: "#ef4444", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -8, marginBottom: 16 }}>
+        The score floor only affects which performances get queued here — it never
+        changes how any match is rated.
+      </div>
+
+      {error && (
+        <div style={{ ...card, borderColor: "#ef4444", marginBottom: 16 }}>
+          <div style={{ color: "#ef4444", fontSize: 13.5, fontWeight: 700 }}>{error}</div>
+          {setupHint && (
+            <div style={{ color: "var(--text-muted)", fontSize: 12.5, marginTop: 8, lineHeight: 1.6 }}>
+              {setupHint}
+              <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 11.5, color: "var(--text-sub)" }}>
+                migrations/001_freeze_ratings.sql<br />
+                migrations/002_rating_judgments.sql
+              </div>
+            </div>
+          )}
+          <button onClick={() => load()} style={{ ...ghostBtn, marginTop: 12 }}>Retry</button>
+        </div>
+      )}
+
       {loading && <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}
 
-      {!loading && items.length === 0 && (
-        <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
-          Nothing left to judge{roleFilter ? ` for ${roleFilter}` : ""}. Tick “Include judged” to revisit.
+      {/* An empty queue has several possible causes — say which one it is. */}
+      {!loading && !error && items.length === 0 && (
+        <div style={{ ...card, textAlign: "center", padding: 36 }}>
+          {diagnostics && diagnostics.totalRows === 0 ? (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>No player stats in the database</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                Import some match results first — there's nothing to judge yet.
+              </div>
+            </>
+          ) : totalJudged > 0 && grandTotal > 0 && totalJudged >= grandTotal ? (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Everything has been judged</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                {totalJudged} performances. Tick “Include judged” to revisit any of them.
+              </div>
+            </>
+          ) : roleFilter ? (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Nothing left to judge for {roleFilter}</div>
+              <button onClick={() => setRoleFilter("")} style={{ ...ghostBtn, marginTop: 12 }}>Show all roles</button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>No performances match the filters</div>
+              {diagnostics && (
+                <div style={{ color: "var(--text-muted)", fontSize: 12.5, marginTop: 10, lineHeight: 1.8 }}>
+                  Of {diagnostics.totalRows} stat rows, none were eligible:
+                  <div style={{ marginTop: 8, display: "inline-block", textAlign: "left" }}>
+                    {Object.entries(diagnostics.rejected as Record<string, number>)
+                      .filter(([, n]) => n > 0)
+                      .map(([k, n]) => (
+                        <div key={k}>
+                          <strong style={{ color: "var(--text-sub)" }}>{n}</strong>{" "}
+                          {({
+                            noPosition: "have no position recorded",
+                            benched: "were benched",
+                            incomplete: "have incomplete stats",
+                            noResult: "belong to a match with no final score",
+                            badScore: "have no valid game score (0, or 1–60)",
+                            wrongRole: "are a different role",
+                            alreadyJudged: "have already been judged",
+                          } as Record<string, string>)[k] ?? k}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -408,40 +623,59 @@ export default function RatingCalibrationPage() {
             </div>
           </div>
 
-          {/* Judgement inputs */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14 }}>
-            {relevant.map(field => (
-              <div key={field as string}>
-                <label style={labelStyle}>{FIELD_LABEL[field as string]}</label>
-                <input
-                  type="number" min={0} max={100}
-                  value={draft[field] ?? ""}
-                  onChange={e => setDraft(d => ({ ...d, [field]: e.target.value === "" ? null : Number(e.target.value) }))}
-                  style={{ ...inputStyle, borderColor: draft[field] != null ? ratingColor(draft[field] as number) : "var(--border-row)" }}
-                  placeholder="0–100"
-                />
-              </div>
-            ))}
+          {/* Judgement inputs — each labelled with its share of the overall */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 14 }}>
+            {relevant.map(field => {
+              const w = weights[field] ?? 0;
+              const v = draft[field];
+              const filled = typeof v === "number";
+              return (
+                <div key={field}>
+                  <label style={{ ...labelStyle, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <span>{FIELD_LABEL[field]}</span>
+                    <span style={{ color: "var(--text-muted)", fontWeight: 700 }}>{Math.round(w * 100)}%</span>
+                  </label>
+                  <input
+                    type="number" min={0} max={100}
+                    value={filled ? (v as number) : ""}
+                    onChange={e => setDraft(d => ({ ...d, [field]: e.target.value === "" ? null : Number(e.target.value) }))}
+                    style={{ ...inputStyle, borderColor: filled ? ratingColor(v as number) : "var(--border-row)" }}
+                    placeholder="0–100"
+                  />
+                  <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 4, minHeight: 14 }}>
+                    {filled ? `contributes ${((v as number) * w).toFixed(1)}` : "—"}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
+          {/* Derived overall */}
           <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border-row)" }}>
-            <label style={{ ...labelStyle, fontSize: 12, color: "var(--text-body)" }}>
-              Overall for this performance <span style={{ color: "#ef4444" }}>*</span>
-            </label>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 6 }}>
-              <input
-                type="range" min={0} max={100}
-                value={draft.final ?? 50}
-                onChange={e => setDraft(d => ({ ...d, final: Number(e.target.value) }))}
-                style={{ flex: 1 }}
-              />
-              <input
-                type="number" min={0} max={100}
-                value={draft.final ?? ""}
-                onChange={e => setDraft(d => ({ ...d, final: e.target.value === "" ? null : Number(e.target.value) }))}
-                style={{ ...inputStyle, width: 84, fontWeight: 800, fontSize: 17, textAlign: "center", color: ratingColor(draft.final) }}
-                placeholder="—"
-              />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ ...labelStyle, marginBottom: 2 }}>Overall — calculated from the above</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                  {missingCount > 0
+                    ? `Fill in ${missingCount} more categor${missingCount === 1 ? "y" : "ies"} to get an overall.`
+                    : <>
+                        {relevant.map((f, i) => (
+                          <span key={f}>
+                            {i > 0 && " + "}
+                            {(draft[f] as number)}×{Math.round((weights[f] ?? 0) * 100)}%
+                          </span>
+                        ))}
+                        {current.formula.resultBonus > 0 && ` + ${current.formula.resultBonus} (${current.result})`}
+                      </>}
+                </div>
+              </div>
+              <div style={{
+                fontWeight: 900, fontSize: 34, lineHeight: 1,
+                color: derivedFinal != null ? ratingColor(derivedFinal) : "var(--text-faint)",
+                minWidth: 70, textAlign: "right",
+              }}>
+                {derivedFinal ?? "—"}
+              </div>
             </div>
           </div>
 
@@ -463,31 +697,52 @@ export default function RatingCalibrationPage() {
               </button>
             ) : (
               <div style={{ padding: 12, background: "var(--bg-row)", borderRadius: 6, fontSize: 12.5 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ color: "var(--text-muted)" }}>Current formula</span>
-                  <strong style={{ color: ratingColor(current.formula.final), fontSize: 15 }}>{current.formula.final}</strong>
-                </div>
-                {draft.final != null && (
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ color: "var(--text-muted)" }}>Your judgement</span>
-                    <strong style={{ color: ratingColor(draft.final) }}>
-                      {draft.final}
-                      <span style={{ color: "var(--text-faint)", fontWeight: 400, marginLeft: 8 }}>
-                        {draft.final > current.formula.final ? "+" : ""}{draft.final - current.formula.final}
-                      </span>
-                    </strong>
-                  </div>
-                )}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 14px", color: "var(--text-muted)", fontSize: 11.5, paddingTop: 8, borderTop: "1px solid var(--border-row)" }}>
-                  {Object.entries(current.formula.scores)
-                    .filter(([k]) => current.formula.weights[k] > 0)
-                    .map(([k, v]) => (
-                      <span key={k}>
-                        {FIELD_LABEL[k] ?? k}: <strong style={{ color: "var(--text-sub)" }}>{Math.round(v)}</strong>
-                        <span style={{ color: "var(--text-faint)" }}> ×{current.formula.weights[k]}</span>
-                      </span>
-                    ))}
-                </div>
+                {/* Per-category comparison: this is where the formula is actually
+                    wrong or right, not the overall. */}
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: "var(--text-faint)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                      <th style={{ textAlign: "left", padding: "0 0 6px" }}>Category</th>
+                      <th style={{ textAlign: "right", padding: "0 0 6px" }}>Formula</th>
+                      <th style={{ textAlign: "right", padding: "0 0 6px" }}>You</th>
+                      <th style={{ textAlign: "right", padding: "0 0 6px" }}>Diff</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {relevant.map(f => {
+                      const fv = Math.round(current.formula.scores[f] ?? 0);
+                      const mine = draft[f];
+                      const diff = typeof mine === "number" ? mine - fv : null;
+                      return (
+                        <tr key={f}>
+                          <td style={{ padding: "3px 0", color: "var(--text-muted)" }}>
+                            {FIELD_LABEL[f]}
+                            <span style={{ color: "var(--text-faint)" }}> {Math.round((weights[f] ?? 0) * 100)}%</span>
+                          </td>
+                          <td style={{ textAlign: "right", color: "var(--text-sub)" }}>{fv}</td>
+                          <td style={{ textAlign: "right", color: typeof mine === "number" ? ratingColor(mine) : "var(--text-faint)" }}>
+                            {typeof mine === "number" ? mine : "—"}
+                          </td>
+                          <td style={{ textAlign: "right", color: diff == null ? "var(--text-faint)" : Math.abs(diff) >= 15 ? "#f97316" : "var(--text-muted)" }}>
+                            {diff == null ? "—" : `${diff > 0 ? "+" : ""}${diff}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr style={{ borderTop: "1px solid var(--border-row)" }}>
+                      <td style={{ padding: "6px 0 0", fontWeight: 700 }}>Overall</td>
+                      <td style={{ textAlign: "right", padding: "6px 0 0", fontWeight: 700, color: ratingColor(current.formula.final) }}>
+                        {current.formula.final}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 0 0", fontWeight: 700, color: derivedFinal != null ? ratingColor(derivedFinal) : "var(--text-faint)" }}>
+                        {derivedFinal ?? "—"}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 0 0", fontWeight: 700, color: "var(--text-muted)" }}>
+                        {derivedFinal == null ? "—" : `${derivedFinal - current.formula.final > 0 ? "+" : ""}${derivedFinal - current.formula.final}`}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -496,6 +751,14 @@ export default function RatingCalibrationPage() {
           <div style={{ display: "flex", gap: 10, marginTop: 20, alignItems: "center", flexWrap: "wrap" }}>
             <button onClick={() => setIndex(i => Math.max(0, i - 1))} disabled={index === 0} style={ghostBtn}>← Prev</button>
             <button onClick={() => setIndex(i => Math.min(items.length - 1, i + 1))} disabled={index >= items.length - 1} style={ghostBtn}>Next →</button>
+            <button
+              onClick={skip}
+              disabled={saving}
+              style={{ ...ghostBtn, borderColor: "#f97316", color: "#f97316" }}
+              title="Not worth judging — remove it and never queue it again (S)"
+            >
+              Skip
+            </button>
             {canLoadNext && remaining > 0 && (
               <button onClick={() => load()} disabled={loading} style={ghostBtn} title="Discard the rest of this batch and fetch a fresh one">
                 Load next batch
@@ -503,17 +766,17 @@ export default function RatingCalibrationPage() {
             )}
             <div style={{ flex: 1 }} />
             {savedFlash && <span style={{ color: "#4ade80", fontSize: 12 }}>Saved</span>}
-            <button onClick={() => save(false)} disabled={saving || draft.final == null} style={ghostBtn}>Save</button>
+            <button onClick={() => save(false)} disabled={saving || derivedFinal == null} style={ghostBtn}>Save</button>
             <button
               onClick={() => save(onLastItem && !canLoadNext ? false : true)}
-              disabled={saving || draft.final == null}
+              disabled={saving || derivedFinal == null}
               style={primaryBtn}
             >
               {onLastItem ? "Save & finish batch" : "Save & next"}
             </button>
           </div>
           <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-faint)" }}>
-            ← → to move between performances · Ctrl/Cmd + Enter to save and advance
+            ← → to move · S to skip · Ctrl/Cmd + Enter to save and advance
           </div>
         </div>
       )}

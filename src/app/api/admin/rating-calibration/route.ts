@@ -31,10 +31,20 @@ function requireAuth(req: NextRequest) {
 const SELECT =
   "match_id,player_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes," +
   "tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches," +
-  "benched,stats_incomplete,players(handle,name)," +
+  "benched,stats_incomplete,is_starter,sub_number,players(handle,name)," +
   "matches(home_team,away_team,home_score,away_score,played_at,leagues(name))";
 
 type Role = "GK" | "DEF" | "MID" | "FWD";
+
+/**
+ * Minimum game score for a performance to be WORTH JUDGING.
+ *
+ * Deliberately separate from MIN_RATING_SCORE in lib/ratings.ts, which decides
+ * whether a match counts toward a player's rating at all. Raising this floor only
+ * changes which performances get queued for calibration — it can never change a
+ * rating, frozen or otherwise. Do not merge the two.
+ */
+const DEFAULT_CALIBRATION_MIN_SCORE = 70;
 
 /**
  * GET — a queue of real performances to judge.
@@ -56,12 +66,33 @@ export async function GET(req: NextRequest) {
   const roleFilter = (url.searchParams.get("role") || "").toUpperCase() as Role | "";
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "25")));
   const includeJudged = url.searchParams.get("includeJudged") === "1";
+  const excludeSubs = url.searchParams.get("excludeSubs") !== "0"; // on by default
+  const minScoreParam = parseInt(url.searchParams.get("minScore") || "");
+  const minScore = Number.isFinite(minScoreParam) && minScoreParam >= 0
+    ? minScoreParam
+    : DEFAULT_CALIBRATION_MIN_SCORE;
 
   // Existing judgments, so the queue can skip what's already done.
   const { data: judged, error: jErr } = await supabaseAdmin
     .from("rating_judgments")
-    .select("match_id,player_id,role,position,attacking,defending,passing,consistency,gk,final,notes");
-  if (jErr) return json(500, { error: jErr.message });
+    .select("match_id,player_id,role,position,attacking,defending,passing,consistency,gk,final,notes,skipped,skip_reason");
+
+  if (jErr) {
+    // By far the most common cause of an empty page: the migration hasn't been run.
+    // Say so explicitly rather than surfacing a raw Postgres error.
+    const missingTable =
+      jErr.code === "42P01" ||
+      jErr.code === "PGRST205" ||
+      /relation .*rating_judgments.* does not exist|could not find the table/i.test(jErr.message);
+    if (missingTable) {
+      return json(503, {
+        error: "The rating_judgments table doesn't exist yet.",
+        hint: "Run migrations/002_rating_judgments.sql in the Supabase SQL editor, then reload this page.",
+        setupRequired: true,
+      });
+    }
+    return json(500, { error: jErr.message });
+  }
 
   const judgedMap = new Map<string, any>();
   for (const j of judged ?? []) judgedMap.set(`${j.match_id}:${j.player_id}`, j);
@@ -82,13 +113,31 @@ export async function GET(req: NextRequest) {
     from += PAGE;
   }
 
+  // Track why rows get dropped, so an empty queue can explain itself instead of
+  // just rendering nothing.
+  const rejected = {
+    noPosition: 0, benched: 0, incomplete: 0, noResult: 0,
+    badScore: 0, lowScore: 0, substitute: 0, wrongRole: 0, alreadyJudged: 0, skipped: 0,
+  };
+
   const usable = all.filter((s: any) => {
     const m = Array.isArray(s.matches) ? s.matches[0] : s.matches;
-    if (!s.position || s.benched || s.stats_incomplete) return false;
-    if (!m || m.home_score == null || m.away_score == null) return false;
-    if (!isRatingEligibleScore(s.score)) return false;
-    if (roleFilter && getPositionRole(s.position) !== roleFilter) return false;
-    if (!includeJudged && judgedMap.has(`${s.match_id}:${s.player_id}`)) return false;
+    const key = `${s.match_id}:${s.player_id}`;
+    const prior = judgedMap.get(key);
+
+    if (!s.position) { rejected.noPosition++; return false; }
+    if (s.benched) { rejected.benched++; return false; }
+    if (s.stats_incomplete) { rejected.incomplete++; return false; }
+    if (!m || m.home_score == null || m.away_score == null) { rejected.noResult++; return false; }
+    if (!isRatingEligibleScore(s.score)) { rejected.badScore++; return false; }
+    // Calibration-only floor: too weak a performance to be worth a verdict.
+    if ((s.score ?? 0) <= minScore) { rejected.lowScore++; return false; }
+    // Subs rarely play enough minutes for their stat line to mean anything.
+    if (excludeSubs && (s.is_starter === false || s.sub_number != null)) { rejected.substitute++; return false; }
+    if (roleFilter && getPositionRole(s.position) !== roleFilter) { rejected.wrongRole++; return false; }
+    // A skipped performance never comes back, even when revisiting judged ones.
+    if (prior?.skipped) { rejected.skipped++; return false; }
+    if (!includeJudged && prior) { rejected.alreadyJudged++; return false; }
     return true;
   });
 
@@ -165,29 +214,49 @@ export async function GET(req: NextRequest) {
       formula: {
         final: breakdown.final,
         scores: breakdown.scores,
+        // Weights and the result bonus are the scoring *scheme*, not the answer —
+        // the UI needs them to derive an overall from the judged sub-ratings, so
+        // unlike `final`/`scores` they are shown up front.
         weights: breakdown.weights,
+        resultBonus: breakdown.resultBonus,
+        role: breakdown.role,
       },
       judgment: judgedMap.get(`${s.match_id}:${s.player_id}`) ?? null,
     };
   });
 
-  // Progress counters so the UI can show how much is left per role.
-  const counts: Record<string, { total: number; judged: number }> = {};
+  // Progress counters. "total" is the queueable pool under the CURRENT filters,
+  // so the percentages line up with what you'll actually be asked to judge.
+  const counts: Record<string, { total: number; judged: number; skipped: number }> = {};
   for (const s of all) {
     const m = Array.isArray(s.matches) ? s.matches[0] : s.matches;
     if (!s.position || s.benched || s.stats_incomplete) continue;
     if (!m || m.home_score == null || m.away_score == null) continue;
     if (!isRatingEligibleScore(s.score)) continue;
+    if ((s.score ?? 0) <= minScore) continue;
+    if (excludeSubs && (s.is_starter === false || s.sub_number != null)) continue;
     const r = getPositionRole(s.position);
-    counts[r] ??= { total: 0, judged: 0 };
+    counts[r] ??= { total: 0, judged: 0, skipped: 0 };
     counts[r].total++;
-    if (judgedMap.has(`${s.match_id}:${s.player_id}`)) counts[r].judged++;
+    const prior = judgedMap.get(`${s.match_id}:${s.player_id}`);
+    if (prior?.skipped) counts[r].skipped++;
+    else if (prior) counts[r].judged++;
   }
 
-  return json(200, { items, counts, totalJudged: judgedMap.size });
+  const totalJudged = (judged ?? []).filter((j: any) => !j.skipped).length;
+  const totalSkipped = (judged ?? []).filter((j: any) => j.skipped).length;
+
+  return json(200, {
+    items,
+    counts,
+    totalJudged,
+    totalSkipped,
+    settings: { minScore, excludeSubs },
+    diagnostics: { totalRows: all.length, eligible: usable.length, rejected },
+  });
 }
 
-/** POST — save (or update) one judgment. */
+/** POST — save a judgment, or record a skip. */
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
@@ -205,14 +274,34 @@ export async function POST(req: NextRequest) {
     return Math.round(n);
   };
 
-  const final = num(body.final);
-  if (final === null) return json(400, { error: "final is required and must be 0-100" });
-
-  const { error } = await supabaseAdmin.from("rating_judgments").upsert({
+  const base = {
     match_id: body.matchId,
     player_id: body.playerId,
     role: body.role ?? getPositionRole(body.position),
     position: body.position ?? null,
+    judged_at: new Date().toISOString(),
+  };
+
+  // A skip records "deliberately not judged" — no ratings, and it never returns
+  // to the queue. Kept distinct from an unjudged row, which is simply not there.
+  if (body.skipped) {
+    const { error } = await supabaseAdmin.from("rating_judgments").upsert({
+      ...base,
+      attacking: null, defending: null, passing: null, consistency: null, gk: null,
+      final: null,
+      notes: null,
+      skipped: true,
+      skip_reason: body.skipReason || null,
+    });
+    if (error) return json(500, { error: error.message });
+    return json(200, { ok: true, skipped: true });
+  }
+
+  const final = num(body.final);
+  if (final === null) return json(400, { error: "final is required and must be 0-100" });
+
+  const { error } = await supabaseAdmin.from("rating_judgments").upsert({
+    ...base,
     attacking: num(body.attacking),
     defending: num(body.defending),
     passing: num(body.passing),
@@ -220,7 +309,8 @@ export async function POST(req: NextRequest) {
     gk: num(body.gk),
     final,
     notes: body.notes || null,
-    judged_at: new Date().toISOString(),
+    skipped: false,
+    skip_reason: null,
   });
 
   if (error) return json(500, { error: error.message });
