@@ -183,7 +183,8 @@ type TOTWAppearance = {
 
 function calcLocalTOTW(stats: TOTWRawStat[]): Partial<Record<SlotKey, { playerId: string; rating: number; matchId: string }>> {
   const entries = stats
-    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.matches && s.players)
+    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.matches && s.players
+      && isRatingEligibleScore(s.score))
     .map(s => {
       const m = s.matches!;
       const isHome = s.team_side === "home";

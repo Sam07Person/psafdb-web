@@ -17,6 +17,7 @@ import {
   getPositionRole,
   type MatchStatRow,
   type MatchResult,
+  type MatchBreakdown,
   type SubRatings,
 } from "@/lib/ratings";
 
@@ -227,10 +228,19 @@ export default function PlayerRatingPage() {
     };
   });
 
+  // Pair every played match with its own stat row and result up front, so nothing
+  // downstream ever has to look a stat row up by id (and risk falling back to
+  // the wrong match's stats).
+  const playedEntries = playedStats.map((s, i) => ({
+    s,
+    sr: statRows[i],
+    r: results[i],
+    counts: isRatingEligibleScore(s.score),
+  }));
+
   // Only matches with a valid recorded score (> 60) count. A score of 0 means the
   // player didn't really play, so it is excluded from the rating entirely.
-  const ratingEligible = playedStats.map((s, i) => ({ s, sr: statRows[i], r: results[i] }))
-    .filter(({ s }) => isRatingEligibleScore(s.score));
+  const ratingEligible = playedEntries.filter(x => x.counts);
   const ratingPlayedStats = ratingEligible.map(x => x.s);
   const ratingStatRows = ratingEligible.map(x => x.sr);
   const ratingResults = ratingEligible.map(x => x.r);
@@ -255,23 +265,9 @@ export default function PlayerRatingPage() {
 
   const subRatings: SubRatings = calcSubRatings(ratingStatRows, ratingResults, dominantPosition);
 
-  // Map match_id → statRow for O(1) lookup
-  const statRowByMatchId = new Map<string, MatchStatRow>(
-    ratingPlayedStats.map((s, i) => [s.match_id, ratingStatRows[i]])
-  );
-
-  // Helper: determine result for a stat row
-  function getResult(s: StatRow): MatchResult {
-    const m = s.matches!;
-    const isHome = s.team_side === "home";
-    const my = isHome ? m.home_score : m.away_score;
-    const opp = isHome ? m.away_score : m.home_score;
-    return my > opp ? "W" : my < opp ? "L" : "D";
-  }
-
   // Compute per-match ratings for eligible matches only (used for overall average)
-  const allMatchRatingValues = ratingPlayedStats.map(s =>
-    calcMatchBreakdown(statRowByMatchId.get(s.match_id) ?? ratingStatRows[0], getResult(s), s.position ?? dominantPosition).final
+  const allMatchRatingValues = ratingEligible.map(({ s, sr, r }) =>
+    calcMatchBreakdown(sr, r, s.position ?? dominantPosition).final
   );
 
   const hasEnoughForRating = ratingPlayedStats.length >= 3;
@@ -296,33 +292,31 @@ export default function PlayerRatingPage() {
       overall: calcOverallRating(arr.slice(0, i + 1).map(x => x.matchRatingValue), leagueTier, tierBonuses),
     }));
 
-  // Per-match display sorted newest first, max 20
-  const sortedStats = [...playedStats].sort((a, b) => {
-    const aDate = a.matches?.played_at ?? "";
-    const bDate = b.matches?.played_at ?? "";
-    return bDate.localeCompare(aDate);
-  });
-
-  const matchRatings = sortedStats.map(s => {
-    const result = getResult(s);
-    const statRow = statRowByMatchId.get(s.match_id) ?? statRows[0];
-    const breakdown = calcMatchBreakdown(statRow, result, s.position ?? dominantPosition);
-    return {
-      matchId: s.matches!.id,
-      date: s.matches!.played_at,
-      homeTeam: s.matches!.home_team,
-      awayTeam: s.matches!.away_team,
-      homeScore: s.matches!.home_score,
-      awayScore: s.matches!.away_score,
-      mySide: s.team_side,
-      position: s.position,
-      result,
-      rating: breakdown.final,
-      leagueName: (s.matches as any)?.leagues?.name ?? null,
-      statRow,
-      breakdown,
-    };
-  }).slice(0, 20);
+  // Per-match display sorted newest first, max 20.
+  // Each entry keeps its OWN stat row — matches that don't count toward the rating
+  // are shown unrated rather than borrowing another match's stats.
+  const matchRatings = [...playedEntries]
+    .sort((a, b) => (b.s.matches?.played_at ?? "").localeCompare(a.s.matches?.played_at ?? ""))
+    .map(({ s, sr, r, counts }) => {
+      const breakdown = counts ? calcMatchBreakdown(sr, r, s.position ?? dominantPosition) : null;
+      return {
+        matchId: s.matches!.id,
+        date: s.matches!.played_at,
+        homeTeam: s.matches!.home_team,
+        awayTeam: s.matches!.away_team,
+        homeScore: s.matches!.home_score,
+        awayScore: s.matches!.away_score,
+        mySide: s.team_side,
+        position: s.position,
+        result: r,
+        counts,
+        rating: breakdown?.final ?? null,
+        leagueName: (s.matches as any)?.leagues?.name ?? null,
+        statRow: sr,
+        breakdown,
+      };
+    })
+    .slice(0, 20);
 
   // Per-match averages for stat display
   const n = ratingStatRows.length;
@@ -580,11 +574,12 @@ export default function PlayerRatingPage() {
                       </thead>
                       {matchRatings.map((mr) => {
                         const resultColor = mr.result === "W" ? "#4ade80" : mr.result === "D" ? "#f4c430" : "#e63946";
-                        const rColor = getMatchRatingColor(mr.rating);
-                        const isExpanded = expandedMatchId === mr.matchId;
+                        const rColor = mr.rating !== null ? getMatchRatingColor(mr.rating) : "var(--text-faint)";
                         const bd = mr.breakdown;
                         const sr = mr.statRow;
-                        const cats: { key: keyof typeof bd.weights; label: string }[] = [
+                        // Matches that don't count toward the rating have no breakdown to expand
+                        const isExpanded = bd !== null && expandedMatchId === mr.matchId;
+                        const cats: { key: keyof MatchBreakdown["weights"]; label: string }[] = [
                           { key: "attacking", label: t("rating.attacking") },
                           { key: "defending", label: t("rating.defending") },
                           { key: "passing", label: t("rating.passing") },
@@ -594,8 +589,8 @@ export default function PlayerRatingPage() {
                         return (
                           <tbody key={mr.matchId}>
                             <tr
-                              onClick={() => setExpandedMatchId(isExpanded ? null : mr.matchId)}
-                              style={{ borderBottom: isExpanded ? "none" : "1px solid var(--border-row)", cursor: "pointer" }}
+                              onClick={() => { if (bd) setExpandedMatchId(isExpanded ? null : mr.matchId); }}
+                              style={{ borderBottom: isExpanded ? "none" : "1px solid var(--border-row)", cursor: bd ? "pointer" : "default", opacity: bd ? 1 : 0.55 }}
                             >
                               <td style={{ padding: "10px 12px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{formatDate(mr.date)}</td>
                               <td style={{ padding: "10px 12px" }}>
@@ -609,11 +604,22 @@ export default function PlayerRatingPage() {
                               <td style={{ padding: "10px 12px", fontWeight: 700, color: resultColor }}>{mr.result}</td>
                               <td style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 11 }}>{mr.position ?? "—"}</td>
                               <td style={{ padding: "10px 12px", textAlign: "center" }}>
-                                <span style={{ fontWeight: 900, fontSize: 15, color: rColor }}>{mr.rating}</span>
-                                <span style={{ fontSize: 9, color: "var(--text-faint)", marginLeft: 5 }}>{isExpanded ? "▲" : "▼"}</span>
+                                {mr.rating !== null ? (
+                                  <>
+                                    <span style={{ fontWeight: 900, fontSize: 15, color: rColor }}>{mr.rating}</span>
+                                    <span style={{ fontSize: 9, color: "var(--text-faint)", marginLeft: 5 }}>{isExpanded ? "▲" : "▼"}</span>
+                                  </>
+                                ) : (
+                                  <span
+                                    title={t("rating.notCounted")}
+                                    style={{ fontWeight: 700, fontSize: 13, color: "var(--text-faint)" }}
+                                  >
+                                    —
+                                  </span>
+                                )}
                               </td>
                             </tr>
-                            {isExpanded && (
+                            {isExpanded && bd && (
                               <tr style={{ borderBottom: "1px solid var(--border-row)", background: "var(--bg-row)" }}>
                                 <td colSpan={5} style={{ padding: "4px 16px 16px" }}>
                                   {/* Stats used */}
