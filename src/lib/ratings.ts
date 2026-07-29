@@ -338,6 +338,71 @@ export function calcMatchRating(
   return calcMatchBreakdown(stat, result, position).final;
 }
 
+// ── Frozen ratings ────────────────────────────────────────────────────────────
+// Bump this whenever the formula changes. Rows already carrying a rating_version
+// keep the rating they were given and are NEVER recomputed, so a formula change
+// can only ever affect matches that have not been rated yet.
+export const RATING_FORMULA_VERSION = 1;
+
+/** The persisted rating columns on a match_player_stats row. */
+export type FrozenRatingFields = {
+  rating?: number | null;
+  rating_version?: number | null;
+  rating_breakdown?: MatchBreakdown | null;
+};
+
+/**
+ * Single source of truth for "what is this player's rating for this match".
+ *
+ * A row that has been frozen (rating_version set) returns its stored rating
+ * verbatim — including a stored NULL, which means the match was deliberately
+ * excluded and must stay excluded. Only never-rated rows fall through to the
+ * live formula.
+ *
+ * Every rating call site in the app must go through this, otherwise a page can
+ * quietly disagree with the frozen history.
+ */
+export function resolveMatchRating(
+  row: FrozenRatingFields,
+  stat: MatchStatRow,
+  result: MatchResult,
+  position: string | null | undefined
+): { rating: number | null; breakdown: MatchBreakdown | null; frozen: boolean } {
+  if (row.rating_version != null) {
+    return {
+      rating: row.rating ?? null,
+      breakdown: row.rating_breakdown ?? null,
+      frozen: true,
+    };
+  }
+  if (!isRatingEligibleScore(stat.score)) {
+    return { rating: null, breakdown: null, frozen: false };
+  }
+  const breakdown = calcMatchBreakdown(stat, result, position);
+  return { rating: breakdown.final, breakdown, frozen: false };
+}
+
+/**
+ * What a freeze should write for a row. Returns rating: null for matches that
+ * must not be rated, so the exclusion is recorded permanently rather than being
+ * re-evaluated by whatever the formula happens to say later.
+ */
+export function computeFreezeValues(
+  stat: MatchStatRow,
+  result: MatchResult,
+  position: string | null | undefined
+): { rating: number | null; rating_version: number; rating_breakdown: MatchBreakdown | null } {
+  if (!isRatingEligibleScore(stat.score)) {
+    return { rating: null, rating_version: RATING_FORMULA_VERSION, rating_breakdown: null };
+  }
+  const breakdown = calcMatchBreakdown(stat, result, position);
+  return {
+    rating: breakdown.final,
+    rating_version: RATING_FORMULA_VERSION,
+    rating_breakdown: breakdown,
+  };
+}
+
 // ── Overall rating: average of per-match ratings + tier adjustment ────────────
 
 // Default tier bonuses — overridden at runtime by values from tier_settings table.

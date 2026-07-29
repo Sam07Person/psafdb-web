@@ -318,7 +318,7 @@ export default function AwardsPage() {
       if (!matchIds.length) { setDayStats([]); return; }
       const { data: statsData } = await supabase
         .from("match_player_stats")
-        .select("player_id,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,team_side,benched,stats_incomplete,players(id,handle,name),matches(id,played_at,day,home_score,away_score,league_id)")
+        .select("player_id,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,team_side,benched,stats_incomplete,rating,rating_version,players(id,handle,name),matches(id,played_at,day,home_score,away_score,league_id)")
         .in("match_id", matchIds);
       const normalized = (statsData ?? []).map((s: any) => ({
         ...s,

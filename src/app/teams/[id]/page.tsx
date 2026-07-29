@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, isRatingEligibleScore, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcOverallRating, getRatingColor, getRatingLabel, isRatingEligibleScore, resolveMatchRating, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 import { getLang } from "@/lib/lang-server";
 import { t as tt, type Lang } from "@/lib/i18n";
 
@@ -279,7 +279,7 @@ async function computeTeamData(teamName: string): Promise<{
   }
 
   // All player stats (paginated to bypass 1000-row cap)
-  const STATS_SELECT = "player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete";
+  const STATS_SELECT = "player_id,match_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,rating,rating_version";
   const statsRaw: any[] = [];
   let from = 0;
   const PAGE = 1000;
@@ -353,7 +353,8 @@ async function computeTeamData(teamName: string): Promise<{
     }
 
     // Rating: from all matches (all teams), same as player page
-    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && isRatingEligibleScore(s.score));
+    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete
+      && (s.rating_version != null || isRatingEligibleScore(s.score)));
     let playerRating: number | null = null;
 
     if (played.length >= 3) {
@@ -392,10 +393,14 @@ async function computeTeamData(teamName: string): Promise<{
           possessions_lost: s.possessions_lost ?? 0, gk_saves: s.gk_saves ?? 0,
           gk_catches: s.gk_catches ?? 0, goals_conceded: opp, score: s.score ?? 0, position: s.position,
         };
-        matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
+        // Frozen rating wins; NULL means permanently excluded from the rating.
+        const { rating: r } = resolveMatchRating(s, statRow, result, s.position ?? dominantPos);
+        if (r !== null) matchRatingValues.push(r);
       }
-      playerRating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
-      teamRatingAccum.push(playerRating);
+      playerRating = matchRatingValues.length >= 3
+        ? calcOverallRating(matchRatingValues, dominantTier, tierBonuses)
+        : null;
+      if (playerRating !== null) teamRatingAccum.push(playerRating);
     }
 
     const info = playerInfoMap.get(playerId);

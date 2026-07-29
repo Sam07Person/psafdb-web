@@ -10,6 +10,7 @@ import {
   calcOverallRating,
   calcMatchBreakdown,
   isRatingEligibleScore,
+  resolveMatchRating,
   DEFAULT_TIER_BONUSES,
   getRatingColor,
   getRatingLabel,
@@ -133,7 +134,7 @@ export default function PlayerRatingPage() {
       const { data: statsData, error: statsErr } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(id,name,tier,use_tier_bonus))"
+          "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,rating,rating_version,rating_breakdown,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,leagues(id,name,tier,use_tier_bonus))"
         )
         .eq("player_id", playerId);
 
@@ -142,7 +143,7 @@ export default function PlayerRatingPage() {
         const { data: fallback } = await supabase
           .from("match_player_stats")
           .select(
-            "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id)"
+            "match_id,team_side,position,score,goals,assists,shots,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,is_starter,sub_number,stats_incomplete,rating,rating_version,rating_breakdown,matches(id,played_at,home_team,away_team,home_score,away_score,league_id)"
           )
           .eq("player_id", playerId);
 
@@ -231,12 +232,18 @@ export default function PlayerRatingPage() {
   // Pair every played match with its own stat row and result up front, so nothing
   // downstream ever has to look a stat row up by id (and risk falling back to
   // the wrong match's stats).
-  const playedEntries = playedStats.map((s, i) => ({
-    s,
-    sr: statRows[i],
-    r: results[i],
-    counts: isRatingEligibleScore(s.score),
-  }));
+  // A frozen row's stored rating is authoritative: it decides on its own whether the
+  // match counts, independent of what the current formula would say about its score.
+  const playedEntries = playedStats.map((s, i) => {
+    const frozen = (s as any).rating_version != null;
+    return {
+      s,
+      sr: statRows[i],
+      r: results[i],
+      frozen,
+      counts: frozen ? (s as any).rating !== null : isRatingEligibleScore(s.score),
+    };
+  });
 
   // Only matches with a valid recorded score (> 60) count. A score of 0 means the
   // player didn't really play, so it is excluded from the rating entirely.
@@ -265,9 +272,10 @@ export default function PlayerRatingPage() {
 
   const subRatings: SubRatings = calcSubRatings(ratingStatRows, ratingResults, dominantPosition);
 
-  // Compute per-match ratings for eligible matches only (used for overall average)
+  // Per-match ratings for eligible matches only (used for the overall average).
+  // Frozen rows return their stored value untouched.
   const allMatchRatingValues = ratingEligible.map(({ s, sr, r }) =>
-    calcMatchBreakdown(sr, r, s.position ?? dominantPosition).final
+    resolveMatchRating(s as any, sr, r, s.position ?? dominantPosition).rating as number
   );
 
   const hasEnoughForRating = ratingPlayedStats.length >= 3;
@@ -297,9 +305,13 @@ export default function PlayerRatingPage() {
   // are shown unrated rather than borrowing another match's stats.
   const matchRatings = [...playedEntries]
     .sort((a, b) => (b.s.matches?.played_at ?? "").localeCompare(a.s.matches?.played_at ?? ""))
-    .map(({ s, sr, r, counts }) => {
-      const breakdown = counts ? calcMatchBreakdown(sr, r, s.position ?? dominantPosition) : null;
+    .map(({ s, sr, r, counts, frozen }) => {
+      const resolved = counts ? resolveMatchRating(s as any, sr, r, s.position ?? dominantPosition) : null;
+      // A frozen row may predate breakdown storage; show the number without a
+      // breakdown rather than recomputing one that wouldn't match it.
+      const breakdown = resolved?.breakdown ?? null;
       return {
+        frozen,
         matchId: s.matches!.id,
         date: s.matches!.played_at,
         homeTeam: s.matches!.home_team,
@@ -310,7 +322,7 @@ export default function PlayerRatingPage() {
         position: s.position,
         result: r,
         counts,
-        rating: breakdown?.final ?? null,
+        rating: resolved?.rating ?? null,
         leagueName: (s.matches as any)?.leagues?.name ?? null,
         statRow: sr,
         breakdown,

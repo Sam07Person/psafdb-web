@@ -5,9 +5,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 import {
-  calcMatchRating,
   calcOverallRating,
   isRatingEligibleScore,
+  resolveMatchRating,
   getRatingColor,
   getRatingLabel,
   DEFAULT_TIER_BONUSES,
@@ -47,7 +47,7 @@ async function loadPlayerStats(
     supabase
       .from("match_player_stats")
       .select(
-        "team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,matches(id,home_score,away_score,leagues(tier,use_tier_bonus))"
+        "team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,rating,rating_version,matches(id,home_score,away_score,leagues(tier,use_tier_bonus))"
       )
       .eq("player_id", playerId),
   ]);
@@ -72,7 +72,7 @@ async function loadPlayerStats(
   const withStats = played.filter((s: any) => !s.stats_incomplete && s.matches);
   // Rating-eligible set: complete stats + a valid recorded score. A score of 0 means the
   // player didn't really play, so it never counts toward the rating.
-  const ratingSet = withStats.filter((s: any) => isRatingEligibleScore(s.score));
+  const ratingSet = withStats.filter((s: any) => s.rating_version != null || isRatingEligibleScore(s.score));
 
   let wins = 0, draws = 0, losses = 0, totalScore = 0;
   let goals = 0, assists = 0, shots = 0, shotsOnTarget = 0;
@@ -133,9 +133,10 @@ async function loadPlayerStats(
     return my > opp ? "W" : my < opp ? "L" : "D";
   });
 
-  const matchRatings = statRows.map((row, i) =>
-    calcMatchRating(row, results[i], row.position ?? dominantPos)
-  );
+  // Frozen ratings win over the live formula; NULL means permanently excluded.
+  const matchRatings = statRows
+    .map((row, i) => resolveMatchRating(ratingSet[i], row, results[i], row.position ?? dominantPos).rating)
+    .filter((r): r is number => r !== null);
   const overallRating = matchRatings.length >= 3
     ? calcOverallRating(matchRatings, dominantTier, tierBonuses)
     : null;

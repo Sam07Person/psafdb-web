@@ -6,6 +6,7 @@ import {
   calcMatchBreakdown,
   calcOverallRating,
   isRatingEligibleScore,
+  resolveMatchRating,
   getRatingColor,
   DEFAULT_TIER_BONUSES,
   type MatchStatRow,
@@ -96,7 +97,7 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
 
   const { data } = await supabase
     .from("match_player_stats")
-    .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,is_starter,sub_number,matches(home_score,away_score,leagues(tier,use_tier_bonus))")
+    .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,rating,rating_version,is_starter,sub_number,matches(home_score,away_score,leagues(tier,use_tier_bonus))")
     .in("player_id", playerIds);
   if (!data) return {};
 
@@ -115,9 +116,11 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
 
   const result: Record<string, number> = {};
   for (const [pid, stats] of byPlayer) {
-    // A score of 0 means the player didn't really play — never counts toward the rating
+    // A score of 0 means the player didn't really play — never counts toward the rating.
+    // Frozen rows are kept: their stored rating decides, not the current formula.
     const played = stats.filter((s: any) =>
-      !s.benched && !s.stats_incomplete && s.matches && isRatingEligibleScore(s.score)
+      !s.benched && !s.stats_incomplete && s.matches
+      && (s.rating_version != null || isRatingEligibleScore(s.score))
     );
     if (played.length < 3) continue;
     const matchRatingsList: number[] = [];
@@ -138,7 +141,8 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
       const my = isHome ? m.home_score : m.away_score;
       const opp = isHome ? m.away_score : m.home_score;
       const res: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
-      matchRatingsList.push(calcMatchBreakdown(statRow, res, s.position).final);
+      const { rating: r } = resolveMatchRating(s, statRow, res, s.position);
+      if (r !== null) matchRatingsList.push(r);
       if (m.leagues?.use_tier_bonus !== false) {
         const tier = m.leagues?.tier ?? 2;
         tierCounts[tier] = (tierCounts[tier] ?? 0) + 1;
@@ -294,8 +298,6 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const matchRatings: Record<string, number> = {};
   if (played) {
     for (const s of playerStats) {
-      // No rating for players without a valid recorded score (0 = didn't really play)
-      if (!isRatingEligibleScore(s.score)) continue;
       const isHome = s.team_side === "home";
       const statRow: MatchStatRow = {
         goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
@@ -310,7 +312,10 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
       const my = isHome ? match.home_score! : match.away_score!;
       const opp = isHome ? match.away_score! : match.home_score!;
       const res: MatchResult = my > opp ? "W" : my < opp ? "L" : "D";
-      matchRatings[s.player_id] = calcMatchBreakdown(statRow, res, s.position).final;
+      // Frozen rating wins. NULL (no valid game score, or a frozen exclusion) leaves
+      // the player unrated for this match, which the table renders as blank.
+      const { rating } = resolveMatchRating(s, statRow, res, s.position);
+      if (rating !== null) matchRatings[s.player_id] = rating;
     }
   }
 

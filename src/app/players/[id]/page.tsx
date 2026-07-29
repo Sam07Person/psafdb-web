@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useLanguage } from "@/components/LanguageProvider";
-import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, isRatingEligibleScore, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchBreakdown, calcOverallRating, getRatingColor, getRatingLabel, isRatingEligibleScore, resolveMatchRating, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
@@ -51,6 +51,8 @@ type MatchPlayerStat = {
   sub_number: number | null;
   benched: boolean;
   stats_incomplete: boolean;
+  rating?: number | null;
+  rating_version?: number | null;
   matches?: MatchInfo | null;
 };
 
@@ -279,7 +281,7 @@ export default function PlayerDetailPage() {
       const { data: statsData, error: statsError } = await supabase
         .from("match_player_stats")
         .select(
-          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,day,leagues(id,name,tier,use_tier_bonus))"
+          "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,rating,rating_version,matches(id,played_at,home_team,away_team,home_score,away_score,league_id,day,leagues(id,name,tier,use_tier_bonus))"
         )
         .eq("player_id", playerId)
         .order("match_id", { ascending: false });
@@ -288,7 +290,7 @@ export default function PlayerDetailPage() {
         const { data: statsData2, error: statsError2 } = await supabase
           .from("match_player_stats")
           .select(
-            "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete"
+            "match_id,player_id,team_side,position,score,passes,key_passes,assists,shots,shots_on_target,goals,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,is_starter,sub_number,benched,stats_incomplete,rating,rating_version"
           )
           .eq("player_id", playerId);
 
@@ -411,7 +413,7 @@ export default function PlayerDetailPage() {
 
         const { data: dayStats } = await supabase!
           .from("match_player_stats")
-          .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,players(id,handle,name),matches(id,home_score,away_score)")
+          .select("player_id,team_side,position,score,goals,assists,shots_on_target,key_passes,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,rating,rating_version,players(id,handle,name),matches(id,home_score,away_score)")
           .in("match_id", matchIds);
         if (!dayStats?.length) continue;
 
@@ -534,7 +536,10 @@ export default function PlayerDetailPage() {
 
   // Calculate overall rating — only matches with complete stats, match info, and a
   // valid recorded game score. A score of 0 never counts toward the rating.
-  const ratingMatchSet = matchesWithStats.filter(s => s.matches && isRatingEligibleScore(s.score));
+  // Frozen rows are kept here regardless of score; their stored rating is authoritative
+  // and a frozen NULL is dropped when the ratings are resolved below.
+  const ratingMatchSet = matchesWithStats.filter(s => s.matches
+    && ((s as any).rating_version != null || isRatingEligibleScore(s.score)));
 
   // Dominant league tier from same match set (skip leagues with use_tier_bonus disabled)
   const tierCounts: Record<number, number> = {};
@@ -581,9 +586,10 @@ export default function PlayerDetailPage() {
   }
   const ratingPosition = Object.entries(ratingPosCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 
-  const matchRatingValues = ratingStatRows.map((row, i) =>
-    calcMatchRating(row, ratingResults[i], row.position ?? ratingPosition)
-  );
+  // Frozen ratings win over the live formula; NULL means permanently excluded.
+  const matchRatingValues = ratingStatRows
+    .map((row, i) => resolveMatchRating(ratingMatchSet[i], row, ratingResults[i], row.position ?? ratingPosition).rating)
+    .filter((r): r is number => r !== null);
   const hasEnoughForRating = matchRatingValues.length >= 3;
   const overallRating = hasEnoughForRating ? calcOverallRating(matchRatingValues, dominantLeagueTier, tierBonuses) : null;
   const ratingColor = overallRating !== null ? getRatingColor(overallRating) : "var(--text-faint)";

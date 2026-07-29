@@ -1044,7 +1044,7 @@ export default function NewsPage() {
 
     (async () => {
       try {
-        const STATS_SELECT = "match_id,player_id,team_side,position,goals,assists,score,passes,key_passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,players(id,handle,name)";
+        const STATS_SELECT = "match_id,player_id,team_side,position,goals,assists,score,passes,key_passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,rating,rating_version,players(id,handle,name)";
         const PAGE = 1000;
 
         // Paginate stats since Supabase hard-caps at 1000 rows per request

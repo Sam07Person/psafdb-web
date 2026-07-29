@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:freeze": "node --experimental-strip-types scripts/test-rating-freeze.mts",
+    "freeze:ratings": "node --env-file=.env.local --experimental-strip-types scripts/freeze-ratings.mts",
+    "freeze:ratings:dry": "node --env-file=.env.local --experimental-strip-types scripts/freeze-ratings.mts --dry-run",
     "test:cutter": "node --experimental-strip-types scripts/test-row-cutter.mts",
     "debug:cutter": "node --experimental-strip-types scripts/debug-row-cutter.mts"
   },

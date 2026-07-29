@@ -5,9 +5,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 import {
-  calcMatchRating,
   calcOverallRating,
   isRatingEligibleScore,
+  resolveMatchRating,
   getRatingColor,
   getRatingLabel,
   DEFAULT_TIER_BONUSES,
@@ -51,6 +51,8 @@ type RawStatRow = {
   position: string | null;
   benched: boolean | null;
   stats_incomplete: boolean | null;
+  rating: number | null;
+  rating_version: number | null;
   matches: { home_score: number | null; away_score: number | null; played_at: string | null; leagues: { tier: number | null; use_tier_bonus: boolean | null } | null } | null;
 };
 
@@ -110,7 +112,7 @@ export default function PlayersPage() {
         const { data: chunk, error: chunkErr } = await supabase
           .from("match_player_stats")
           .select(
-            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,matches(home_score,away_score,played_at,leagues(tier,use_tier_bonus))"
+            "player_id,team_side,goals,assists,key_passes,shots_on_target,passes,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,score,position,benched,stats_incomplete,rating,rating_version,matches(home_score,away_score,played_at,leagues(tier,use_tier_bonus))"
           )
           .range(from, from + CHUNK - 1);
         if (chunkErr) { fetchError = chunkErr; break; }
@@ -160,10 +162,12 @@ export default function PlayersPage() {
         let rating: number | null = null;
         const recent_form: number[] = [];
         if (stats.length > 0) {
-          // Only use played (non-benched, complete) stats for rating — sorted newest first
-          // Only matches with a valid recorded score count — score of 0 is never rated
+          // Only use played (non-benched, complete) stats for rating — sorted newest first.
+          // Frozen rows are kept regardless of score: their stored rating is authoritative,
+          // and a frozen NULL rating is filtered out below as a permanent exclusion.
           const playedStats = stats
-            .filter(s => !s.benched && !s.stats_incomplete && s.matches && isRatingEligibleScore(s.score))
+            .filter(s => !s.benched && !s.stats_incomplete && s.matches
+              && (s.rating_version != null || isRatingEligibleScore(s.score)))
             .sort((a, b) => (b.matches?.played_at ?? "").localeCompare(a.matches?.played_at ?? ""));
 
           if (playedStats.length >= 3) {
@@ -217,11 +221,15 @@ export default function PlayersPage() {
                 score: s.score ?? 0,
                 position: s.position,
               };
-              matchRatingValues.push(calcMatchRating(statRow, result, s.position ?? dominantPos));
+              // Frozen rating wins; NULL means permanently excluded from the rating.
+              const { rating: r } = resolveMatchRating(s, statRow, result, s.position ?? dominantPos);
+              if (r !== null) matchRatingValues.push(r);
             }
 
-            rating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
-            recent_form.push(...matchRatingValues.slice(0, 5));
+            if (matchRatingValues.length >= 3) {
+              rating = calcOverallRating(matchRatingValues, dominantTier, tierBonuses);
+              recent_form.push(...matchRatingValues.slice(0, 5));
+            }
           }
         }
 
