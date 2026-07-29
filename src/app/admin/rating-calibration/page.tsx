@@ -52,12 +52,14 @@ const SUB_FIELDS: SubField[] = ["attacking", "defending", "passing", "consistenc
  * Which sub-ratings to ask for, taken from the position weights themselves rather
  * than a hand-written list — a category carrying 0% for this role contributes
  * nothing to the overall, so asking for it would only add noise.
- * Heaviest first, since that's the one worth thinking hardest about.
+ *
+ * Order follows the stat columns (see COLUMNS), not the weights, so each input
+ * sits directly beneath the stats you're judging it on.
  */
 function relevantFields(weights: Record<string, number>): SubField[] {
-  return SUB_FIELDS
-    .filter(f => (weights[f] ?? 0) > 0)
-    .sort((a, b) => (weights[b] ?? 0) - (weights[a] ?? 0));
+  return COLUMNS
+    .map(c => c.field)
+    .filter((f): f is SubField => f != null && (weights[f] ?? 0) > 0);
 }
 
 /**
@@ -92,11 +94,17 @@ const FIELD_LABEL: Record<string, string> = {
   gk: "Goalkeeping",
 };
 
-const STAT_GROUPS: { title: string; keys: string[] }[] = [
-  { title: "Attack",  keys: ["goals", "assists", "shots", "shots_on_target", "key_passes"] },
-  { title: "Passing", keys: ["passes", "possessions_lost"] },
-  { title: "Defence", keys: ["tackles", "key_tackles", "interceptions", "key_interceptions", "goals_conceded"] },
-  { title: "Keeper",  keys: ["gk_saves", "gk_catches"] },
+/**
+ * One column = one stat group plus the sub-rating it feeds. Both the stats grid
+ * and the inputs grid render from this single list, so an input always sits in
+ * the same column as the stats it's judged on.
+ */
+const COLUMNS: { title: string; keys: string[]; field: SubField | null }[] = [
+  { title: "Attack",  keys: ["goals", "assists", "shots", "shots_on_target", "key_passes"], field: "attacking" },
+  { title: "Passing", keys: ["passes", "possessions_lost"], field: "passing" },
+  { title: "Defence", keys: ["tackles", "key_tackles", "interceptions", "key_interceptions", "goals_conceded"], field: "defending" },
+  { title: "Keeper",  keys: ["gk_saves", "gk_catches"], field: "gk" },
+  { title: "In-game", keys: ["game_score"], field: "consistency" },
 ];
 
 const STAT_LABEL: Record<string, string> = {
@@ -380,6 +388,17 @@ export default function RatingCalibrationPage() {
 
   const weights = current?.formula.weights ?? {};
   const relevant = current ? relevantFields(weights) : [];
+
+  // Columns shown for this performance. The Keeper column is dropped for outfield
+  // players with no keeper stats; everything else always shows, so the stats and
+  // the inputs below them stay in lockstep.
+  const visibleColumns = current
+    ? COLUMNS.filter(col =>
+        col.title !== "Keeper" ||
+        current.role === "GK" ||
+        col.keys.some(k => (current.stats[k] ?? 0) > 0)
+      )
+    : [];
   const derivedFinal = current ? deriveFinal(draft, weights, current.formula.resultBonus) : null;
   const missingCount = relevant.filter(f => typeof draft[f] !== "number").length;
   const grandTotal = Object.values(counts).reduce((a, c) => a + c.total, 0);
@@ -594,43 +613,43 @@ export default function RatingCalibrationPage() {
             </div>
           </div>
 
-          {/* Stats */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 14, margin: "18px 0", padding: "14px 0", borderTop: "1px solid var(--border-row)", borderBottom: "1px solid var(--border-row)" }}>
-            {STAT_GROUPS.map(g => {
-              const keys = g.keys.filter(k => current.stats[k] !== undefined);
-              const meaningful = g.title === "Keeper"
-                ? current.role === "GK" || keys.some(k => current.stats[k] > 0)
-                : true;
-              if (!meaningful) return null;
-              return (
-                <div key={g.title}>
-                  <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-faint)", marginBottom: 6 }}>{g.title}</div>
-                  {keys.map(k => (
-                    <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "2px 0" }}>
-                      <span style={{ color: "var(--text-muted)" }}>{STAT_LABEL[k] ?? k}</span>
-                      <strong style={{ color: "var(--text-body)" }}>{current.stats[k]}</strong>
-                    </div>
-                  ))}
+          {/* Stats — one column per category, mirrored exactly by the inputs below */}
+          <div style={{ ...gridStyle(visibleColumns.length), margin: "18px 0 0", padding: "14px 0 0", borderTop: "1px solid var(--border-row)" }}>
+            {visibleColumns.map(col => (
+              <div key={col.title}>
+                <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-faint)", marginBottom: 6 }}>
+                  {col.title}
                 </div>
-              );
-            })}
-            <div>
-              <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-faint)", marginBottom: 6 }}>In-game</div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "2px 0" }}>
-                <span style={{ color: "var(--text-muted)" }}>Game score</span>
-                <strong>{current.stats.game_score}</strong>
+                {col.keys.filter(k => current.stats[k] !== undefined).map(k => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "2px 0" }}>
+                    <span style={{ color: "var(--text-muted)" }}>{STAT_LABEL[k] ?? k}</span>
+                    <strong style={{ color: "var(--text-body)" }}>{current.stats[k]}</strong>
+                  </div>
+                ))}
               </div>
-            </div>
+            ))}
           </div>
 
-          {/* Judgement inputs — each labelled with its share of the overall */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 14 }}>
-            {relevant.map(field => {
-              const w = weights[field] ?? 0;
+          {/* Judgement inputs — same columns as the stats, so each input sits
+              directly under the stats it's judged on. A category that carries no
+              weight for this position renders an empty cell to hold the column. */}
+          <div style={{ ...gridStyle(visibleColumns.length), padding: "14px 0 0", marginTop: 14, borderTop: "1px solid var(--border-row)" }}>
+            {visibleColumns.map(col => {
+              const field = col.field;
+              const w = field ? (weights[field] ?? 0) : 0;
+
+              if (!field || w <= 0) {
+                return (
+                  <div key={col.title} style={{ opacity: 0.35, fontSize: 10.5, color: "var(--text-faint)", paddingTop: 18 }}>
+                    not scored for {current.role}
+                  </div>
+                );
+              }
+
               const v = draft[field];
               const filled = typeof v === "number";
               return (
-                <div key={field}>
+                <div key={col.title}>
                   <label style={{ ...labelStyle, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                     <span>{FIELD_LABEL[field]}</span>
                     <span style={{ color: "var(--text-muted)", fontWeight: 700 }}>{Math.round(w * 100)}%</span>
@@ -782,6 +801,19 @@ export default function RatingCalibrationPage() {
       )}
     </div>
   );
+}
+
+/**
+ * Fixed column count (not auto-fit) so the stats grid and the inputs grid always
+ * produce identical tracks — auto-fit would let them wrap differently and the
+ * alignment would drift at certain widths.
+ */
+function gridStyle(n: number): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(0, 1fr))`,
+    gap: 14,
+  };
 }
 
 const inputStyle: React.CSSProperties = {
