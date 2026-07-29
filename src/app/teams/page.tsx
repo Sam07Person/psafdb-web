@@ -3,7 +3,7 @@ import Link from "next/link";
 import TeamsTable from "./TeamsTable";
 import { getLang } from "@/lib/lang-server";
 import { t as translate } from "@/lib/i18n";
-import { calcMatchRating, calcOverallRating, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchRating, calcOverallRating, isRatingEligibleScore, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -166,7 +166,8 @@ async function computeAllTeamRatings(teamNames: string[]): Promise<Map<string, n
 
     for (const [playerId, currentTeam] of playerCurrentTeam) {
         const stats = statsByPlayer.get(playerId) ?? [];
-        const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60));
+        // Score of 0 never counts toward a rating
+        const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && isRatingEligibleScore(s.score));
 
         if (played.length < 3) continue;
 

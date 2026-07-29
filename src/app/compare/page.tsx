@@ -7,6 +7,7 @@ import Link from "next/link";
 import {
   calcMatchRating,
   calcOverallRating,
+  isRatingEligibleScore,
   getRatingColor,
   getRatingLabel,
   DEFAULT_TIER_BONUSES,
@@ -69,6 +70,9 @@ async function loadPlayerStats(
 
   const played = stats.filter((s: any) => !s.benched);
   const withStats = played.filter((s: any) => !s.stats_incomplete && s.matches);
+  // Rating-eligible set: complete stats + a valid recorded score. A score of 0 means the
+  // player didn't really play, so it never counts toward the rating.
+  const ratingSet = withStats.filter((s: any) => isRatingEligibleScore(s.score));
 
   let wins = 0, draws = 0, losses = 0, totalScore = 0;
   let goals = 0, assists = 0, shots = 0, shotsOnTarget = 0;
@@ -96,7 +100,7 @@ async function loadPlayerStats(
 
   // Rating
   const tierCounts: Record<number, number> = {};
-  for (const s of withStats) {
+  for (const s of ratingSet) {
     if (s.matches?.leagues?.use_tier_bonus === false) continue;
     const t = s.matches?.leagues?.tier ?? 2;
     tierCounts[t] = (tierCounts[t] ?? 0) + 1;
@@ -106,10 +110,10 @@ async function loadPlayerStats(
   );
 
   const posCounts: Record<string, number> = {};
-  for (const s of withStats) if (s.position) posCounts[s.position] = (posCounts[s.position] ?? 0) + 1;
+  for (const s of ratingSet) if (s.position) posCounts[s.position] = (posCounts[s.position] ?? 0) + 1;
   const dominantPos = Object.entries(posCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
-  const statRows: MatchStatRow[] = withStats.map((s: any) => {
+  const statRows: MatchStatRow[] = ratingSet.map((s: any) => {
     const isHome = s.team_side === "home";
     return {
       goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
@@ -122,7 +126,7 @@ async function loadPlayerStats(
     };
   });
 
-  const results: MatchResult[] = withStats.map((s: any) => {
+  const results: MatchResult[] = ratingSet.map((s: any) => {
     const isHome = s.team_side === "home";
     const my = isHome ? s.matches.home_score : s.matches.away_score;
     const opp = isHome ? s.matches.away_score : s.matches.home_score;

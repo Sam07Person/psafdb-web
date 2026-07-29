@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useLanguage } from "@/components/LanguageProvider";
-import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchBreakdown, calcMatchRating, calcOverallRating, getRatingColor, getRatingLabel, isRatingEligibleScore, DEFAULT_TIER_BONUSES, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 
 type PlayerRow = {
   id: string;
@@ -531,8 +531,9 @@ export default function PlayerDetailPage() {
   const mostPlayedPosition = Object.entries(positionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
 
-  // Calculate overall rating — only use matches with complete stats AND match info AND score > 60 (or unscored)
-  const ratingMatchSet = matchesWithStats.filter(s => s.matches && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60));
+  // Calculate overall rating — only matches with complete stats, match info, and a
+  // valid recorded game score. A score of 0 never counts toward the rating.
+  const ratingMatchSet = matchesWithStats.filter(s => s.matches && isRatingEligibleScore(s.score));
 
   // Dominant league tier from same match set (skip leagues with use_tier_bonus disabled)
   const tierCounts: Record<number, number> = {};

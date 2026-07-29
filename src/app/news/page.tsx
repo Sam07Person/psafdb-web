@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
-import { calcMatchBreakdown, type MatchStatRow, type MatchResult } from "@/lib/ratings";
+import { calcMatchBreakdown, isRatingEligibleScore, type MatchStatRow, type MatchResult } from "@/lib/ratings";
 import { useLanguage } from "@/components/LanguageProvider";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -171,7 +171,8 @@ type TOTWEntry = { slot: SlotKey; playerId: string; name: string; rating: number
 
 function computeTOTW(dayStats: StatRow[], matchById: Map<string, Match>): TOTWEntry[] {
   const eligible = dayStats
-    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.players)
+    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.players
+      && isRatingEligibleScore(s.score))
     .map(s => {
       const m = matchById.get(s.match_id);
       if (!m || m.home_score === null || m.away_score === null) return null;

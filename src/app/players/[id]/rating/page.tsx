@@ -9,6 +9,7 @@ import {
   calcSubRatings,
   calcOverallRating,
   calcMatchBreakdown,
+  isRatingEligibleScore,
   DEFAULT_TIER_BONUSES,
   getRatingColor,
   getRatingLabel,
@@ -226,9 +227,10 @@ export default function PlayerRatingPage() {
     };
   });
 
-  // Exclude matches with a recorded score of 1–60
+  // Only matches with a valid recorded score (> 60) count. A score of 0 means the
+  // player didn't really play, so it is excluded from the rating entirely.
   const ratingEligible = playedStats.map((s, i) => ({ s, sr: statRows[i], r: results[i] }))
-    .filter(({ s }) => (s.score ?? 0) === 0 || (s.score ?? 0) > 60);
+    .filter(({ s }) => isRatingEligibleScore(s.score));
   const ratingPlayedStats = ratingEligible.map(x => x.s);
   const ratingStatRows = ratingEligible.map(x => x.sr);
   const ratingResults = ratingEligible.map(x => x.r);
@@ -341,7 +343,7 @@ export default function PlayerRatingPage() {
   const avgSaves     = avg(s => s.gk_saves);
   const avgCatches   = avg(s => s.gk_catches);
   const avgGC        = avg(s => s.goals_conceded ?? 0);
-  const scoredRows   = ratingPlayedStats.filter(s => s.score > 60);
+  const scoredRows   = ratingPlayedStats.filter(s => isRatingEligibleScore(s.score));
   const avgScore     = scoredRows.length > 0 ? scoredRows.reduce((sum, s) => sum + s.score, 0) / scoredRows.length : 0;
 
   // Helper: clamp a raw value to [0, 100]

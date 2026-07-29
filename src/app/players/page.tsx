@@ -7,6 +7,7 @@ import Link from "next/link";
 import {
   calcMatchRating,
   calcOverallRating,
+  isRatingEligibleScore,
   getRatingColor,
   getRatingLabel,
   DEFAULT_TIER_BONUSES,
@@ -160,9 +161,9 @@ export default function PlayersPage() {
         const recent_form: number[] = [];
         if (stats.length > 0) {
           // Only use played (non-benched, complete) stats for rating — sorted newest first
-          // Filter score: include unscored (0) or valid scores (>60), same as player page
+          // Only matches with a valid recorded score count — score of 0 is never rated
           const playedStats = stats
-            .filter(s => !s.benched && !s.stats_incomplete && s.matches && ((s.score ?? 0) === 0 || (s.score ?? 0) > 60))
+            .filter(s => !s.benched && !s.stats_incomplete && s.matches && isRatingEligibleScore(s.score))
             .sort((a, b) => (b.matches?.played_at ?? "").localeCompare(a.matches?.played_at ?? ""));
 
           if (playedStats.length >= 3) {

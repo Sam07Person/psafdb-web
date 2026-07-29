@@ -6,6 +6,7 @@ import { useLanguage } from "@/components/LanguageProvider";
 import Link from "next/link";
 import {
   calcMatchBreakdown,
+  isRatingEligibleScore,
   getRatingColor,
   type MatchStatRow,
   type MatchResult,
@@ -78,7 +79,8 @@ type TOTWEntry = {
 function calcTOTW(stats: RawStat[]): Partial<Record<SlotKey, TOTWEntry>> {
   // Calculate rating for each valid player stat row
   const entries: Array<{ stat: RawStat; rating: number }> = stats
-    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.matches && s.players)
+    .filter(s => !s.benched && !s.stats_incomplete && s.position && s.matches && s.players
+      && isRatingEligibleScore(s.score))
     .map(s => {
       const m = s.matches!;
       const isHome = s.team_side === "home";

@@ -52,6 +52,18 @@ export type MatchStatRow = {
 
 export type MatchResult = "W" | "D" | "L";
 
+// ── Rating eligibility ────────────────────────────────────────────────────────
+// A match only counts toward a player's rating if it has a genuine recorded
+// game score. Scores are on the game's 0–700 scale.
+//   score === 0  → player did not really participate / no score recorded → EXCLUDE
+//   1 ≤ score ≤ 60 → junk/partial data → EXCLUDE
+//   score > 60   → valid → INCLUDE
+export const MIN_RATING_SCORE = 60;
+
+export function isRatingEligibleScore(score: number | null | undefined): boolean {
+  return (score ?? 0) > MIN_RATING_SCORE;
+}
+
 export type SubRatings = {
   attacking: number;
   defending: number;
@@ -163,13 +175,14 @@ export function calcSubRatings(
   results: MatchResult[],
   dominantPosition?: string | null
 ): SubRatings {
-  // Exclude matches where a score was recorded but is ≤ 60
+  // Only matches with a valid recorded game score (> 60) count toward the rating.
+  // A score of 0 means the player didn't really play — it must never be rated.
   const filtered = stats.reduce<{ s: MatchStatRow; r: MatchResult }[]>((acc, s, i) => {
-    if (s.score === 0 || s.score > 60) acc.push({ s, r: results[i] });
+    if (isRatingEligibleScore(s.score)) acc.push({ s, r: results[i] });
     return acc;
   }, []);
-  const effectiveStats = filtered.length > 0 ? filtered.map(x => x.s) : stats;
-  const effectiveResults = filtered.length > 0 ? filtered.map(x => x.r) : results;
+  const effectiveStats = filtered.map(x => x.s);
+  const effectiveResults = filtered.map(x => x.r);
 
   if (effectiveStats.length === 0) {
     return { attacking: 0, defending: 0, passing: 0, consistency: 0, gk: 0 };
@@ -193,7 +206,7 @@ export function calcSubRatings(
   const avgPL = avg(s => s.possessions_lost);
   const avgSaves = avg(s => s.gk_saves);
   const avgCatches = avg(s => s.gk_catches);
-  const scoredStats = effectiveStats.filter(s => s.score > 60);
+  const scoredStats = effectiveStats.filter(s => isRatingEligibleScore(s.score));
   const avgGameScore = scoredStats.length > 0
     ? scoredStats.reduce((sum, s) => sum + s.score, 0) / scoredStats.length
     : 0;
@@ -286,7 +299,7 @@ export function calcMatchBreakdown(
     : baseRole;
   const w = getPositionWeights(role);
 
-  const consScore = stat.score > 60
+  const consScore = isRatingEligibleScore(stat.score)
     ? normalizeGameScore(stat.score, role)
     : result === "W" ? 70 : result === "D" ? 40 : 15;
 

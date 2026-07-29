@@ -5,6 +5,7 @@ import PlayerStatsTable from "./PlayerStatsTable";
 import {
   calcMatchBreakdown,
   calcOverallRating,
+  isRatingEligibleScore,
   getRatingColor,
   DEFAULT_TIER_BONUSES,
   type MatchStatRow,
@@ -114,7 +115,10 @@ async function getPlayerOverallRatings(playerIds: string[]): Promise<Record<stri
 
   const result: Record<string, number> = {};
   for (const [pid, stats] of byPlayer) {
-    const played = stats.filter((s: any) => !s.benched && !s.stats_incomplete && s.matches);
+    // A score of 0 means the player didn't really play — never counts toward the rating
+    const played = stats.filter((s: any) =>
+      !s.benched && !s.stats_incomplete && s.matches && isRatingEligibleScore(s.score)
+    );
     if (played.length < 3) continue;
     const matchRatingsList: number[] = [];
     const tierCounts: Record<number, number> = {};
@@ -290,6 +294,8 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const matchRatings: Record<string, number> = {};
   if (played) {
     for (const s of playerStats) {
+      // No rating for players without a valid recorded score (0 = didn't really play)
+      if (!isRatingEligibleScore(s.score)) continue;
       const isHome = s.team_side === "home";
       const statRow: MatchStatRow = {
         goals: s.goals ?? 0, assists: s.assists ?? 0, key_passes: s.key_passes ?? 0,
