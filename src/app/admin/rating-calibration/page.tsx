@@ -256,6 +256,14 @@ export default function RatingCalibrationPage() {
   const relevant = current ? RELEVANT[current.role] : [];
   const grandTotal = Object.values(counts).reduce((a, c) => a + c.total, 0);
 
+  const judgedInBatch = items.filter(i => i.judgment).length;
+  const batchComplete = items.length > 0 && judgedInBatch === items.length;
+  const onLastItem = items.length > 0 && index >= items.length - 1;
+  // With "include judged" on, the queue is a fixed stratified sample, so refetching
+  // returns the same rows. Only the unjudged queue actually advances.
+  const canLoadNext = !includeJudged;
+  const remaining = grandTotal - totalJudged;
+
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 20px 80px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -310,6 +318,38 @@ export default function RatingCalibrationPage() {
       {!loading && items.length === 0 && (
         <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
           Nothing left to judge{roleFilter ? ` for ${roleFilter}` : ""}. Tick “Include judged” to revisit.
+        </div>
+      )}
+
+      {/* Batch finished — pull a fresh set without touching the filters. */}
+      {!loading && batchComplete && (
+        <div style={{
+          ...card,
+          marginBottom: 16,
+          borderColor: "#4ade80",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 16, flexWrap: "wrap",
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>
+              Batch complete — {judgedInBatch} judged
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: 12.5, marginTop: 3 }}>
+              {remaining > 0
+                ? `${remaining} performance${remaining === 1 ? "" : "s"} left${roleFilter ? ` for ${roleFilter}` : ""}.`
+                : "Everything has been judged."}
+            </div>
+          </div>
+          {remaining > 0 && canLoadNext && (
+            <button onClick={() => load()} disabled={loading} style={primaryBtn}>
+              Load next {Math.min(limit, remaining)}
+            </button>
+          )}
+          {!canLoadNext && (
+            <span style={{ fontSize: 12, color: "var(--text-faint)", maxWidth: 260 }}>
+              Untick “Include judged” to pull a fresh batch — with it on, the queue stays fixed.
+            </span>
+          )}
         </div>
       )}
 
@@ -456,11 +496,20 @@ export default function RatingCalibrationPage() {
           <div style={{ display: "flex", gap: 10, marginTop: 20, alignItems: "center", flexWrap: "wrap" }}>
             <button onClick={() => setIndex(i => Math.max(0, i - 1))} disabled={index === 0} style={ghostBtn}>← Prev</button>
             <button onClick={() => setIndex(i => Math.min(items.length - 1, i + 1))} disabled={index >= items.length - 1} style={ghostBtn}>Next →</button>
+            {canLoadNext && remaining > 0 && (
+              <button onClick={() => load()} disabled={loading} style={ghostBtn} title="Discard the rest of this batch and fetch a fresh one">
+                Load next batch
+              </button>
+            )}
             <div style={{ flex: 1 }} />
             {savedFlash && <span style={{ color: "#4ade80", fontSize: 12 }}>Saved</span>}
             <button onClick={() => save(false)} disabled={saving || draft.final == null} style={ghostBtn}>Save</button>
-            <button onClick={() => save(true)} disabled={saving || draft.final == null} style={primaryBtn}>
-              Save &amp; next
+            <button
+              onClick={() => save(onLastItem && !canLoadNext ? false : true)}
+              disabled={saving || draft.final == null}
+              style={primaryBtn}
+            >
+              {onLastItem ? "Save & finish batch" : "Save & next"}
             </button>
           </div>
           <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-faint)" }}>
