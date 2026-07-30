@@ -69,19 +69,14 @@ const GK_PART_WEIGHTS: Record<string, number> = {
 };
 
 /**
- * Keeper judging order, as requested — the outfield categories that still apply,
- * then the four components that make up goalkeeping.
+ * Keeper judging order. Save efficiency is deliberately absent: it is derived
+ * from saves vs goals conceded, both of which are already on the stat line, so
+ * the formula's own value is applied automatically rather than being judged.
  */
 const GK_FIELD_ORDER: SubField[] = [
   "defending", "passing", "consistency",
-  "gk_gc", "gk_saves", "gk_catches", "gk_efficiency",
+  "gk_gc", "gk_saves", "gk_catches",
 ];
-
-/** Save % → ±12 bonus. Same curve as saveEfficiencyBonus() in lib/ratings.ts. */
-function saveEfficiencyBonus(savePercent: number): number {
-  const d = savePercent / 100 - 0.55;
-  return Math.min(12, Math.max(-12, d * (d >= 0 ? 50 : 30)));
-}
 
 /** Weight of a field for a role, expanding the lump GK weight into its parts. */
 function weightOf(field: SubField, weights: Record<string, number>, isGk: boolean): number {
@@ -102,7 +97,7 @@ function weightOf(field: SubField, weights: Record<string, number>, isGk: boolea
 function relevantFields(weights: Record<string, number>, isGk: boolean): SubField[] {
   // Keepers use their own fixed order, since goalkeeping splits into four
   // components that don't map onto the outfield stat columns.
-  if (isGk) return GK_FIELD_ORDER.filter(f => f === "gk_efficiency" || weightOf(f, weights, true) > 0);
+  if (isGk) return GK_FIELD_ORDER.filter(f => weightOf(f, weights, true) > 0);
   return COLUMNS
     .map(c => c.field)
     .filter((f): f is SubField => f != null && weightOf(f, weights, false) > 0);
@@ -120,25 +115,20 @@ function deriveFinal(
   draft: Judgment,
   weights: Record<string, number>,
   resultBonus: number,
-  isGk: boolean
+  isGk: boolean,
+  /** Save-efficiency bonus taken straight from the stats — never judged. */
+  autoBonus = 0
 ): number | null {
   const fields = relevantFields(weights, isGk);
   if (fields.length === 0) return null;
 
   let base = 0;
-  let bonus = resultBonus;
-
   for (const f of fields) {
     const v = draft[f];
     if (typeof v !== "number") return null; // incomplete
-    if (f === "gk_efficiency") {
-      // Judged as a save percentage, applied as a ±12 bonus like the formula does.
-      bonus += saveEfficiencyBonus(v);
-    } else {
-      base += v * weightOf(f, weights, isGk);
-    }
+    base += v * weightOf(f, weights, isGk);
   }
-  return Math.round(Math.min(100, Math.max(0, base + bonus)));
+  return Math.round(Math.min(100, Math.max(0, base + resultBonus + autoBonus)));
 }
 
 const FIELD_LABEL: Record<string, string> = {
@@ -323,7 +313,11 @@ export default function RatingCalibrationPage() {
   const save = async (advance: boolean) => {
     if (!current) return;
     // The overall is derived, so a null here means a category is still blank.
-    const finalValue = deriveFinal(draft, current.formula.weights, current.formula.resultBonus, current.formula.role === "GK");
+    const gkRole = current.formula.role === "GK";
+    const finalValue = deriveFinal(
+      draft, current.formula.weights, current.formula.resultBonus, gkRole,
+      gkRole ? (current.formula.gk?.efficiencyBonus ?? 0) : 0,
+    );
     if (finalValue == null) return;
 
     setSaving(true);
@@ -459,7 +453,10 @@ export default function RatingCalibrationPage() {
         col.keys.some(k => (current.stats[k] ?? 0) > 0)
       )
     : [];
-  const derivedFinal = current ? deriveFinal(draft, weights, current.formula.resultBonus, isGk) : null;
+  const autoBonus = isGk ? (current?.formula.gk?.efficiencyBonus ?? 0) : 0;
+  const derivedFinal = current
+    ? deriveFinal(draft, weights, current.formula.resultBonus, isGk, autoBonus)
+    : null;
   const missingCount = relevant.filter(f => typeof draft[f] !== "number").length;
   const grandTotal = Object.values(counts).reduce((a, c) => a + c.total, 0);
 
@@ -694,7 +691,7 @@ export default function RatingCalibrationPage() {
               directly under the stats it's judged on. A category that carries no
               weight for this position renders an empty cell to hold the column. */}
           <div style={{
-            ...gridStyle(isGk ? Math.min(4, relevant.length) : visibleColumns.length),
+            ...gridStyle(isGk ? Math.min(4, relevant.length + 1) : visibleColumns.length),
             padding: "14px 0 0", marginTop: 14, borderTop: "1px solid var(--border-row)",
           }}>
             {(isGk
@@ -704,9 +701,8 @@ export default function RatingCalibrationPage() {
               : visibleColumns.map(col => ({ key: col.title, field: col.field }))
             ).map(({ key, field }) => {
               const w = field ? weightOf(field, weights, isGk) : 0;
-              const isBonus = field === "gk_efficiency";
 
-              if (!field || (w <= 0 && !isBonus)) {
+              if (!field || w <= 0) {
                 return (
                   <div key={key} style={{ opacity: 0.35, fontSize: 10.5, color: "var(--text-faint)", paddingTop: 18 }}>
                     not scored for {current.role}
@@ -716,14 +712,13 @@ export default function RatingCalibrationPage() {
 
               const v = draft[field];
               const filled = typeof v === "number";
-              const bonusValue = isBonus && filled ? saveEfficiencyBonus(v as number) : null;
 
               return (
                 <div key={key}>
                   <label style={{ ...labelStyle, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
                     <span>{FIELD_LABEL[field]}</span>
                     <span style={{ color: "var(--text-muted)", fontWeight: 700, whiteSpace: "nowrap" }}>
-                      {isBonus ? "bonus" : `${Math.round(w * 100)}%`}
+                      {Math.round(w * 100)}%
                     </span>
                   </label>
                   <input
@@ -731,17 +726,37 @@ export default function RatingCalibrationPage() {
                     value={filled ? (v as number) : ""}
                     onChange={e => setDraft(d => ({ ...d, [field]: e.target.value === "" ? null : Number(e.target.value) }))}
                     style={{ ...inputStyle, borderColor: filled ? ratingColor(v as number) : "var(--border-row)" }}
-                    placeholder={isBonus ? "save %" : "0–100"}
+                    placeholder="0–100"
                   />
                   <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 4, minHeight: 14 }}>
-                    {!filled ? "—"
-                      : isBonus
-                        ? `${bonusValue! >= 0 ? "+" : ""}${bonusValue!.toFixed(1)} bonus`
-                        : `contributes ${((v as number) * w).toFixed(1)}`}
+                    {filled ? `contributes ${((v as number) * w).toFixed(1)}` : "—"}
                   </div>
                 </div>
               );
             })}
+
+            {/* Save efficiency is computed from saves vs goals conceded, so it's
+                shown for reference rather than asked for. */}
+            {isGk && current.formula.gk && (
+              <div>
+                <label style={{ ...labelStyle, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
+                  <span>Save efficiency</span>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700, whiteSpace: "nowrap" }}>auto</span>
+                </label>
+                <div style={{
+                  ...inputStyle,
+                  display: "flex", alignItems: "center",
+                  borderStyle: "dashed", color: "var(--text-muted)", cursor: "default",
+                }}>
+                  {current.formula.gk.savePercent == null
+                    ? "no shots faced"
+                    : `${Math.round(current.formula.gk.savePercent)}% saved`}
+                </div>
+                <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 4, minHeight: 14 }}>
+                  {autoBonus === 0 ? "no bonus" : `${autoBonus > 0 ? "+" : ""}${autoBonus.toFixed(1)} applied`}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Derived overall */}
@@ -759,10 +774,8 @@ export default function RatingCalibrationPage() {
                             {(draft[f] as number)}×{Math.round(weightOf(f, weights, isGk) * 100)}%
                           </span>
                         ))}
-                        {typeof draft.gk_efficiency === "number" && (() => {
-                          const b = saveEfficiencyBonus(draft.gk_efficiency);
-                          return ` ${b >= 0 ? "+" : "−"} ${Math.abs(b).toFixed(1)} (save eff.)`;
-                        })()}
+                        {isGk && autoBonus !== 0 &&
+                          ` ${autoBonus >= 0 ? "+" : "−"} ${Math.abs(autoBonus).toFixed(1)} (save eff., automatic)`}
                         {current.formula.resultBonus > 0 && ` + ${current.formula.resultBonus} (${current.result})`}
                       </>}
                 </div>
@@ -808,10 +821,8 @@ export default function RatingCalibrationPage() {
                   </thead>
                   <tbody>
                     {relevant.map(f => {
-                      const isBonus = f === "gk_efficiency";
-                      const formulaScore = isBonus
-                        ? current.formula.gk?.savePercent ?? null
-                        : (current.formula.gk?.scores as any)?.[f] ?? current.formula.scores[f] ?? 0;
+                      const formulaScore =
+                        (current.formula.gk?.scores as any)?.[f] ?? current.formula.scores[f] ?? 0;
                       const fv = formulaScore == null ? null : Math.round(formulaScore);
                       const mine = draft[f];
                       const diff = typeof mine === "number" && fv != null ? mine - fv : null;
@@ -820,7 +831,7 @@ export default function RatingCalibrationPage() {
                           <td style={{ padding: "3px 0", color: "var(--text-muted)" }}>
                             {FIELD_LABEL[f]}
                             <span style={{ color: "var(--text-faint)" }}>
-                              {" "}{isBonus ? "bonus" : `${Math.round(weightOf(f, weights, isGk) * 100)}%`}
+                              {" "}{Math.round(weightOf(f, weights, isGk) * 100)}%
                             </span>
                           </td>
                           <td style={{ textAlign: "right", color: "var(--text-sub)" }}>{fv ?? "—"}</td>
