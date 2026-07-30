@@ -158,6 +158,50 @@ function gkScore(s: MatchStatRow): number {
   );
 }
 
+// ── Goalkeeping, broken out ───────────────────────────────────────────────────
+// The GK weight (0.79 of the final) is really four things. Displaying — and
+// judging — one lump "goalkeeping" number hides which of them is wrong, so the
+// split is exported and used by both the rating breakdown UI and calibration.
+// Shares of the FINAL rating: GC 30%, saves 30%, catches 19%. Sums to 0.79.
+
+export const GK_PART_WEIGHTS = {
+  gk_gc: 0.30,
+  gk_saves: 0.30,
+  gk_catches: 0.19,
+} as const;
+
+export type GkPartKey = keyof typeof GK_PART_WEIGHTS;
+
+/**
+ * Save efficiency as a bonus, from a save percentage (0–100).
+ * Rewards saves > goals conceded (×50), penalises the reverse (×30), clamped ±12.
+ * Positive cap is reached around 79%, negative around 15%.
+ */
+export function saveEfficiencyBonus(savePercent: number): number {
+  const d = savePercent / 100 - 0.55;
+  return Math.min(12, Math.max(-12, d * (d >= 0 ? 50 : 30)));
+}
+
+/** The keeper components of a performance, each on a 0–100 scale. */
+export function calcGkParts(s: MatchStatRow): {
+  gk_gc: number;
+  gk_saves: number;
+  gk_catches: number;
+  savePercent: number | null;
+  efficiencyBonus: number;
+} {
+  const gc = s.goals_conceded ?? 0;
+  const totalFaced = s.gk_saves + gc;
+  const savePercent = totalFaced > 0 ? (s.gk_saves / totalFaced) * 100 : null;
+  return {
+    gk_gc: Math.max(0, (1 - gc / 9.2) * 100),
+    gk_saves: (s.gk_saves / 8.0) * 100,
+    gk_catches: Math.min(150, (s.gk_catches / 4.0) * 100),
+    savePercent,
+    efficiencyBonus: savePercent === null ? 0 : saveEfficiencyBonus(savePercent),
+  };
+}
+
 // ── Game-score normalizer (position-aware) ────────────────────────────────────
 // Calibrated from real data: FWD avg≈449, MID avg≈390, DEF avg≈340, GK avg≈500
 // Divisors chosen so position-average score maps to ~50.

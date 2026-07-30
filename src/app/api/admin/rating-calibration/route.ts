@@ -4,6 +4,8 @@ import {
   getPositionRole,
   isRatingEligibleScore,
   calcMatchBreakdown,
+  calcGkParts,
+  GK_PART_WEIGHTS,
   type MatchStatRow,
   type MatchResult,
 } from "@/lib/ratings";
@@ -75,7 +77,7 @@ export async function GET(req: NextRequest) {
   // Existing judgments, so the queue can skip what's already done.
   const { data: judged, error: jErr } = await supabaseAdmin
     .from("rating_judgments")
-    .select("match_id,player_id,role,position,attacking,defending,passing,consistency,gk,final,notes,skipped,skip_reason");
+    .select("match_id,player_id,role,position,attacking,defending,passing,consistency,gk,gk_gc,gk_saves,gk_catches,gk_efficiency,final,notes,skipped,skip_reason");
 
   if (jErr) {
     // By far the most common cause of an empty page: the migration hasn't been run.
@@ -220,6 +222,17 @@ export async function GET(req: NextRequest) {
         weights: breakdown.weights,
         resultBonus: breakdown.resultBonus,
         role: breakdown.role,
+        // Keepers judge the four components of goalkeeping rather than one lump
+        // number, so the split travels with the item.
+        gk: breakdown.role === "GK" ? (() => {
+          const p = calcGkParts(statRow);
+          return {
+            weights: GK_PART_WEIGHTS,
+            scores: { gk_gc: p.gk_gc, gk_saves: p.gk_saves, gk_catches: p.gk_catches },
+            savePercent: p.savePercent,
+            efficiencyBonus: p.efficiencyBonus,
+          };
+        })() : null,
       },
       judgment: judgedMap.get(`${s.match_id}:${s.player_id}`) ?? null,
     };
@@ -267,10 +280,10 @@ export async function POST(req: NextRequest) {
     return json(400, { error: "matchId and playerId are required" });
   }
 
-  const num = (v: any): number | null => {
+  const num = (v: any, max = 100): number | null => {
     if (v === "" || v == null) return null;
     const n = Number(v);
-    if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+    if (!Number.isFinite(n) || n < 0 || n > max) return null;
     return Math.round(n);
   };
 
@@ -288,6 +301,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin.from("rating_judgments").upsert({
       ...base,
       attacking: null, defending: null, passing: null, consistency: null, gk: null,
+      gk_gc: null, gk_saves: null, gk_catches: null, gk_efficiency: null,
       final: null,
       notes: null,
       skipped: true,
@@ -307,6 +321,10 @@ export async function POST(req: NextRequest) {
     passing: num(body.passing),
     consistency: num(body.consistency),
     gk: num(body.gk),
+    gk_gc: num(body.gk_gc, 150),
+    gk_saves: num(body.gk_saves, 150),
+    gk_catches: num(body.gk_catches, 150),
+    gk_efficiency: num(body.gk_efficiency),
     final,
     notes: body.notes || null,
     skipped: false,
