@@ -11,6 +11,66 @@ import {
   type MatchStatRow,
   type MatchResult,
 } from "@/lib/ratings";
+import { normaliseStage, isKnockoutStageName, knockoutStageRank } from "@/lib/stages";
+
+// A selectable period in the awards carousel. Group-stage fixtures are bucketed by
+// their matchday number; knockout fixtures usually have no `day` set (the fixture
+// screenshots they're imported from say "Quarter-Finals" instead of "Day 7"), so they
+// are bucketed by stage instead. Without this, knockout rounds were dropped entirely.
+type Period = {
+  key: string;
+  label: string;
+  date: string | null;      // latest played_at in the bucket
+  matchIds: string[];
+};
+
+type MatchMeta = { id: string; day: number | null; stage: string | null; played_at: string | null };
+
+function buildPeriods(rows: MatchMeta[]): Period[] {
+  const buckets = new Map<string, { label: string; sortStage: number | null; day: number | null; date: string | null; matchIds: string[] }>();
+
+  for (const m of rows) {
+    let key: string;
+    let label: string;
+    let sortStage: number | null = null;
+
+    if (m.day != null) {
+      key = `d:${m.day}`;
+      label = `Matchday ${m.day}`;
+    } else if (isKnockoutStageName(m.stage)) {
+      const stage = normaliseStage(m.stage || "");
+      key = `s:${stage}`;
+      label = stage;
+      sortStage = knockoutStageRank(stage);
+    } else {
+      // No matchday and no recognisable stage — nothing sensible to group it under.
+      continue;
+    }
+
+    let b = buckets.get(key);
+    if (!b) {
+      b = { label, sortStage, day: m.day, date: null, matchIds: [] };
+      buckets.set(key, b);
+    }
+    b.matchIds.push(m.id);
+    if (m.played_at && (!b.date || m.played_at > b.date)) b.date = m.played_at;
+  }
+
+  // Newest first (index 0 = most recent), matching the "Earlier"/"Later" controls.
+  // Primary key is the bucket's latest date; knockout rounds fall back to stage rank
+  // (final first) and matchdays to their number, so undated fixtures still order sanely.
+  return Array.from(buckets.values())
+    .sort((a, b) => {
+      if (a.date && b.date && a.date !== b.date) return a.date > b.date ? -1 : 1;
+      if (a.date && !b.date) return -1;
+      if (!a.date && b.date) return 1;
+      if (a.sortStage != null && b.sortStage != null) return a.sortStage - b.sortStage;
+      if (a.sortStage != null) return -1; // knockout after group in time
+      if (b.sortStage != null) return 1;
+      return (b.day ?? 0) - (a.day ?? 0);
+    })
+    .map(b => ({ key: b.label, label: b.label, date: b.date, matchIds: b.matchIds }));
+}
 
 type SlotKey = "GK" | "LB" | "RB" | "CM" | "LW" | "RW";
 
@@ -255,8 +315,7 @@ function FootballField({ totw }: { totw: Partial<Record<SlotKey, TOTWEntry>> }) 
 export default function AwardsPage() {
   const { t } = useLanguage();
   const [leagues, setLeagues] = useState<{ id: string; name: string; ended: boolean | null }[]>([]);
-  const [matchdays, setMatchdays] = useState<number[]>([]);
-  const [matchdayDates, setMatchdayDates] = useState<Record<number, string>>({});
+  const [matchMeta, setMatchMeta] = useState<MatchMeta[]>([]);
   const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -277,44 +336,32 @@ export default function AwardsPage() {
     });
   }, []);
 
-  // 2. Fetch matchdays when league changes
+  // 2. Fetch this league's match metadata when the league changes.
+  // Note: no `.not("day","is",null)` filter here — knockout fixtures have a null day
+  // and were previously excluded, which is why knockout rounds never appeared.
   useEffect(() => {
     if (!supabase || !selectedLeagueId) return;
-    setMatchdays([]);
-    setMatchdayDates({});
+    setMatchMeta([]);
     setSelectedDayIdx(0);
     setDayStats([]);
     supabase
       .from("matches")
-      .select("day,played_at")
+      .select("id,day,stage,played_at")
       .eq("league_id", selectedLeagueId)
-      .not("day", "is", null)
+      .limit(2000)
       .then(({ data }) => {
-        const seen = new Set<number>();
-        const dates: Record<number, string> = {};
-        for (const m of (data ?? []).sort((a: any, b: any) => b.day - a.day)) {
-          if (m.day != null && !seen.has(m.day)) {
-            seen.add(m.day);
-            if (m.played_at) dates[m.day] = m.played_at.slice(0, 10);
-          }
-        }
-        setMatchdays(Array.from(seen));
-        setMatchdayDates(dates);
+        setMatchMeta((data ?? []) as MatchMeta[]);
       });
   }, [selectedLeagueId]);
 
-  const selectedDay = matchdays[selectedDayIdx] ?? null;
+  const periods = useMemo(() => buildPeriods(matchMeta), [matchMeta]);
+  const selectedPeriod = periods[selectedDayIdx] ?? null;
 
-  // 3. Fetch stats for the selected league+day on demand (avoids global row-limit truncation)
+  // 3. Fetch stats for the selected period on demand (avoids global row-limit truncation)
   useEffect(() => {
-    if (!supabase || !selectedLeagueId || selectedDay == null) { setDayStats([]); return; }
+    if (!supabase || !selectedPeriod) { setDayStats([]); return; }
     (async () => {
-      const { data: matchRows } = await supabase
-        .from("matches")
-        .select("id")
-        .eq("league_id", selectedLeagueId)
-        .eq("day", selectedDay);
-      const matchIds = (matchRows ?? []).map((m: any) => m.id);
+      const matchIds = selectedPeriod.matchIds;
       if (!matchIds.length) { setDayStats([]); return; }
       const { data: statsData } = await supabase
         .from("match_player_stats")
@@ -329,9 +376,9 @@ export default function AwardsPage() {
       })) as RawStat[];
       setDayStats(normalized);
     })();
-  }, [selectedLeagueId, selectedDay]);
+  }, [selectedPeriod]);
 
-  const selectedDayDate = selectedDay != null ? (matchdayDates[selectedDay] ?? null) : null;
+  const selectedDayDate = selectedPeriod?.date ? selectedPeriod.date.slice(0, 10) : null;
 
   const totw = useMemo(() => calcTOTW(dayStats), [dayStats]);
 
@@ -349,7 +396,7 @@ export default function AwardsPage() {
     new Date(d).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
 
   const filledSlots = SLOT_ORDER.filter(s => totw[s]).length;
-  const totalMatchdays = matchdays.length;
+  const totalMatchdays = periods.length;
 
   return (
     <main style={{ minHeight: "calc(100vh - 56px)", background: "var(--bg-base)" }}>
@@ -398,7 +445,7 @@ export default function AwardsPage() {
           </div>
         )}
 
-        {matchdays.length === 0 ? (
+        {periods.length === 0 ? (
           <div style={{ background: "var(--bg-card)", padding: "48px 24px", textAlign: "center", color: "var(--text-faint)", fontSize: 14 }}>
             {t("awards.noData")}
           </div>
@@ -424,7 +471,7 @@ export default function AwardsPage() {
                   {t("awards.subtitle")}
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 900, color: "var(--text-body)", marginTop: 4, letterSpacing: "-0.01em" }}>
-                  Matchday {selectedDay ?? "—"}
+                  {selectedPeriod?.label ?? "—"}
                 </div>
                 {selectedDayDate && (
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
