@@ -172,9 +172,12 @@ function calculateGroupStandings(
     }
   }
 
-  // Apply matches: use match's group_name if set, otherwise derive from team assignments
+  // Apply matches: use match's group_name if set, otherwise derive from team assignments.
+  // Never derive a group from team assignments when the stage explicitly names a knockout
+  // round — two teams from the same group can be drawn against each other in the knockout.
   for (const m of matches) {
     if (m.home_score === null && m.away_score === null) continue;
+    if (isKnockoutStageName(m.stage)) continue;
     const g = m.group_name || (
       teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team]
         ? teamGroupMap[m.home_team]
@@ -217,27 +220,53 @@ const KNOCKOUT_STAGE_RANKS: [string, number][] = [
   ["knockout",    6],
   ["final",       0], // must be last — substring of "semi-final" etc.
 ];
-function knockoutStageRank(stage: string) {
+
+// Normalise a stage name so minor variants ("Quarter-Final" / "Quarter-Finals" /
+// "Quarterfinal" / bare "quarter") all collapse to the same canonical key used for
+// bucketing. Matching is done on a punctuation-stripped form so "semi-finals",
+// "semi finals", "Semi Final" and "semi" all land in one bucket.
+function normaliseStage(stage: string): string {
   const s = stage.toLowerCase().trim();
+  const flat = s.replace(/[^a-z0-9]+/g, " ").trim(); // "semi-finals" -> "semi finals"
+  const compact = flat.replace(/\s+/g, "");          // "semi-finals" -> "semifinals"
+  if (flat.includes("third") || compact.includes("3rdplace")) return "Third Place";
+  if (compact.startsWith("semi")) return "Semi-Finals";
+  if (compact.startsWith("quarter") || /^qf\b/.test(flat)) return "Quarter-Finals";
+  const ro = flat.match(/\b(?:round of|last|ro)\s*(\d+)\b/);
+  if (ro) return `Round of ${ro[1]}`;
+  if (compact.includes("semifinal")) return "Semi-Finals";
+  if (compact.includes("quarterfinal")) return "Quarter-Finals";
+  if (compact.includes("final")) return "Final";
+  if (compact.includes("knockout") || compact.includes("playoff")) return "Knockout";
+  // Unknown stage — return original (trimmed)
+  return stage.trim();
+}
+
+// Canonical stage names that normaliseStage can produce for real knockout rounds.
+const CANONICAL_KNOCKOUT_STAGES = new Set([
+  "Third Place", "Semi-Finals", "Quarter-Finals", "Final", "Knockout",
+]);
+
+// True when a stage value explicitly names a knockout round. Used to stop the
+// "both teams share a group" heuristic from mis-classifying a knockout tie between
+// two teams that came out of the same group as a group-stage match.
+function isKnockoutStageName(stage: string | null | undefined): boolean {
+  const raw = (stage || "").trim();
+  if (!raw) return false;
+  if (/^group\b/i.test(raw)) return false;
+  const n = normaliseStage(raw);
+  return CANONICAL_KNOCKOUT_STAGES.has(n) || /^Round of \d+$/.test(n);
+}
+
+function knockoutStageRank(stage: string) {
+  const s = normaliseStage(stage).toLowerCase().trim();
+  const ro = s.match(/^round of (\d+)$/);
+  // Round of N: bigger N = earlier round = higher rank. RO16 -> 4, RO32 -> 5, RO64 -> 6...
+  if (ro) return 4 + Math.round(Math.log2(Number(ro[1]) / 16));
   for (const [key, rank] of KNOCKOUT_STAGE_RANKS) {
     if (s.includes(key)) return rank;
   }
   return 999;
-}
-
-// Normalise a stage name so minor variants ("Quarter-Final" / "Quarter-Finals" / "Quarterfinal")
-// all collapse to the same canonical key used for bucketing.
-function normaliseStage(stage: string): string {
-  const s = stage.toLowerCase().trim();
-  if (s.includes("third")) return "Third Place";
-  if (s.includes("semifinal") || s.includes("semi-final") || s.includes("semi final")) return "Semi-Finals";
-  if (s.includes("quarterfinal") || s.includes("quarter-final") || s.includes("quarter final")) return "Quarter-Finals";
-  if (s.includes("round of 16")) return "Round of 16";
-  if (s.includes("round of 32")) return "Round of 32";
-  if (s.includes("final")) return "Final";
-  if (s.includes("knockout")) return "Knockout";
-  // Unknown stage — return title-cased original
-  return stage.trim();
 }
 
 // ── Two-leg tie merging ──────────────────────────────────────────────────────
@@ -450,11 +479,18 @@ export default async function LeagueDetailPage({
     if (t.group_name) teamGroupMap[t.name] = t.group_name;
   }
   // A match counts as group-stage if it has a group_name, its stage says "group",
-  // or both teams are assigned to the same group via team_leagues
-  const isGroupMatch = (m: any) =>
-    !!m.group_name ||
-    (m.stage && m.stage.toLowerCase().trim() === "group") ||
-    (teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team]);
+  // or both teams are assigned to the same group via team_leagues.
+  // IMPORTANT: an explicit knockout stage name always wins — same-group teams are
+  // frequently drawn against each other in the knockout rounds, and treating those
+  // ties as group matches silently drops them from the bracket.
+  const isGroupMatch = (m: any) => {
+    if (isKnockoutStageName(m.stage)) return false;
+    return (
+      !!m.group_name ||
+      (m.stage && m.stage.toLowerCase().trim().startsWith("group")) ||
+      (teamGroupMap[m.home_team] && teamGroupMap[m.home_team] === teamGroupMap[m.away_team])
+    );
+  };
 
   const groupMatches = matches.filter(isGroupMatch);
   const groupStandings = isGroupKnockout ? calculateGroupStandings(matches, teamGroupMap) : {};
