@@ -250,7 +250,11 @@ async function getBestLineup(teamName: string): Promise<LineupSlot[]> {
   return LINEUP_DISPLAY_ORDER.map(slot => ({ slot, player: filled[slot] ?? null }));
 }
 
-export const revalidate = 60;
+// Egress control: this route scans large tables (matches / match_player_stats).
+// At revalidate=60 a single steady visitor triggered up to 1,440 full-table
+// regenerations per day. Data changes roughly daily, so 6h is plenty; the admin
+// mutation routes call revalidateContent() for immediate freshness after imports.
+export const revalidate = 21600;
 
 const TEAM_STAT_ROWS: [string, string, boolean][] = [
   ["matchdetail.stat.possession", "possession", true],

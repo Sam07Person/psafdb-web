@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateContent } from "@/lib/revalidate";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 function json(status: number, body: unknown) {
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function PUT(req: NextRequest) {
+async function putHandler(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
   if (!supabaseAdmin) return json(500, { error: "Server missing SUPABASE_SERVICE_ROLE_KEY" });
@@ -148,4 +149,15 @@ export async function PUT(req: NextRequest) {
   }
 
   return json(200, { ok: true, updated: results });
+}
+
+// ── Cache eviction wrappers ──────────────────────────────────────────────────
+// The cached aggregate pages (/stats, /teams, /elo, detail routes) use a 6h
+// revalidate window to keep Supabase egress down. Evict them after every
+// successful write so the long window never shows stale data.
+
+export async function PUT(req: NextRequest) {
+  const res = await putHandler(req);
+  if (res.ok) revalidateContent();
+  return res;
 }

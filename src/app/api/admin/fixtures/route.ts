@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateContent } from "@/lib/revalidate";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireImportAuth } from "@/lib/importAuth";
 
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
 }
 
 // POST - Create new fixture
-export async function POST(req: NextRequest) {
+async function postHandler(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
 
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
 }
 
 // PUT - Update fixture
-export async function PUT(req: NextRequest) {
+async function putHandler(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
 
@@ -212,7 +213,7 @@ export async function PUT(req: NextRequest) {
 }
 
 // PATCH - Set forfeit on a fixture
-export async function PATCH(req: NextRequest) {
+async function patchHandler(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
 
@@ -242,7 +243,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 // DELETE - Delete fixture
-export async function DELETE(req: NextRequest) {
+async function deleteHandler(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return json(401, { error: auth.error });
 
@@ -266,4 +267,33 @@ export async function DELETE(req: NextRequest) {
   if (error) return json(500, { error: error.message });
 
   return json(200, { ok: true });
+}
+
+// ── Cache eviction wrappers ──────────────────────────────────────────────────
+// The cached aggregate pages (/stats, /teams, /elo, detail routes) use a 6h
+// revalidate window to keep Supabase egress down. Evict them after every
+// successful write so the long window never shows stale data.
+
+export async function POST(req: NextRequest) {
+  const res = await postHandler(req);
+  if (res.ok) revalidateContent();
+  return res;
+}
+
+export async function PUT(req: NextRequest) {
+  const res = await putHandler(req);
+  if (res.ok) revalidateContent();
+  return res;
+}
+
+export async function PATCH(req: NextRequest) {
+  const res = await patchHandler(req);
+  if (res.ok) revalidateContent();
+  return res;
+}
+
+export async function DELETE(req: NextRequest) {
+  const res = await deleteHandler(req);
+  if (res.ok) revalidateContent();
+  return res;
 }

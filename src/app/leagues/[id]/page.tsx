@@ -386,7 +386,11 @@ async function getLeagueStats(playedMatchIds: string[], playedMatches: any[], te
   };
 }
 
-export const revalidate = 60;
+// Egress control: these routes scan large tables (matches / match_player_stats).
+// At revalidate=60 a single steady visitor triggered up to 1,440 full-table
+// regenerations per day. Data changes roughly daily, so 6h is plenty; the admin
+// mutation routes call revalidateContent() for immediate freshness after imports.
+export const revalidate = 21600;
 
 export default async function LeagueDetailPage({
   params,

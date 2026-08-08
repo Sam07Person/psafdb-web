@@ -53,7 +53,9 @@ type StatRow = {
   gk_catches: number;
   benched: boolean;
   stats_incomplete: boolean;
-  players: { id: string; handle: string | null; name: string | null } | null;
+  // `id` is not selected — pName() only reads name/handle, and the column was
+  // pure egress cost across every stat row.
+  players: { handle: string | null; name: string | null } | null;
 };
 
 type TeamRow = { id: string; name: string; no_elo: boolean | null };
@@ -1044,22 +1046,20 @@ export default function NewsPage() {
 
     (async () => {
       try {
-        const STATS_SELECT = "match_id,player_id,team_side,position,goals,assists,score,passes,key_passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,rating,rating_version,players(id,handle,name)";
-        const PAGE = 1000;
-
-        // Paginate stats since Supabase hard-caps at 1000 rows per request
-        const allStats: StatRow[] = [];
-        let from = 0;
-        while (true) {
-          const { data: page } = await supabase!
-            .from("match_player_stats")
-            .select(STATS_SELECT)
-            .range(from, from + PAGE - 1);
-          if (!page || page.length === 0) break;
-          allStats.push(...(page as unknown as StatRow[]));
-          if (page.length < PAGE) break;
-          from += PAGE;
-        }
+        // ── Egress control ───────────────────────────────────────────────────
+        // This page used to pull the *entire* match_player_stats table on every
+        // visit (~1.3 MB raw). Because it is a client component there is no
+        // shared cache, so every visitor paid that in full.
+        //
+        // League-level stories (champions, relegation, standings gaps, ELO
+        // overtakes) derive only from `matches`, which is small and still
+        // fetched in full — so the historical feed is unaffected. Only the
+        // per-match stories (hattricks, standout performances, TOTW) read
+        // stats, and those are now scoped to a recent window.
+        //
+        // Raise STATS_WINDOW_DAYS if you want older individual stories back;
+        // cost scales roughly linearly with it.
+        const STATS_WINDOW_DAYS = 90;
 
         const [
           { data: leagues },
@@ -1074,6 +1074,29 @@ export default function NewsPage() {
         ]);
 
         const allMatches = (matches ?? []) as Match[];
+
+        const cutoff = new Date(Date.now() - STATS_WINDOW_DAYS * 86_400_000).toISOString();
+        const recentMatchIds = allMatches
+          .filter(m => m.played_at && m.played_at >= cutoff)
+          .map(m => m.id);
+
+        // `rating` / `rating_version` are deliberately not selected: computeTOTW
+        // recalculates ratings locally via calcMatchBreakdown, so the stored
+        // columns were fetched and thrown away on every row.
+        const STATS_SELECT = "match_id,player_id,team_side,position,goals,assists,score,passes,key_passes,shots_on_target,tackles,key_tackles,interceptions,key_interceptions,possessions_lost,gk_saves,gk_catches,benched,stats_incomplete,players(handle,name)";
+
+        // Chunked so the `in.()` filter stays well inside proxy URL limits, and
+        // so no single request can approach PostgREST's 1000-row cap
+        // (a match yields at most ~22 stat rows, so 40 ids ≈ 880 rows).
+        const ID_CHUNK = 40;
+        const allStats: StatRow[] = [];
+        for (let i = 0; i < recentMatchIds.length; i += ID_CHUNK) {
+          const { data: page } = await supabase!
+            .from("match_player_stats")
+            .select(STATS_SELECT)
+            .in("match_id", recentMatchIds.slice(i, i + ID_CHUNK));
+          if (page) allStats.push(...(page as unknown as StatRow[]));
+        }
 
         const items = generateNews(
           (leagues ?? []) as League[],

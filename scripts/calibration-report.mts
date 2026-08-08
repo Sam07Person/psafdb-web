@@ -366,6 +366,52 @@ async function main() {
     console.log("");
   }
 
+  // ── Input coverage ──
+  // A fitted constant is only trustworthy over the range of raw inputs you've
+  // actually judged. Nine keepers whose save counts all sit between 1 and 6 can't
+  // tell you what an 11-save game should be worth — the fit is extrapolating.
+  const DRIVERS: Record<string, string[]> = {
+    GK:  ["gk_saves", "gk_catches", "goals_conceded"],
+    DEF: ["tackles", "interceptions", "passes"],
+    MID: ["passes", "key_passes", "tackles"],
+    FWD: ["goals", "shots_on_target", "assists"],
+  };
+
+  console.log(`── INPUT COVERAGE  (range of raw stats you've judged) ${"─".repeat(24)}`);
+  console.log(pad("role", 6) + pad("stat", 17) + pad("min", 6, true) + pad("med", 6, true) +
+              pad("max", 6, true) + "   distribution");
+  for (const role of roleOrder) {
+    const roleRows = byRole.get(role)!;
+    for (const driver of DRIVERS[role] ?? []) {
+      const vals = roleRows.map(r => {
+        const s = stats.get(r.key);
+        if (!s) return null;
+        if (driver === "goals_conceded") {
+          const m = Array.isArray(s.matches) ? s.matches[0] : s.matches;
+          return s.team_side === "home" ? m?.away_score : m?.home_score;
+        }
+        return s[driver];
+      }).filter((v: any): v is number => typeof v === "number").sort((a, b) => a - b);
+      if (!vals.length) continue;
+      const med = vals[Math.floor(vals.length / 2)];
+      const counts = new Map<number, number>();
+      for (const v of vals) counts.set(v, (counts.get(v) ?? 0) + 1);
+      const spread = Array.from(counts.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([v, c]) => `${v}${c > 1 ? `x${c}` : ""}`)
+        .join(" ");
+      console.log(
+        pad(role, 6) + pad(driver, 17) + pad(String(vals[0]), 6, true) +
+        pad(String(med), 6, true) + pad(String(vals[vals.length - 1]), 6, true) +
+        "   " + spread.slice(0, 46)
+      );
+    }
+  }
+  console.log("");
+  console.log("Any constant fitted here is only valid across the range shown. Judging more");
+  console.log("performances at the EXTREMES moves the fit more than another average one does.");
+  console.log("");
+
   // ── Sample-size warning ──
   const thin = roleOrder.filter(r => byRole.get(r)!.length < 25);
   if (thin.length) {
